@@ -22,7 +22,7 @@ imgShapeFile = "/home/sebalander/code/sebaPhD/resources/fishWideShape.npy"
 
 imgpoints = np.load(cornersFile)
 chessboardModel = np.load(patternFile)
-imgShape = tuple(np.load(imgShapeFile))
+imgSize = tuple(np.load(imgShapeFile))
 images = glob.glob(imagesFolder+'*.png')
 
 
@@ -34,37 +34,23 @@ tvecs = [np.zeros((1, 1, 3), dtype=np.float64) for i in range(n)]
 K = np.zeros((3, 3))
 D = np.zeros((1, 4))
 objpoints = [chessboardModel]*n
-#calibrationFlags=cv2.fisheye.CALIB_RECOMPUTE_EXTRINSIC+cv2.fisheye.CALIB_CHECK_COND+cv2.fisheye.CALIB_FIX_SKEW
+
 calibrationFlags = 0 # se obtiene el mismo resultado que con el de arriba
+
 calibrationCriteria = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, # termination criteria type
             1000, # max number of iterations
             0.0001) # min accuracy
 
 # %% OPTIMIZAR 
-rms, _, _, _, _ = fe.calibrate(objpoints, 
+rms, K, D, rvecs, tvecs = fe.calibrate(objpoints, 
                                imgpoints, 
-                               imgShape, 
+                               imgSize, 
                                K,
                                D, 
                                rvecs, 
                                tvecs, 
                                calibrationFlags, 
                                calibrationCriteria)
-
-# %% RE COMPUTE EXTRINSIC
-calibrationFlags = cv2.fisheye.CALIB_RECOMPUTE_EXTRINSIC \
-                   + cv2.fisheye.CALIB_USE_INTRINSIC_GUESS
-
-rms, _, _, _, _ = fe.calibrate(objpoints, 
-                               imgpoints, 
-                               imgShape, 
-                               K,
-                               D, 
-                               rvecs, 
-                               tvecs, 
-                               calibrationFlags, 
-                               calibrationCriteria)
-                               
                                
 # %% TEST MAPPING (DISTORTION MODEL)
 
@@ -79,10 +65,10 @@ for j in range(2):  # range(len(imgpoints)):
     
     imagePointsProjected = []    
     imagePointsProjected = fe.projectPoints(chessboardModel,
-                            	      	   rvec,
-                                		   tvec,
-                                		   K,
-                                		   D)
+                            	      	 rvec,
+                                		 tvec,
+                                		 K,
+                                		 D)
     
     xPos = np.array(imagePointsProjected[0][0,:,0])
     yPos = np.array(imagePointsProjected[0][0,:,1])
@@ -90,6 +76,6 @@ for j in range(2):  # range(len(imgpoints)):
     fig, ax = plt.subplots(1)
     im = plt.imread(images[j])
     ax.imshow(im)
-    ax.scatter(xPos, yPos)
-    ax.scatter(imagePntsX, imagePntsY)
+    ax.plot(imagePntsX, imagePntsY, 'xr', markersize=10)
+    ax.plot(xPos, yPos, '+b', markersize=10)
     #fig.savefig("distortedPoints3.png")
