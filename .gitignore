@@ -90,3 +90,5 @@ ENV/
 
 # specific for the project - sebalander
 *.png
+*.jpeg
+*.jpg
