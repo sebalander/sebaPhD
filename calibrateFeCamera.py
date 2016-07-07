@@ -10,15 +10,15 @@ calibrates using fisheye distortion model (polynomial in theta)
 # %%
 import cv2
 import numpy as np
-import matplotlib.pyplot as plt
+#import matplotlib.pyplot as plt
 import cv2.fisheye as fe
 import glob
 
 # %% LOAD DATA
-imagesFolder = "/home/sebalander/code/sebaPhD/resources/fishWideChessboardImg/"
-cornersFile = "/home/sebalander/code/sebaPhD/resources/fishWideCorners.npy"
-patternFile = "/home/sebalander/code/sebaPhD/resources/fishWidePattern.npy"
-imgShapeFile = "/home/sebalander/code/sebaPhD/resources/fishWideShape.npy"
+imagesFolder = ".resources/fishWideChessboardImg/"
+cornersFile = "./resources/fishWideCorners.npy"
+patternFile = "./resources/fishWidePattern.npy"
+imgShapeFile = "./resources/fishWideShape.npy"
 
 imgpoints = np.load(cornersFile)
 chessboardModel = np.load(patternFile)
@@ -41,35 +41,35 @@ calibrationCriteria = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, # ter
             1000, # max number of iterations
             0.0001) # min accuracy
 
-# %% OPTIMIZAR 
-rms, K, D, rvecs, tvecs = fe.calibrate(objpoints, 
-                               imgpoints, 
-                               imgSize, 
+# %% OPTIMIZAR
+rms, K, D, rvecs, tvecs = fe.calibrate(objpoints,
+                               imgpoints,
+                               imgSize,
                                K,
-                               D, 
-                               rvecs, 
-                               tvecs, 
-                               calibrationFlags, 
+                               D,
+                               rvecs,
+                               tvecs,
+                               calibrationFlags,
                                calibrationCriteria)
-                               
+
 # %% TEST MAPPING (DISTORTION MODEL)
 
 # pruebo con la imagen j-esima
 for j in range(2):  # range(len(imgpoints)):
-    
+
     imagePntsX = imgpoints[j,0,:,0]
     imagePntsY = imgpoints[j,0,:,1]
-    
+
     rvec = rvecs[j][0,0]
     tvec = tvecs[j][0,0]
-    
-    imagePointsProjected = []    
+
+    imagePointsProjected = []
     imagePointsProjected = fe.projectPoints(chessboardModel,
                             	      	 rvec,
                                 		 tvec,
                                 		 K,
                                 		 D)
-    
+
     xPos = np.array(imagePointsProjected[0][0,:,0])
     yPos = np.array(imagePointsProjected[0][0,:,1])
 
@@ -79,3 +79,9 @@ for j in range(2):  # range(len(imgpoints)):
     ax.plot(imagePntsX, imagePntsY, 'xr', markersize=10)
     ax.plot(xPos, yPos, '+b', markersize=10)
     #fig.savefig("distortedPoints3.png")
+
+
+# %% to try and solve the inverse problem
+coeffs = [D[3,0], 0, D[2,0], 0, D[1,0], 0, D[0,0], 0, 1, -100]
+theta = np.roots(coeffs)
+theta = np.real(theta[~ np.iscomplex(theta)])  # extraigo el que no es complejo
