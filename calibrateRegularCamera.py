@@ -14,14 +14,15 @@ http://docs.opencv.org/ref/master/d9/d0c/group__calib3d.html#ga3207604e4b1a1758a
 import cv2
 import numpy as np
 import matplotlib.pyplot as plt
-import cv2.fisheye as fe
 import glob
 
 # %% LOAD DATA
-imagesFolder = "/home/sebalander/code/sebaPhD/resources/fishWideChessboardImg/"
-cornersFile = "/home/sebalander/code/sebaPhD/resources/fishWideCorners.npy"
-patternFile = "/home/sebalander/code/sebaPhD/resources/fishWidePattern.npy"
-imgShapeFile = "/home/sebalander/code/sebaPhD/resources/fishWideShape.npy"
+imagesFolder = "./resources/fishWideChessboardImg/"
+cornersFile = "./resources/fishWideCorners.npy"
+patternFile = "./resources/fishWidePattern.npy"
+imgShapeFile = "./resources/fishWideShape.npy"
+distCoeffsFile = "./resources/fishWideFEDistCoeffs.npy"
+linearCoeffsFile = "./resources/fishWideFELinearCoeffs.npy"
 
 imgpoints = np.load(cornersFile)
 chessboardModel = np.load(patternFile)
@@ -58,6 +59,11 @@ rms, cameraMatrix, distCoeffs, rvecs, tvecs = cv2.calibrateCamera(objpoints,
                                                                   rvecs,
                                                                   tvecs,
                                                                   flags)
+
+# %% SAVE INTRINSIC PARAMETERS
+np.save(distCoeffsFile, distCoeffs)
+np.save(linearCoeffsFile, cameraMatrix)
+
 
 # %% TEST MAPPING (DISTORTION MODEL)
 

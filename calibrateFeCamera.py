@@ -10,36 +10,38 @@ calibrates using fisheye distortion model (polynomial in theta)
 # %%
 import cv2
 import numpy as np
-#import matplotlib.pyplot as plt
+import matplotlib.pyplot as plt
 import cv2.fisheye as fe
 import glob
 
 # %% LOAD DATA
-imagesFolder = ".resources/fishWideChessboardImg/"
+imagesFolder = "./resources/fishWideChessboardImg/"
 cornersFile = "./resources/fishWideCorners.npy"
 patternFile = "./resources/fishWidePattern.npy"
 imgShapeFile = "./resources/fishWideShape.npy"
+distCoeffsFile = "./resources/fishWideDistCoeffs.npy"
+linearCoeffsFile = "./resources/fishWideLinearCoeffs.npy"
 
 imgpoints = np.load(cornersFile)
 chessboardModel = np.load(patternFile)
 imgSize = tuple(np.load(imgShapeFile))
 images = glob.glob(imagesFolder+'*.png')
 
-
 # %%
-n = len(imgpoints)
+n = len(imgpoints)  # cantidad de imagenes
 # Parametros de entrada/salida de la calibracion
+objpoints = [chessboardModel]*n
+
 rvecs = [np.zeros((1, 1, 3), dtype=np.float64) for i in range(n)]
 tvecs = [np.zeros((1, 1, 3), dtype=np.float64) for i in range(n)]
 K = np.zeros((3, 3))
 D = np.zeros((1, 4))
-objpoints = [chessboardModel]*n
 
-calibrationFlags = 0 # se obtiene el mismo resultado que con el de arriba
 
+calibrationFlags = fe.CALIB_RECOMPUTE_EXTRINSIC
 calibrationCriteria = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, # termination criteria type
-            1000, # max number of iterations
-            0.0001) # min accuracy
+                        1000, # max number of iterations
+                        0.001) # min accuracy
 
 # %% OPTIMIZAR
 rms, K, D, rvecs, tvecs = fe.calibrate(objpoints,
@@ -52,8 +54,24 @@ rms, K, D, rvecs, tvecs = fe.calibrate(objpoints,
                                calibrationFlags,
                                calibrationCriteria)
 
-# %% TEST MAPPING (DISTORTION MODEL)
+# %% AGAIN
+calibrationFlags = 0
+rms, K, D, rvecs, tvecs = fe.calibrate(objpoints,
+                               imgpoints,
+                               imgSize,
+                               K,
+                               D,
+                               rvecs,
+                               tvecs,
+                               calibrationFlags,
+                               calibrationCriteria)
 
+
+# %% SAVE CALIBRATION
+np.save(distCoeffsFile, D)
+np.save(linearCoeffsFile, K)
+
+# %% TEST MAPPING (DISTORTION MODEL)
 # pruebo con la imagen j-esima
 for j in range(2):  # range(len(imgpoints)):
 
@@ -80,8 +98,7 @@ for j in range(2):  # range(len(imgpoints)):
     ax.plot(xPos, yPos, '+b', markersize=10)
     #fig.savefig("distortedPoints3.png")
 
-
 # %% to try and solve the inverse problem
 coeffs = [D[3,0], 0, D[2,0], 0, D[1,0], 0, D[0,0], 0, 1, -100]
 theta = np.roots(coeffs)
-theta = np.real(theta[~ np.iscomplex(theta)])  # extraigo el que no es complejo
+theta = np.real(theta[np.isreal(theta)])  # extraigo el que no es complejo
