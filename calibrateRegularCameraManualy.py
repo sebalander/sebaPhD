@@ -61,12 +61,13 @@ def proyectRationalManualy(scene3Dpoints,
     x_d = x*ratFraction + p[0]*xy + p[1]*(r2 + 2*x2) + s[0]*r2 + s[1]*r4
     y_d = y*ratFraction + p[0]*(r2 + 2*y2) + p[1]*xy + s[2]*r2 + s[3]*r4
     # proyect to image
+    u = x_d * cameraMatrix[0,0] + y_d * cameraMatrix[0,1] + cameraMatrix[0,2]
+    v = y_d * cameraMatrix[1,1] + cameraMatrix[1,2]
     ## terminar de ver en
     # http://docs.opencv.org/ref/master/d9/d0c/group__calib3d.html#ga3207604e4b1a1758aa66acb6ed5aa65d&gsc.tab=0
+    # quiza imitar el formalismo de matrices?
     # return
-    
-    
-
+    return u,v
 
 
 # %% LOAD DATA
