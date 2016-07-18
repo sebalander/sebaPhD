@@ -13,7 +13,6 @@ http://docs.opencv.org/ref/master/d9/d0c/group__calib3d.html#ga3207604e4b1a1758a
 # %%
 import cv2
 import numpy as np
-import matplotlib.pyplot as plt
 import glob
 
 # %% LOAD DATA
@@ -21,8 +20,10 @@ imagesFolder = "./resources/fishWideChessboardImg/"
 cornersFile = "./resources/fishWideCorners.npy"
 patternFile = "./resources/fishWidePattern.npy"
 imgShapeFile = "./resources/fishWideShape.npy"
-distCoeffsFile = "./resources/fishWideFEDistCoeffs.npy"
-linearCoeffsFile = "./resources/fishWideFELinearCoeffs.npy"
+distCoeffsFile = "./resources/fishWideDistCoeffs.npy"
+linearCoeffsFile = "./resources/fishWideLinearCoeffs.npy"
+rvecsFile = "./resources/fishWideRvecs.npy"
+tvecsFile = "./resources/fishWideTvecs.npy"
 
 imgpoints = np.load(cornersFile)
 chessboardModel = np.load(patternFile)
@@ -60,36 +61,8 @@ rms, cameraMatrix, distCoeffs, rvecs, tvecs = cv2.calibrateCamera(objpoints,
                                                                   tvecs,
                                                                   flags)
 
-# %% SAVE INTRINSIC PARAMETERS
+# %% SAVE PARAMETERS, INTRINSIC AND EXTRINSIC
 np.save(distCoeffsFile, distCoeffs)
 np.save(linearCoeffsFile, cameraMatrix)
-
-
-# %% TEST MAPPING (DISTORTION MODEL)
-
-# pruebo con la imagen j-esima
-imagePointsProjected = chessboardModel[0,:,0:2]
-for j in range(n):  # range(len(imgpoints)):
-    
-    imagePntsX = imgpoints[j,0,:,0]
-    imagePntsY = imgpoints[j,0,:,1]
-    
-    rvec = rvecs[j][:,0]
-    tvec = tvecs[j][:,0]
-    
-    imagePointsProjected, _ = cv2.projectPoints(chessboardModel,
-                              rvec,
-                              tvec,
-                              cameraMatrix,
-                              distCoeffs,
-                              imagePointsProjected)
-    
-    xPos = np.array(imagePointsProjected[:,0,0])
-    yPos = np.array(imagePointsProjected[:,0,1])
-    
-    fig, ax = plt.subplots(1)
-    im = plt.imread(images[j])
-    ax.imshow(im)
-    ax.plot(imagePntsX, imagePntsY, 'xr', markersize=10)
-    ax.plot(xPos, yPos, '+b', markersize=10)
-    #fig.savefig("distortedPoints3.png")
+np.save(rvecsFile, rvecs)
+np.save(tvecsFile, tvecs)
