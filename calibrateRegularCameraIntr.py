@@ -16,20 +16,22 @@ import numpy as np
 import glob
 
 # %% LOAD DATA
-imagesFolder = "./resources/fishWideChessboardImg/"
-cornersFile = "./resources/fishWideCorners.npy"
-patternFile = "./resources/fishWidePattern.npy"
-imgShapeFile = "./resources/fishWideShape.npy"
-distCoeffsFile = "./resources/fishWideDistCoeffs.npy"
-linearCoeffsFile = "./resources/fishWideLinearCoeffs.npy"
-rvecsFile = "./resources/fishWideRvecs.npy"
-tvecsFile = "./resources/fishWideTvecs.npy"
+imagesFolder = "./resources/fishChessboardImg/"
+cornersFile = "/home/sebalander/code/sebaPhD/resources/fishCorners.npy"
+patternFile = "/home/sebalander/code/sebaPhD/resources/fishWidePattern.npy"
+imgShapeFile = "/home/sebalander/code/sebaPhD/resources/fishShape.npy"
+
 
 imgpoints = np.load(cornersFile)
 chessboardModel = np.load(patternFile)
 imgSize = tuple(np.load(imgShapeFile))
 images = glob.glob(imagesFolder+'*.png')
 
+# output files
+distCoeffsFile = "./resources/fishDistCoeffs.npy"
+linearCoeffsFile = "./resources/fishLinearCoeffs.npy"
+rvecsFile = "./resources/fishRvecs.npy"
+tvecsFile = "./resources/fishTvecs.npy"
 
 # %%
 n = len(imgpoints)  # cantidad de imagenes

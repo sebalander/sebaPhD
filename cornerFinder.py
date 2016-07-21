@@ -13,10 +13,10 @@ import glob
 import numpy as np
 
 # %%
-imagesFolder = "/home/sebalander/code/sebaPhD/resources/fishWideChessboardImg/"
-cornersFile = "/home/sebalander/code/sebaPhD/resources/fishWideCorners.npy"
+imagesFolder = "/home/sebalander/code/sebaPhD/resources/fishChessboardImg/"
+cornersFile = "/home/sebalander/code/sebaPhD/resources/fishCorners.npy"
 patternFile = "/home/sebalander/code/sebaPhD/resources/fishWidePattern.npy"
-imgShapeFile = "/home/sebalander/code/sebaPhD/resources/fishWideShape.npy"
+imgShapeFile = "/home/sebalander/code/sebaPhD/resources/fishShape.npy"
 images = glob.glob(imagesFolder+'*.png')
 
 # %%
@@ -43,19 +43,20 @@ chessboardModel = np.zeros((1,pattH*pattW,3), np.float32)
 chessboardModel[0, :, :2] = np.mgrid[0:pattW, 0:pattH].T.reshape(-1, 2) #rellena las columnas 1 y 2
 
 # %%
-
+noencuentra = []
 for picture in images:
-    img = cv2.imread(picture, cv2.IMREAD_GRAYSCALE)
+    img = cv2.imread(picture, cv2.IMREAD_GRAYSCALE);
     
-    found, corners = cv2.findChessboardCorners(img, patternSize)
+    found, corners = cv2.findChessboardCorners(img, patternSize);
     if found:
-        cv2.cornerSubPix(img, corners, (11, 11), (-1, -1), subpixCriteria);
+        cv2.cornerSubPix(img, corners, (11, 11), (1, 1), subpixCriteria);
         imgpoints.append(corners.reshape(1, -1, 2));
         # cv2.drawChessboardCorners(img, patternSize, corners, found)
         # cv2.imshow('Puntos detectados', cv2.pyrDown(img))
         # cv2.waitKey(0)
     else:
         print 'No se encontraron esquinas en ' + picture
+        noencuentra.append(picture)
 
 # %% SAVE DATA POINTS
 np.save(cornersFile, imgpoints)

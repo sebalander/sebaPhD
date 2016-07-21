@@ -16,14 +16,14 @@ import glob
 # ============================================================================
 # ============================ FE WIDE LENS TEST =============================
 # %% LOAD DATA
-imagesFolder = "./resources/fishWideChessboardImg/"
-cornersFile = "./resources/fishWideCorners.npy"
+imagesFolder = "./resources/fishChessboardImg/"
+cornersFile = "./resources/fishCorners.npy"
 patternFile = "./resources/fishWidePattern.npy"
-imgShapeFile = "./resources/fishWideShape.npy"
-distCoeffsFile = "./resources/fishWideDistCoeffs.npy"
-linearCoeffsFile = "./resources/fishWideLinearCoeffs.npy"
-rvecsFile = "./resources/fishWideRvecs.npy"
-tvecsFile = "./resources/fishWideTvecs.npy"
+imgShapeFile = "./resources/fishShape.npy"
+distCoeffsFile = "./resources/fishDistCoeffs.npy"
+linearCoeffsFile = "./resources/fishLinearCoeffs.npy"
+rvecsFile = "./resources/fishRvecs.npy"
+tvecsFile = "./resources/fishTvecs.npy"
 
 imgpoints = np.load(cornersFile)
 chessboardModel = np.load(patternFile)
@@ -40,7 +40,7 @@ tvecs = np.load(tvecsFile)
 
 # pruebo con la imagen j-esima
 imagePointsProjected = chessboardModel[0,:,0:2]
-for j in range(1):  # range(len(imgpoints)):
+for j in range(2):  # range(len(imgpoints)):
     
     imagePntsX = imgpoints[j,0,:,0]
     imagePntsY = imgpoints[j,0,:,1]
