@@ -12,25 +12,37 @@ import numpy.linalg as lin
 import matplotlib.pyplot as plt
 from scipy.linalg import sqrtm, inv
 
-# %%
-tvecInitial = np.array([0,0,2.7])
+# %% INITIAL TRASLATION VECTOR
+tvecInitial = np.array([0,0,2.7]) 
+
+# %% ROTATION MATRIX
+z = np.array([0, 1, -2.7])
+z /= lin.norm(z)
+
+# la tercera coordenada no la se, la dejo en cero
 x = np.array([-8*21, 5*29.7, 0])
 y = np.array([5*21, 5*29.7, 0])
-z = np.array([0, 1, -2.7])
 
-x /= lin.norm(x)
+# hacer que x,y sean perp a z, agregar la tercera componente 
+x = x - z * np.dot(x,z)
+x /= lin.norm(x) 
+
+y = y - z * np.dot(y,z) # hago perpendicular a z
 y /= lin.norm(y)
-z /= lin.norm(z)
 
 # make into versor matrix
 rMatrix = np.array([x,y,z])
 
-# find nearest 
+# find nearest ortogonal matrix
 # http://stackoverflow.com/questions/13940056/orthogonalize-matrix-numpy
+rMatrix = rMatrix.dot(inv(sqrtm(rMatrix.T.dot(rMatrix))))
 
-rMatrix.dot(inv(sqrtm(rMatrix.T.dot(rMatrix))))
+# %% SAVE PARAMETERS
 
-# %%
+
+# %% PLOT VECTORS
+[x,y,z] = rMatrix
+
 from mpl_toolkits.mplot3d import Axes3D
 import numpy as np
 import matplotlib.pyplot as plt
@@ -38,19 +50,25 @@ import matplotlib.pyplot as plt
 fig = plt.figure()
 ax = fig.gca(projection='3d')
 
-x = np.linspace(0, 1, 100)
-y = np.sin(x * 2 * np.pi) / 2 + 0.5
-ax.plot(x, y, zs=0, zdir='z', label='zs=0, zdir=z')
+ax.plot([0, tvecInitial[0]], 
+        [0, tvecInitial[1]],
+        [0, tvecInitial[2]])
+        
+ax.plot([tvecInitial[0], tvecInitial[0] + x[0]],
+        [tvecInitial[1], tvecInitial[1] + x[1]],
+        [tvecInitial[2], tvecInitial[2] + x[2]])
 
-colors = ('r', 'g', 'b', 'k')
-for c in colors:
-    x = np.random.sample(20)
-    y = np.random.sample(20)
-    ax.scatter(x, y, 0, zdir='y', c=c)
+ax.plot([tvecInitial[0], tvecInitial[0] + y[0]],
+        [tvecInitial[1], tvecInitial[1] + y[1]],
+        [tvecInitial[2], tvecInitial[2] + y[2]])
 
-ax.legend()
-ax.set_xlim3d(0, 1)
-ax.set_ylim3d(0, 1)
-ax.set_zlim3d(0, 1)
+ax.plot([tvecInitial[0], tvecInitial[0] + z[0]],
+        [tvecInitial[1], tvecInitial[1] + z[1]],
+        [tvecInitial[2], tvecInitial[2] + z[2]])
+
+#ax.legend()
+#ax.set_xlim3d(0, 1)
+#ax.set_ylim3d(0, 1)
+#ax.set_zlim3d(0, 1)
 
 plt.show()
