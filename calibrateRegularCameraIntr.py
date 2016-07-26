@@ -18,9 +18,8 @@ import glob
 # %% LOAD DATA
 imagesFolder = "./resources/fishChessboardImg/"
 cornersFile = "/home/sebalander/code/sebaPhD/resources/fishCorners.npy"
-patternFile = "/home/sebalander/code/sebaPhD/resources/fishWidePattern.npy"
+patternFile = "/home/sebalander/code/sebaPhD/resources/chessPattern.npy"
 imgShapeFile = "/home/sebalander/code/sebaPhD/resources/fishShape.npy"
-
 
 imgpoints = np.load(cornersFile)
 chessboardModel = np.load(patternFile)

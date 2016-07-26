@@ -13,11 +13,14 @@ import glob
 import numpy as np
 
 # %%
-imagesFolder = "/home/sebalander/code/sebaPhD/resources/fishChessboardImg/"
-cornersFile = "/home/sebalander/code/sebaPhD/resources/fishCorners.npy"
-patternFile = "/home/sebalander/code/sebaPhD/resources/fishWidePattern.npy"
-imgShapeFile = "/home/sebalander/code/sebaPhD/resources/fishShape.npy"
+# input
+imagesFolder = "/home/sebalander/code/sebaPhD/resources/fishChessboard/"
 images = glob.glob(imagesFolder+'*.png')
+
+# output
+cornersFile = "/home/sebalander/code/sebaPhD/resources/fishChessboard/fishCorners.npy"
+patternFile = "/home/sebalander/code/sebaPhD/resources/chessPattern.npy"
+imgShapeFile = "/home/sebalander/code/sebaPhD/resources/fishImgShape.npy"
 
 # %%
 # cantidad esquinas internas del tablero:
