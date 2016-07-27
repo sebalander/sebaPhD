@@ -12,22 +12,31 @@ import numpy as np
 
 # %%
 def inverseRational(u, v, cameraMatrix, distCoeffs):
+    '''
+    inverseRational(u, v, cameraMatrix, distCoeffs) -> X,Y
+    takes position (u,v) in image and returns (X,Y,0) in scene
+    '''
     xpp = (u-cameraMatrix[0,2]) / cameraMatrix[0,0]
-    ypp = (v-cameraMatrix[1,2]) / cameraMatrix[1,0]
+    ypp = (v-cameraMatrix[1,2]) / cameraMatrix[1,1]
     rpp = np.sqrt(xpp**2 + ypp**2)
     
     # polynomial coeffs
-    p = [distCoeffs[2],
-         -rpp*distCoeffs[5],
-         distCoeffs[1],
-         -rpp*distCoeffs[4],
-         distCoeffs[0],
-         -rpp*distCoeffs[3],
+    p = [distCoeffs[2,0],
+         -rpp*distCoeffs[5,0],
+         distCoeffs[1,0],
+         -rpp*distCoeffs[4,0],
+         distCoeffs[0,0],
+         -rpp*distCoeffs[3,0],
          1,
          -rpp]
     
     roots = np.roots(p)
-    rp_rpp = roots[np.isreal(roots)]/rpp # asume only one real root,
+    
+    # max radious possible
+    rppMax = np.sqrt((cameraMatrix[0,2] / cameraMatrix[0,0])**2 +
+                     (cameraMatrix[1,2] / cameraMatrix[1,1])**2)
+    
+    rp_rpp = roots[np.isreal(roots)]/rpp # asume real positive root, in interval
     
     xp = xpp*rp_rpp
     yp = ypp*rp_rpp
