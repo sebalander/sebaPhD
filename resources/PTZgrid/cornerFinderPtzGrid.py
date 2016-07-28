@@ -24,7 +24,7 @@ cornersIniFile = "./PTZgridImageInitialConditions.txt"
 
 # output
 cornersFile = "ptzCorners.npy"
-patternFile = "ptzChessPattern.npy"
+patternFile = "ptzGridPattern.npy"
 imgShapeFile = "ptzImgShape.npy"
 
 # load
@@ -79,26 +79,30 @@ cv2.cornerSubPix(closed,
 
 
 plt.imshow(imgCol[:,:,[2,1,0]])
-plt.plot(cornersIni[:,0,0],cornersIni[:,0,1],'ow')
-plt.plot(corners[:,0,0],corners[:,0,1],'xg')
+plt.plot(cornersIni[:,0,0],cornersIni[:,0,1],'+r', label="Initial")
+plt.plot(corners[:,0,0],corners[:,0,1],'xb', label="Optimized")
+plt.legend()
 
-# %%
-#Arrays para pts del objeto y pts de imagen para from all the images.
-objpoints = [] #3d points in real world
-imgpoints = [] #2d points in image plane
+# %% DEFINE FIDUCIAL POINTS IN 3D SCENE, by hand
+# shape must be (1,n,3), float32
+nx = 8
+ny = 12
+xx = range(nx)
+y0 = 12
+yy = range(y0,y0-ny,-1)
 
+grid = np.array([[[[x, y, 0] for x in xx] for y in yy]], dtype='float32')
+grid = grid.reshape((1,nx*ny,3))
+toDelete = np.logical_and(grid[0,:,0] < 2, grid[0,:,1] < 2)
+grid = grid[:,np.logical_not(toDelete),:]
 
-
-
-
-# Se arma un vector con la identificacion de cada cuadrito
-# La dimensión de este vector es diferente al que se usa en la calibracion
-# de la PTZ, es necesaria una dimension mas para que corra el calibrate
-chessboardModel = np.zeros((1,pattH*pattW,3), np.float32)
-chessboardModel[0, :, :2] = np.mgrid[0:pattW, 0:pattH].T.reshape(-1, 2) #rellena las columnas 1 y 2
-
+# %% PLOT FIDUCIAL POINTS
+fig = plt.figure()
+ax = fig.gca(projection='3d')
+ax.scatter(grid[0,:,0], grid[0,:,1], grid[0,:,2])
+plt.show()
 
 # %% SAVE DATA POINTS
-np.save(cornersFile, imgpoints)
-np.save(patternFile, chessboardModel)
+np.save(cornersFile, corners)
+np.save(patternFile, grid)
 np.save(imgShapeFile, img.shape)

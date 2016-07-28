@@ -50,7 +50,8 @@ distCoeffsFile = "./resources/fishDistCoeffs.npy"
 linearCoeffsFile = "./resources/fishLinearCoeffs.npy"
 
 # output files
-poseFile = "./resources/fishGrid/FEpose.npy"
+rvecOptimFile = "./resources/fishGrid/FEsheetRvecOptim.npy"
+tvecOptimFile = "./resources/fishGrid/FEsheetTvecOptim.npy"
 
 # %% LOAD DATA
 img = cv2.imread(imageFile)
@@ -119,6 +120,10 @@ out = minimize(residual, params, args=(objectPoints, corners))
 
 # %% OPTIMIZED PARAMETERS
 rVecOpt, tVecOpt, _ , _ = reform(out.params)
+
+# %% SAVE OPTIM PARAMETERS
+np.save(rvecOptimFile, rVecOpt)
+np.save(tvecOptimFile, tVecOpt)
 
 # %% map with OPTIMAL conditions
 projectedPointsOut, _ = cv2.projectPoints(objectPoints,

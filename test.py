@@ -32,14 +32,32 @@ corners = np.load(cornersFile)
 objectPoints = np.load(patternFile)
 
 distCoeffs = np.load(distCoeffsFile)
-linearCoeffs = np.load(linearCoeffsFile)
+cameraMatrix = np.load(linearCoeffsFile)
 
 rVec = np.load(rvecOptimFile)
 tVec = np.load(tvecOptimFile)
 
 # %%
-
 u,v = corners[0,0]
 
+inverseRational(u, v, cameraMatrix, distCoeffs)
 
 
+# %% test distortion
+r = np.linspace(0,10,100)
+
+def distort(r, k):
+    '''
+    returns distorted radious
+    '''
+    r2 = r**2
+    r4 = r2**2
+    r6 = r2*r4
+    
+    rd = r * (1 + k[0,0]*r2 + k[1,0]*r4 + k[2,0]*r6) / \
+        (1 + k[3,0]*r2 + k[4,0]*r4 + k[5,0]*r6)
+    return rd
+
+rd = distort(r, distCoeffs)
+
+plt.plot(r,rd)
