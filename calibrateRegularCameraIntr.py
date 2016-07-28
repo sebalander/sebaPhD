@@ -16,10 +16,15 @@ import numpy as np
 import glob
 
 # %% LOAD DATA
-imagesFolder = "./resources/fishChessboardImg/"
-cornersFile = "/home/sebalander/code/sebaPhD/resources/fishCorners.npy"
-patternFile = "/home/sebalander/code/sebaPhD/resources/chessPattern.npy"
-imgShapeFile = "/home/sebalander/code/sebaPhD/resources/fishShape.npy"
+#imagesFolder = "./resources/fishChessboardImg/"
+#cornersFile = "/home/sebalander/code/sebaPhD/resources/fishCorners.npy"
+#patternFile = "/home/sebalander/code/sebaPhD/resources/chessPattern.npy"
+#imgShapeFile = "/home/sebalander/code/sebaPhD/resources/fishShape.npy"
+
+imagesFolder = "./resources/PTZchessboard/zoom 0.0/"
+cornersFile = "./resources/PTZchessboard/zoom 0.0/ptzCorners.npy"
+patternFile = "./resources/chessPattern.npy"
+imgShapeFile = "./resources/ptzImgShape.npy"
 
 imgpoints = np.load(cornersFile)
 chessboardModel = np.load(patternFile)
@@ -27,10 +32,10 @@ imgSize = tuple(np.load(imgShapeFile))
 images = glob.glob(imagesFolder+'*.png')
 
 # output files
-distCoeffsFile = "./resources/fishDistCoeffs.npy"
-linearCoeffsFile = "./resources/fishLinearCoeffs.npy"
-rvecsFile = "./resources/fishRvecs.npy"
-tvecsFile = "./resources/fishTvecs.npy"
+distCoeffsFile = "./resources/PTZchessboard/zoom 0.0/ptzDistCoeffs.npy"
+linearCoeffsFile = "./resources/PTZchessboard/zoom 0.0/ptzLinearCoeffs.npy"
+rvecsFile = "./resources/PTZchessboard/zoom 0.0/ptzRvecs.npy"
+tvecsFile = "./resources/PTZchessboard/zoom 0.0/ptzTvecs.npy"
 
 # %%
 n = len(imgpoints)  # cantidad de imagenes
@@ -41,16 +46,14 @@ cameraMatrix = ()
 distCoeffs = ()
 
 # enable possible coefficients
-flags = cv2.CALIB_RATIONAL_MODEL  # \
-#        + cv2.CALIB_THIN_PRISM_MODEL \
-#        + cv2.CALIB_TILTED_MODEL
+flags = cv2.CALIB_ZERO_TANGENT_DIST + cv2.CALIB_RATIONAL_MODEL
 
 objpoints = [chessboardModel]*n
-#calibrationFlags=cv2.fisheye.CALIB_RECOMPUTE_EXTRINSIC+cv2.fisheye.CALIB_CHECK_COND+cv2.fisheye.CALIB_FIX_SKEW
-calibrationFlags = 0 # se obtiene el mismo resultado que con el de arriba
-calibrationCriteria = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, # termination criteria type
-            1000, # max number of iterations
-            0.0001) # min accuracy
+
+calibrationCriteria = (cv2.TERM_CRITERIA_EPS
+                       + cv2.TERM_CRITERIA_MAX_ITER,
+                       1000, # max number of iterations
+                       0.0001) # min accuracy
 
 # %% OPTIMIZAR 
 rms, cameraMatrix, distCoeffs, rvecs, tvecs = cv2.calibrateCamera(objpoints,
@@ -61,6 +64,9 @@ rms, cameraMatrix, distCoeffs, rvecs, tvecs = cv2.calibrateCamera(objpoints,
                                                                   rvecs,
                                                                   tvecs,
                                                                   flags)
+
+# (k1,k2,p1,p2[,k3[,k4,k5,k6[,s1,s2,s3,s4[,τx,τy]]]])
+
 
 # %% SAVE PARAMETERS, INTRINSIC AND EXTRINSIC
 np.save(distCoeffsFile, distCoeffs)

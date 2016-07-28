@@ -14,13 +14,15 @@ import numpy as np
 
 # %%
 # input
-imagesFolder = "/home/sebalander/code/sebaPhD/resources/fishChessboard/"
-images = glob.glob(imagesFolder+'*.png')
+#imagesFolder = "/home/sebalander/code/sebaPhD/resources/fishChessboard/"
+imagesFolder = "./resources/PTZchessboard/zoom 0.0/"
+
+images = glob.glob(imagesFolder+'*.jpg')
 
 # output
-cornersFile = "/home/sebalander/code/sebaPhD/resources/fishChessboard/fishCorners.npy"
-patternFile = "/home/sebalander/code/sebaPhD/resources/chessPattern.npy"
-imgShapeFile = "/home/sebalander/code/sebaPhD/resources/fishImgShape.npy"
+cornersFile = "./resources/PTZchessboard/zoom 0.0/ptzCorners.npy"
+patternFile = "./resources/chessPattern.npy"
+imgShapeFile = "./resources/ptzImgShape.npy"
 
 # %%
 # cantidad esquinas internas del tablero:

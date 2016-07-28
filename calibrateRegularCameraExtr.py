@@ -39,19 +39,19 @@ def reform(params):
 
 # %% FILES
 # input files
-imageFile = "/home/sebalander/code/sebaPhD/resources/fishGrid/FEsheetBoard1920pix.png"
-cornersFile = "/home/sebalander/code/sebaPhD/resources/fishGrid/FEsheetCorners.npy"
-patternFile = "./resources/fishGrid/FEsheetPattern.npy"
-rvecInitialFile = "./resources/fishGrid/FEsheetRvecInitial.npy"
-tvecInitialFile = "./resources/fishGrid/FEsheetTvecInitial.npy"
+imageFile = "./resources/PTZgrid/ptz_(0.850278, -0.014444, 0.0).jpg"
+cornersFile = "./resources/PTZgrid/ptzCorners.npy"
+patternFile = "./resources/PTZgrid/ptzGridPattern.npy"
+rvecInitialFile = "./resources/PTZgrid/PTZsheetRvecInitial.npy"
+tvecInitialFile = "./resources/PTZgrid/PTZsheetTvecInitial.npy"
 
 # intrinsic parameters (input)
-distCoeffsFile = "./resources/fishDistCoeffs.npy"
-linearCoeffsFile = "./resources/fishLinearCoeffs.npy"
+distCoeffsFile = "./resources/PTZchessboard/zoom 0.0/ptzDistCoeffs.npy"
+linearCoeffsFile = "./resources/PTZchessboard/zoom 0.0/ptzLinearCoeffs.npy"
 
 # output files
-rvecOptimFile = "./resources/fishGrid/FEsheetRvecOptim.npy"
-tvecOptimFile = "./resources/fishGrid/FEsheetTvecOptim.npy"
+rvecOptimFile = "./resources/PTZchessboard/zoom 0.0/ptzSheetRvecOptim.npy"
+tvecOptimFile = "./resources/PTZchessboard/zoom 0.0/ptzSheetTvecOptim.npy"
 
 # %% LOAD DATA
 img = cv2.imread(imageFile)
@@ -140,5 +140,6 @@ cornersX = corners[:,0,0]
 cornersY = corners[:,0,1]
 
 plt.imshow(img)
-plt.plot(cornersX, cornersY, 'xr', markersize=10)
-plt.plot(imagePntsX, imagePntsY, '+b', markersize=10)
+plt.plot(cornersX, cornersY, 'xr', markersize=10, label='Corners')
+plt.plot(imagePntsX, imagePntsY, '+b', markersize=10, label='Optimized proj.')
+plt.legend()

@@ -20,7 +20,7 @@ import matplotlib.pyplot as plt
 
 # 8x11 A4 shetts chessboard
 imageFile = "ptz_(0.850278, -0.014444, 0.0).jpg"
-cornersIniFile = "./PTZgridImageInitialConditions.txt"
+cornersIniFile = "PTZgridImageInitialConditions.txt"
 
 # output
 cornersFile = "ptzCorners.npy"
@@ -52,15 +52,6 @@ plt.imshow(th)
 plt.imshow(closed)
 plt.imshow(imgCol)
 plt.plot(cornersIni[:,0,0],cornersIni[:,0,1],'ow')
-
-# %% FIND CORNERS (NOT WORKING)
-# cantidad esquinas internas del tablero:
-# los cuadraditos del chessboard-1
-pattW = 8  # width 
-pattH = 11  # height
-patternSize = (pattW, pattH)
-
-found, corners = cv2.findChessboardCorners(th, patternSize);
 
 # %% refine corners
 
@@ -96,8 +87,12 @@ grid = grid.reshape((1,nx*ny,3))
 toDelete = np.logical_and(grid[0,:,0] < 2, grid[0,:,1] < 2)
 grid = grid[:,np.logical_not(toDelete),:]
 
+# scale to the size of A4 sheet
+grid[0,:,0] *= 0.21
+grid[0,:,1] *= 0.297
 # %% PLOT FIDUCIAL POINTS
 fig = plt.figure()
+from mpl_toolkits.mplot3d import Axes3D
 ax = fig.gca(projection='3d')
 ax.scatter(grid[0,:,0], grid[0,:,1], grid[0,:,2])
 plt.show()
