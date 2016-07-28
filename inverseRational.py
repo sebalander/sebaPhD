@@ -21,20 +21,21 @@ def inverseRational(u, v, cameraMatrix, distCoeffs):
     rpp = np.sqrt(xpp**2 + ypp**2)
     
     # polynomial coeffs
-    p = [distCoeffs[2,0],
-         -rpp*distCoeffs[5,0],
+    # # (k1,k2,p1,p2[,k3[,k4,k5,k6[,s1,s2,s3,s4[,τx,τy]]]])
+    p = [distCoeffs[4,0],
+         -rpp*distCoeffs[7,0],
          distCoeffs[1,0],
-         -rpp*distCoeffs[4,0],
+         -rpp*distCoeffs[6,0],
          distCoeffs[0,0],
-         -rpp*distCoeffs[3,0],
+         -rpp*distCoeffs[5,0],
          1,
          -rpp]
     
     roots = np.roots(p)
     
-    # max radious possible
-    rppMax = np.sqrt((cameraMatrix[0,2] / cameraMatrix[0,0])**2 +
-                     (cameraMatrix[1,2] / cameraMatrix[1,1])**2)
+#    # max radious possible
+#    rppMax = np.sqrt((cameraMatrix[0,2] / cameraMatrix[0,0])**2 +
+#                     (cameraMatrix[1,2] / cameraMatrix[1,1])**2)
     
     rp_rpp = roots[np.isreal(roots)]/rpp # asume real positive root, in interval
     
@@ -44,10 +45,10 @@ def inverseRational(u, v, cameraMatrix, distCoeffs):
     # auxiliar calculations
     a = cameraMatrix[0,0] - cameraMatrix[2,0] * xp
     b = cameraMatrix[0,1] - cameraMatrix[2,1] * xp
-    c = cameraMatrix[0,3] - cameraMatrix[2,3] * xp
+    c = cameraMatrix[0,2] - cameraMatrix[2,2] * xp
     d = cameraMatrix[1,0] - cameraMatrix[2,0] * yp
     e = cameraMatrix[1,1] - cameraMatrix[2,1] * yp
-    f = cameraMatrix[1,3] - cameraMatrix[2,3] * yp
+    f = cameraMatrix[1,2] - cameraMatrix[2,2] * yp
     q = a*e-d*b
     
     X = (c*e - f*b)/q

@@ -16,15 +16,15 @@ import matplotlib.pyplot as plt
 from inverseRational import inverseRational
 
 # %% DATA FILES
-imageFile = "/home/sebalander/code/sebaPhD/resources/fishGrid/FEsheetBoard1920pix.png"
-cornersFile = "/home/sebalander/code/sebaPhD/resources/fishGrid/FEsheetCorners.npy"
-patternFile = "./resources/fishGrid/FEsheetPattern.npy"
+imageFile = "./resources/PTZgrid/ptz_(0.850278, -0.014444, 0.0).jpg"
+cornersFile = "./resources/PTZgrid/ptzCorners.npy"
+patternFile = "./resources/PTZgrid/ptzGridPattern.npy"
 
-distCoeffsFile = "./resources/fishDistCoeffs.npy"
-linearCoeffsFile = "./resources/fishLinearCoeffs.npy"
+distCoeffsFile = "./resources/PTZchessboard/zoom 0.0/ptzDistCoeffs.npy"
+linearCoeffsFile = "./resources/PTZchessboard/zoom 0.0/ptzLinearCoeffs.npy"
 
-rvecOptimFile = "./resources/fishGrid/FEsheetRvecOptim.npy"
-tvecOptimFile = "./resources/fishGrid/FEsheetTvecOptim.npy"
+rvecOptimFile = "./resources/PTZchessboard/zoom 0.0/ptzSheetRvecOptim.npy"
+tvecOptimFile = "./resources/PTZchessboard/zoom 0.0/ptzSheetTvecOptim.npy"
 
 # %% LOAD DATA
 img = cv2.imread(imageFile)
@@ -37,27 +37,26 @@ cameraMatrix = np.load(linearCoeffsFile)
 rVec = np.load(rvecOptimFile)
 tVec = np.load(tvecOptimFile)
 
-# %%
-u,v = corners[0,0]
-
-inverseRational(u, v, cameraMatrix, distCoeffs)
-
-
 # %% test distortion
 r = np.linspace(0,10,100)
 
-def distort(r, k):
+def distortRadius(r, k):
     '''
-    returns distorted radious
+    returns distorted radius
     '''
     r2 = r**2
     r4 = r2**2
     r6 = r2*r4
-    
-    rd = r * (1 + k[0,0]*r2 + k[1,0]*r4 + k[2,0]*r6) / \
-        (1 + k[3,0]*r2 + k[4,0]*r4 + k[5,0]*r6)
+    # (k1,k2,p1,p2[,k3[,k4,k5,k6[,s1,s2,s3,s4[,τx,τy]]]])
+    rd = r * (1 + k[0,0]*r2 + k[1,0]*r4 + k[4,0]*r6) / \
+        (1 + k[5,0]*r2 + k[6,0]*r4 + k[7,0]*r6)
     return rd
 
-rd = distort(r, distCoeffs)
+rd = distortRadius(r, distCoeffs)
 
 plt.plot(r,rd)
+
+# %%
+u,v = corners[0,0]
+
+inverseRational(u, v, cameraMatrix, distCoeffs)
