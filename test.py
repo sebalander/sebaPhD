@@ -24,7 +24,7 @@ distCoeffsFile = "./resources/PTZchessboard/zoom 0.0/ptzDistCoeffs.npy"
 linearCoeffsFile = "./resources/PTZchessboard/zoom 0.0/ptzLinearCoeffs.npy"
 
 rvecOptimFile = "./resources/PTZchessboard/zoom 0.0/ptzSheetRvecOptim.npy"
-tvecOptimFile = "./resources/PTZchessboard/zoom 0.0/ptzSheetTvecOptim.npy"
+tVecOptimFile = "./resources/PTZchessboard/zoom 0.0/ptzSheettVecOptim.npy"
 
 # %% LOAD DATA
 img = cv2.imread(imageFile)
@@ -35,7 +35,8 @@ distCoeffs = np.load(distCoeffsFile)
 cameraMatrix = np.load(linearCoeffsFile)
 
 rVec = np.load(rvecOptimFile)
-tVec = np.load(tvecOptimFile)
+rotMatrix, _ = cv2.Rodrigues(rVec)
+tVec = np.load(tVecOptimFile)
 
 # %% test distortion
 r = np.linspace(0,10,100)
@@ -57,6 +58,45 @@ rd = distortRadius(r, distCoeffs)
 plt.plot(r,rd)
 
 # %%
-u,v = corners[0,0]
+u,v = corners[10,0]
 
-inverseRational(u, v, cameraMatrix, distCoeffs)
+XYZ = inverseRational(corners, cameraMatrix, distCoeffs, rotMatrix, tVec)
+
+# %% PLOT 3D SCENE
+
+[x,y,z] = rotMatrix # get from ortogonal matrix
+
+fig = plt.figure()
+from mpl_toolkits.mplot3d import Axes3D
+
+ax = fig.gca(projection='3d')
+
+ax.plot([0, tVec[0,0]],
+        [0, tVec[1,0]],
+        [0, tVec[2,0]])
+        
+ax.plot([tVec[0,0], tVec[0,0] + x[0]],
+        [tVec[1,0], tVec[1,0] + x[1]],
+        [tVec[2,0], tVec[2,0] + x[2]])
+
+ax.plot([tVec[0,0], tVec[0,0] + y[0]],
+        [tVec[1,0], tVec[1,0] + y[1]],
+        [tVec[2,0], tVec[2,0] + y[2]])
+
+ax.plot([tVec[0,0], tVec[0,0] + z[0]],
+        [tVec[1,0], tVec[1,0] + z[1]],
+        [tVec[2,0], tVec[2,0] + z[2]])
+
+# ax.scatter(XYZ[:,0,0], XYZ[:,0,1], XYZ[:,0,2]) # da muy mal!!!!
+
+ax.scatter(objectPoints[0,:,0],
+           objectPoints[0,:,1],
+           objectPoints[0,:,2])
+
+
+#ax.legend()
+#ax.set_xlim3d(0, 1)
+#ax.set_ylim3d(0, 1)
+#ax.set_zlim3d(0, 1)
+
+plt.show()

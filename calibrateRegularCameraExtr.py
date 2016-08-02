@@ -125,6 +125,10 @@ rVecOpt, tVecOpt, _ , _ = reform(out.params)
 np.save(rvecOptimFile, rVecOpt)
 np.save(tvecOptimFile, tVecOpt)
 
+# %% LOAD IF NECESARY
+rVecOpt = np.load(rvecOptimFile)
+tVecOpt = np.load(tvecOptimFile)
+
 # %% map with OPTIMAL conditions
 projectedPointsOut, _ = cv2.projectPoints(objectPoints,
                                           rVecOpt,
