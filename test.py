@@ -12,8 +12,10 @@ test inverse rational function
 import cv2
 import numpy as np
 import matplotlib.pyplot as plt
+from mpl_toolkits.mplot3d import Axes3D
 
-from inverseRational import inverseRational
+from rational import inverseRational
+from rational import directRational
 
 # %% DATA FILES
 imageFile = "./resources/PTZgrid/ptz_(0.850278, -0.014444, 0.0).jpg"
@@ -24,7 +26,7 @@ distCoeffsFile = "./resources/PTZchessboard/zoom 0.0/ptzDistCoeffs.npy"
 linearCoeffsFile = "./resources/PTZchessboard/zoom 0.0/ptzLinearCoeffs.npy"
 
 rvecOptimFile = "./resources/PTZchessboard/zoom 0.0/ptzSheetRvecOptim.npy"
-tVecOptimFile = "./resources/PTZchessboard/zoom 0.0/ptzSheettVecOptim.npy"
+tVecOptimFile = "./resources/PTZchessboard/zoom 0.0/ptzSheetTvecOptim.npy"
 
 # %% LOAD DATA
 img = cv2.imread(imageFile)
@@ -35,34 +37,72 @@ distCoeffs = np.load(distCoeffsFile)
 cameraMatrix = np.load(linearCoeffsFile)
 
 rVec = np.load(rvecOptimFile)
-rotMatrix, _ = cv2.Rodrigues(rVec)
 tVec = np.load(tVecOptimFile)
 
-# %% test distortion
-r = np.linspace(0,10,100)
 
-def distortRadius(r, k):
-    '''
-    returns distorted radius
-    '''
-    r2 = r**2
-    r4 = r2**2
-    r6 = r2*r4
-    # (k1,k2,p1,p2[,k3[,k4,k5,k6[,s1,s2,s3,s4[,τx,τy]]]])
-    rd = r * (1 + k[0,0]*r2 + k[1,0]*r4 + k[4,0]*r6) / \
-        (1 + k[5,0]*r2 + k[6,0]*r4 + k[7,0]*r6)
-    return rd
+# %% PLOT LOADED DATA
+plt.imshow(img)
+plt.scatter(corners[:,0,0], corners[:,0,1])
+plt.show()
 
-rd = distortRadius(r, distCoeffs)
+[x,y,z], _ = cv2.Rodrigues(rVec) # get from ortogonal matrix
 
-plt.plot(r,rd)
+fig = plt.figure()
+ax = fig.gca(projection='3d')
+ax.plot([0, tVec[0,0]],
+        [0, tVec[1,0]],
+        [0, tVec[2,0]])
+ax.plot([tVec[0,0], tVec[0,0] + x[0]],
+        [tVec[1,0], tVec[1,0] + x[1]],
+        [tVec[2,0], tVec[2,0] + x[2]])
+ax.plot([tVec[0,0], tVec[0,0] + y[0]],
+        [tVec[1,0], tVec[1,0] + y[1]],
+        [tVec[2,0], tVec[2,0] + y[2]])
+ax.plot([tVec[0,0], tVec[0,0] + z[0]],
+        [tVec[1,0], tVec[1,0] + z[1]],
+        [tVec[2,0], tVec[2,0] + z[2]])
+ax.scatter(objectPoints[0,:,0],
+           objectPoints[0,:,1],
+           objectPoints[0,:,2])
+plt.show()
 
-# %%
-u,v = corners[10,0]
 
-XYZ = inverseRational(corners, cameraMatrix, distCoeffs, rotMatrix, tVec)
+# %% CALCULATE PROJECTIONS
 
-# %% PLOT 3D SCENE
+rotMatrix, _ = cv2.Rodrigues(rVec)
+
+cornersProjected = directRational(objectPoints,
+                                  rotMatrix,
+                                  tVec,
+                                  cameraMatrix,
+                                  distCoeffs)
+
+cornersProjectedOpenCV, _ = cv2.projectPoints(objectPoints,
+                                              rVec,
+                                              tVec,
+                                              cameraMatrix,
+                                              distCoeffs)
+
+objectPointsProjected = inverseRational(corners,
+                                        rotMatrix,
+                                        tVec,
+                                        cameraMatrix,
+                                        distCoeffs)
+
+
+# %% IN IMAGE CHECK DIRECT MAPPING
+
+plt.imshow(img)
+plt.plot(corners[:,0,0],
+         corners[:,0,1],'o',label='corners')
+plt.plot(cornersProjected[:,0,0],
+         cornersProjected[:,0,1],'x',label='projected manual')
+plt.plot(cornersProjectedOpenCV[:,0,0],
+         cornersProjectedOpenCV[:,0,1],'*',label='projected OpenCV')
+plt.legend()
+plt.show()
+
+# %% PLOT 3D SCENE CHECK INVERSE MAPPING
 
 [x,y,z] = rotMatrix # get from ortogonal matrix
 
@@ -100,3 +140,4 @@ ax.scatter(objectPoints[0,:,0],
 #ax.set_zlim3d(0, 1)
 
 plt.show()
+
