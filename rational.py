@@ -59,35 +59,72 @@ def inverseRational(corners, rotMatrix, tVec, cameraMatrix, distCoeffs):
     f = tVec[1,0] - tVec[2,0] * yp
     q = a*e-d*b
     
-    X = (c*e - f*b)/q
-    Y = (f*a - c*d)/q
+    X = -(c*e - f*b)/q # check why wrong sign
+    Y = -(f*a - c*d)/q
     
     shape = (corners.shape[0],1,3)
-    XYZ = np.array([X, Y, np.zeros(shape[0])])
+    XYZ = np.array([X, Y, np.zeros(shape[0])]).T
     XYZ = np.reshape(XYZ, shape)
     
     return XYZ
 
 # %%
-def directRational(XYZ, rotMatrix, tVec, cameraMatrix, distCoeffs):
+def directRational(objectPoints, rotMatrix, tVec, cameraMatrix, distCoeffs,
+                   plot=False, img=None, corners=None):
     '''
-    directRational(objPoints, rVec/rotMatrix, tVec, cameraMatrix, distCoeffs)
+    directRational(objPoints, rVec/rotMatrix, tVec, cameraMatrix, distCoeffs,
+                   plot=False)
                                                                     -> corners
     takes points in 3D scene coordinates and maps into distorted image
     objPoints must have size (1,n,3)
     corners is of size (n,1,2)
+    if plot is enabled, it will plot several intermediate results
     '''
     
     if rotMatrix.shape != (3,3):
         rotMatrix, _ = Rodrigues(rotMatrix)
     # chequear esta linea a ver si se esta haciendo bien
-    xyz = [np.linalg.linalg.dot(rotMatrix,p)+tVec[:,0] for p in XYZ[0]]
-    xyz = np.array(xyz)
+    xyz = [np.linalg.linalg.dot(rotMatrix,p)+tVec[:,0] for p in objectPoints[0]]
+    xyz = np.array(xyz).T
     
-    xp = xyz[:,0]/xyz[:,2]
-    yp = xyz[:,1]/xyz[:,2]
+    # plot rototranslation
+    if plot:
+        import matplotlib.pyplot as plt
+        from mpl_toolkits.mplot3d import Axes3D
+        [x,y,z] = rotMatrix
+        fig1 = plt.figure()
+        ax1 = fig1.gca(projection='3d')
+        ax1.plot([0, tVec[0,0]],
+                [0, tVec[1,0]],
+                [0, tVec[2,0]],'k')
+        ax1.plot([tVec[0,0], tVec[0,0] + x[0]],
+                [tVec[1,0], tVec[1,0] + x[1]],
+                [tVec[2,0], tVec[2,0] + x[2]],'g')
+        ax1.plot([tVec[0,0], tVec[0,0] + y[0]],
+                [tVec[1,0], tVec[1,0] + y[1]],
+                [tVec[2,0], tVec[2,0] + y[2]],'r')
+        ax1.plot([tVec[0,0], tVec[0,0] + z[0]],
+                [tVec[1,0], tVec[1,0] + z[1]],
+                [tVec[2,0], tVec[2,0] + z[2]],'b')
+        ax1.scatter(objectPoints[0,:,0],
+                   objectPoints[0,:,1],
+                   objectPoints[0,:,2])
+        ax1.plot([0,1],[0,0],[0,0],'g')
+        ax1.plot([0,0],[0,1],[0,0],'r')
+        ax1.plot([0,0],[0,0],[0,1],'b')
+        ax1.scatter(xyz[0],xyz[1],xyz[2])
     
-    rp2 = xp**2 + yp**2
+    # to homogenous coords
+    xpyp = xyz[:2]/xyz[2]
+    
+    if plot:
+        ax1.scatter(xpyp[0],xpyp[1],1)
+        fig2 = plt.figure()
+        ax2 = fig2.gca()
+        ax2.scatter(xpyp[0],xpyp[1]) # plot in z=1 plane, homogenous coordinates
+    
+    
+    rp2 = np.sum(xpyp[:2]**2,0)
     rp4 = rp2**2
     rp6 = rp2*rp4
     # polynomial coeffs
@@ -95,35 +132,32 @@ def directRational(XYZ, rotMatrix, tVec, cameraMatrix, distCoeffs):
     q = (1 + distCoeffs[0,0]*rp2 + distCoeffs[1,0]*rp4 + distCoeffs[4,0]*rp6) / \
         (1 + distCoeffs[5,0]*rp2 + distCoeffs[6,0]*rp4 + distCoeffs[7,0]*rp6)
     
-    # for plotting the distortion
-    # rp = np.sqrt(rp2)
-    # plt.scatter(rp,rp*q)
-    # plt.plot([0,0.6],[0,0.6])
+    if plot:
+        # for plotting the distortion
+        rp = np.sqrt(rp2)
+        fig3 = plt.figure()
+        ax3 = fig3.gca()
+        ax3.scatter(rp,rp*q)
+        ax3.plot([0,0.6],[0,0.6])
     
-    xpp = xp * q
-    ypp = yp * q
+    # distort
+    xppypp = xpyp * q
     
-    u = cameraMatrix[0,0] * xpp + cameraMatrix[0,2]
-    v = cameraMatrix[1,1] * ypp + cameraMatrix[1,2]
+    if plot:
+        ax2.scatter(xppypp[0],xppypp[1])
     
-    distortedProyection = np.array([u,v]).reshape([np.shape(u)[0],1,2])
+    # linearly project to image
+    uv = [cameraMatrix[0,0],cameraMatrix[1,1]]*xppypp.T + cameraMatrix[:2,2]
+    
+    if plot:
+        # plot distorted positions
+        fig4 = plt.figure(4)
+        ax4 = fig4.gca()
+        ax4.imshow(img)
+        ax4.scatter(corners[:,0,0],corners[:,0,1])
+        ax4.scatter(uv.T[0],uv.T[1])
+    
+    distortedProyection = uv.reshape([np.shape(uv)[0],1,2])
+    
     return distortedProyection
 
-# %% test distortion
-#r = np.linspace(0,10,100)
-#
-#def distortRadius(r, k):
-#    '''
-#    returns distorted radius
-#    '''
-#    r2 = r**2
-#    r4 = r2**2
-#    r6 = r2*r4
-#    # (k1,k2,p1,p2[,k3[,k4,k5,k6[,s1,s2,s3,s4[,τx,τy]]]])
-#    rd = r * (1 + k[0,0]*r2 + k[1,0]*r4 + k[4,0]*r6) / \
-#        (1 + k[5,0]*r2 + k[6,0]*r4 + k[7,0]*r6)
-#    return rd
-#
-#rd = distortRadius(r, distCoeffs)
-#
-#plt.plot(r,rd)

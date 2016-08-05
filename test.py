@@ -17,7 +17,7 @@ from mpl_toolkits.mplot3d import Axes3D
 from rational import inverseRational
 from rational import directRational
 
-# %% DATA FILES
+# % DATA FILES
 imageFile = "./resources/PTZgrid/ptz_(0.850278, -0.014444, 0.0).jpg"
 cornersFile = "./resources/PTZgrid/ptzCorners.npy"
 patternFile = "./resources/PTZgrid/ptzGridPattern.npy"
@@ -28,7 +28,7 @@ linearCoeffsFile = "./resources/PTZchessboard/zoom 0.0/ptzLinearCoeffs.npy"
 rvecOptimFile = "./resources/PTZchessboard/zoom 0.0/ptzSheetRvecOptim.npy"
 tVecOptimFile = "./resources/PTZchessboard/zoom 0.0/ptzSheetTvecOptim.npy"
 
-# %% LOAD DATA
+# % LOAD DATA
 img = cv2.imread(imageFile)
 corners = np.load(cornersFile)
 objectPoints = np.load(patternFile)
@@ -38,7 +38,6 @@ cameraMatrix = np.load(linearCoeffsFile)
 
 rVec = np.load(rvecOptimFile)
 tVec = np.load(tVecOptimFile)
-
 
 # %% PLOT LOADED DATA
 plt.imshow(img)
@@ -75,7 +74,10 @@ cornersProjected = directRational(objectPoints,
                                   rotMatrix,
                                   tVec,
                                   cameraMatrix,
-                                  distCoeffs)
+                                  distCoeffs,
+                                  plot=True,
+                                  img=img,
+                                  corners=corners)
 
 cornersProjectedOpenCV, _ = cv2.projectPoints(objectPoints,
                                               rVec,
@@ -107,8 +109,6 @@ plt.show()
 [x,y,z] = rotMatrix # get from ortogonal matrix
 
 fig = plt.figure()
-from mpl_toolkits.mplot3d import Axes3D
-
 ax = fig.gca(projection='3d')
 
 ax.plot([0, tVec[0,0]],
@@ -127,17 +127,27 @@ ax.plot([tVec[0,0], tVec[0,0] + z[0]],
         [tVec[1,0], tVec[1,0] + z[1]],
         [tVec[2,0], tVec[2,0] + z[2]])
 
-# ax.scatter(XYZ[:,0,0], XYZ[:,0,1], XYZ[:,0,2]) # da muy mal!!!!
+ax.scatter(objectPointsProjected[:,0,0],
+           objectPointsProjected[:,0,1],
+           objectPointsProjected[:,0,2])
 
 ax.scatter(objectPoints[0,:,0],
            objectPoints[0,:,1],
            objectPoints[0,:,2])
 
+# %%
+plt.scatter(objectPoints[0,:,0],objectPoints[0,:,1])
+plt.plot(objectPointsProjected[:,0,0],objectPointsProjected[:,0,1],'x')
 
-#ax.legend()
-#ax.set_xlim3d(0, 1)
-#ax.set_ylim3d(0, 1)
-#ax.set_zlim3d(0, 1)
+for i in range(objectPoints.shape[1]):
+    plt.plot([objectPoints[0,i,0],objectPointsProjected[i,0,0]],
+             [objectPoints[0,i,1],objectPointsProjected[i,0,1]],
+             '-k')#,headwidth=0,headlength=0,headaxislength=0)
 
-plt.show()
+rError = np.sqrt(np.sum((objectPoints[0,:]-objectPointsProjected[:,0])**2,1))
 
+# %%
+fig = plt.figure()
+ax = fig.gca(projection='3d')
+ax.bar(objectPoints[0,:,0],rError,zs=objectPoints[0,:,1],width=0.1,zdir='y')
+#ax.plot_surface(objectPoints[0,:,0],objectPoints[0,:,1],rError)
