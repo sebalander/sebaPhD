@@ -59,11 +59,11 @@ def inverseRational(corners, rotMatrix, tVec, cameraMatrix, distCoeffs):
     f = tVec[1,0] - tVec[2,0] * yp
     q = a*e-d*b
     
-    X = -(c*e - f*b)/q # check why wrong sign
+    X = -(c*e - f*b)/q # check why wrong sign, why must put '-' in front?
     Y = -(f*a - c*d)/q
     
-    shape = (corners.shape[0],1,3)
-    XYZ = np.array([X, Y, np.zeros(shape[0])]).T
+    shape = (1,corners.shape[0],3)
+    XYZ = np.array([X, Y, np.zeros(shape[1])]).T
     XYZ = np.reshape(XYZ, shape)
     
     return XYZ

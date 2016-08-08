@@ -13,6 +13,7 @@ import cv2
 import numpy as np
 import matplotlib.pyplot as plt
 from lmfit import minimize, Parameters
+from rational import inverseRational
 
 # %%
 def reform(params):
@@ -50,8 +51,10 @@ distCoeffsFile = "./resources/PTZchessboard/zoom 0.0/ptzDistCoeffs.npy"
 linearCoeffsFile = "./resources/PTZchessboard/zoom 0.0/ptzLinearCoeffs.npy"
 
 # output files
-rvecOptimFile = "./resources/PTZchessboard/zoom 0.0/ptzSheetRvecOptim.npy"
-tvecOptimFile = "./resources/PTZchessboard/zoom 0.0/ptzSheetTvecOptim.npy"
+rvecOptimDirFile = "./resources/PTZchessboard/zoom 0.0/ptzSheetRvecOptimDir.npy"
+tvecOptimDirFile = "./resources/PTZchessboard/zoom 0.0/ptzSheetTvecOptimDir.npy"
+rvecOptimInvFile = "./resources/PTZchessboard/zoom 0.0/ptzSheetRvecOptimInv.npy"
+tvecOptimInvFile = "./resources/PTZchessboard/zoom 0.0/ptzSheetTvecOptimInv.npy"
 
 # %% LOAD DATA
 img = cv2.imread(imageFile)
@@ -63,40 +66,70 @@ distCoeffs = np.load(distCoeffsFile)
 linearCoeffs = np.load(linearCoeffsFile)
 
 # %% map wit initial conditions
-projectedPointsIni, _ = cv2.projectPoints(objectPoints,
+projectedCornersIni, _ = cv2.projectPoints(objectPoints,
                                           rVecIni,
                                           tVecIni,
                                           linearCoeffs,
                                           distCoeffs)
 
+projectedPointsIni = inverseRational(corners,
+                                     rVecIni,
+                                     tVecIni,
+                                     linearCoeffs,
+                                     distCoeffs)
+
 
 # %% PLOT FOR INITIAL CONDITIONS
-imagePntsX = projectedPointsIni[:,0,0]
-imagePntsY = projectedPointsIni[:,0,1]
-
 cornersX = corners[:,0,0]
 cornersY = corners[:,0,1]
-
+prjtCnesXIni = projectedCornersIni[:,0,0]
+prjtCnesYIni = projectedCornersIni[:,0,1]
 plt.imshow(img)
-plt.plot(cornersX, cornersY, 'xr', markersize=10)
-plt.plot(imagePntsX, imagePntsY, '+b', markersize=10)
+plt.plot(cornersX, cornersY, 'xr', markersize=10, label='Corners')
+plt.plot(prjtCnesXIni, prjtCnesYIni, '+b', markersize=10, label='Proyectados')
+plt.legend()
+plt.show()
+
+
+scenePntsX = objectPoints[0,:,0]
+scenePntsY = objectPoints[0,:,1]
+prjtPntsXIni = projectedPointsIni[0,:,0]
+prjtPntsYIni = projectedPointsIni[0,:,1]
+plt.plot(scenePntsX, scenePntsY, 'xr', markersize=10, label='pnts Calibracion')
+plt.plot(prjtPntsXIni, prjtPntsYIni, '+b', markersize=10, label='Proyectados')
+plt.legend()
+plt.show()
 
 # %% DEFINE CUADRATIC ERROR ON THE IMAGE
 # http://cars9.uchicago.edu/software/python/lmfit/intro.html
 
-def residual(params, objectPoints, corners):
+def residualDirect(params, objectPoints, corners):
     
     rvec, tvec, cameraMatrix, distCoeffs = reform(params)
     
     # project points
-    projectedPoints, _ = cv2.projectPoints(objectPoints,
-                                     rvec,
-                                     tvec,
-                                     cameraMatrix,
-                                     distCoeffs)
+    projectedCorners, _ = cv2.projectPoints(objectPoints,
+                                            rvec,
+                                            tvec,
+                                            cameraMatrix,
+                                            distCoeffs)
     
-    return corners[:,0,:] - projectedPoints[:,0,:]
+    return corners[:,0,:] - projectedCorners[:,0,:]
 
+# %% DEFINE CUADRATIC ERROR IN MAP
+
+def residualInverse(params, objectPoints, corners):
+    
+    rvec, tvec, cameraMatrix, distCoeffs = reform(params)
+    
+    # project points
+    projectedPoints = inverseRational(corners,
+                                      rvec,
+                                      tvec,
+                                      cameraMatrix,
+                                      distCoeffs)
+    
+    return objectPoints[0,:,:2] - projectedPoints[0,:,:2]
 
 # %% PARAMETERS
 # problem, cant use a matrix or vector as parameter, will have to bypass this
@@ -115,35 +148,52 @@ for i in range(14):
     params.add('distCoeffs%d'%i, value=distCoeffs[i,0], vary=False)
 
 
-# %% OPTIMIZE
-out = minimize(residual, params, args=(objectPoints, corners))
-
-# %% OPTIMIZED PARAMETERS
-rVecOpt, tVecOpt, _ , _ = reform(out.params)
-
+# %% OPTIMIZE ERROR IN IMAGE
+out = minimize(residualDirect, params, args=(objectPoints, corners))
+rVecOptDir, tVecOptDir, _ , _ = reform(out.params)
 # %% SAVE OPTIM PARAMETERS
-np.save(rvecOptimFile, rVecOpt)
-np.save(tvecOptimFile, tVecOpt)
-
+np.save(rvecOptimDirFile, rVecOptDir)
+np.save(tvecOptimDirFile, tVecOptDir)
 # %% LOAD IF NECESARY
-rVecOpt = np.load(rvecOptimFile)
-tVecOpt = np.load(tvecOptimFile)
+rVecOpt = np.load(rvecOptimDirFile)
+tVecOpt = np.load(tvecOptimDirFile)
+# %% OPTIMIZE ERROR IN MAP
+out = minimize(residualInverse, params, args=(objectPoints, corners))
+rVecOptInv, tVecOptInv, _ , _ = reform(out.params)
+# %% SAVE OPTIM PARAMETERS
+np.save(rvecOptimInvFile, rVecOptInv)
+np.save(tvecOptimInvFile, tVecOptInv)
+# %% LOAD IF NECESARY
+rVecOptInv = np.load(rvecOptimInvFile)
+tVecOptInv = np.load(tvecOptimInvFile)
 
 # %% map with OPTIMAL conditions
-projectedPointsOut, _ = cv2.projectPoints(objectPoints,
-                                          rVecOpt,
-                                          tVecOpt,
+projectedCornersOut, _ = cv2.projectPoints(objectPoints,
+                                          rVecOptDir,
+                                          tVecOptDir,
                                           linearCoeffs,
                                           distCoeffs)
 
+projectedPointsOut = inverseRational(corners,
+                                     rVecOptInv,
+                                     tVecOptInv,
+                                     linearCoeffs,
+                                     distCoeffs)
+
 # %% PLOT FOR FINAL CONDITIONS
-imagePntsX = projectedPointsOut[:,0,0]
-imagePntsY = projectedPointsOut[:,0,1]
-
-cornersX = corners[:,0,0]
-cornersY = corners[:,0,1]
-
+prjtCnesXOut = projectedCornersOut[:,0,0]
+prjtCnesYOut = projectedCornersOut[:,0,1]
 plt.imshow(img)
 plt.plot(cornersX, cornersY, 'xr', markersize=10, label='Corners')
-plt.plot(imagePntsX, imagePntsY, '+b', markersize=10, label='Optimized proj.')
+plt.plot(prjtCnesXIni, prjtCnesYIni, '+b', markersize=10, label='Proyectados')
+plt.plot(prjtCnesXOut, prjtCnesYOut, '+k', markersize=10, label='Optimized proj.')
 plt.legend()
+
+
+prjtPntsXOut = projectedPointsOut[0,:,0]
+prjtPntsYOut = projectedPointsOut[0,:,1]
+plt.plot(scenePntsX, scenePntsY, 'xr', markersize=10, label='pnts Calibracion')
+plt.plot(prjtPntsXIni, prjtPntsYIni, '+b', markersize=10, label='Proyectados')
+plt.plot(prjtPntsXOut, prjtPntsYOut, '+k', markersize=10, label='proy, Optimizados')
+plt.legend()
+plt.show()
