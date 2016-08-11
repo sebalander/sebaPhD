@@ -168,7 +168,7 @@ rVecOptInv = np.load(rvecOptimInvFile)
 tVecOptInv = np.load(tvecOptimInvFile)
 
 # %% map with OPTIMAL conditions
-projectedCornersOut, _ = cv2.projectPoints(objectPoints,
+projectedCornersOut, jaco = cv2.projectPoints(objectPoints,
                                           rVecOptDir,
                                           tVecOptDir,
                                           linearCoeffs,
