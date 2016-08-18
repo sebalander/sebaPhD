@@ -22,9 +22,9 @@ import glob
 #imgShapeFile = "/home/sebalander/code/sebaPhD/resources/fishShape.npy"
 
 imagesFolder = "./resources/PTZchessboard/zoom 0.0/"
-cornersFile = "./resources/PTZchessboard/zoom 0.0/ptzCorners.npy"
-patternFile = "./resources/chessPattern.npy"
-imgShapeFile = "./resources/ptzImgShape.npy"
+cornersFile = "/home/sebalander/Code/sebaPhD/resources/PTZchessboard/zoom 0.0/ptzCorners.npy"
+patternFile = "/home/sebalander/Code/sebaPhD/resources/chessPattern.npy"
+imgShapeFile = "/home/sebalander/Code/sebaPhD/resources/ptzImgShape.npy"
 
 imgpoints = np.load(cornersFile)
 chessboardModel = np.load(patternFile)
@@ -32,10 +32,10 @@ imgSize = tuple(np.load(imgShapeFile))
 images = glob.glob(imagesFolder+'*.png')
 
 # output files
-distCoeffsFile = "./resources/PTZchessboard/zoom 0.0/ptzDistCoeffs.npy"
-linearCoeffsFile = "./resources/PTZchessboard/zoom 0.0/ptzLinearCoeffs.npy"
-rvecsFile = "./resources/PTZchessboard/zoom 0.0/ptzRvecs.npy"
-tvecsFile = "./resources/PTZchessboard/zoom 0.0/ptzTvecs.npy"
+distCoeffsFile = "/home/sebalander/Code/sebaPhD/resources/PTZchessboard/zoom 0.0/ptzDistCoeffs.npy"
+linearCoeffsFile = "/home/sebalander/Code/sebaPhD/resources/PTZchessboard/zoom 0.0/ptzLinearCoeffs.npy"
+rvecsFile = "/home/sebalander/Code/sebaPhD/resources/PTZchessboard/zoom 0.0/ptzRvecs.npy"
+tvecsFile = "/home/sebalander/Code/sebaPhD/resources/PTZchessboard/zoom 0.0/ptzTvecs.npy"
 
 # %%
 n = len(imgpoints)  # cantidad de imagenes

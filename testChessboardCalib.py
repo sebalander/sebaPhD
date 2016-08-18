@@ -16,14 +16,24 @@ import glob
 # ============================================================================
 # ============================ FE WIDE LENS TEST =============================
 # %% LOAD DATA
-imagesFolder = "./resources/fishChessboard/"
-cornersFile = "./resources/fishChessboard/fishCorners.npy"
-patternFile = "./resources/chessPattern.npy"
-imgShapeFile = "./resources/fishImgShape.npy"
-distCoeffsFile = "./resources/fishDistCoeffs.npy"
-linearCoeffsFile = "./resources/fishLinearCoeffs.npy"
-rvecsFile = "./resources/fishChessboard/fishRvecs.npy"
-tvecsFile = "./resources/fishChessboard/fishTvecs.npy"
+#imagesFolder = "./resources/fishChessboard/"
+#cornersFile = "./resources/fishChessboard/fishCorners.npy"
+#patternFile = "./resources/chessPattern.npy"
+#imgShapeFile = "./resources/fishImgShape.npy"
+#distCoeffsFile = "./resources/fishDistCoeffs.npy"
+#linearCoeffsFile = "./resources/fishLinearCoeffs.npy"
+#rvecsFile = "./resources/fishChessboard/fishRvecs.npy"
+#tvecsFile = "./resources/fishChessboard/fishTvecs.npy"
+
+imagesFolder = "./resources/PTZchessboard/zoom 0.0/"
+cornersFile = "/home/sebalander/Code/sebaPhD/resources/PTZchessboard/zoom 0.0/ptzCorners.npy"
+patternFile = "/home/sebalander/Code/sebaPhD/resources/chessPattern.npy"
+imgShapeFile = "/home/sebalander/Code/sebaPhD/resources/ptzImgShape.npy"
+distCoeffsFile = "/home/sebalander/Code/sebaPhD/resources/PTZchessboard/zoom 0.0/ptzDistCoeffs.npy"
+linearCoeffsFile = "/home/sebalander/Code/sebaPhD/resources/PTZchessboard/zoom 0.0/ptzLinearCoeffs.npy"
+rvecsFile = "/home/sebalander/Code/sebaPhD/resources/PTZchessboard/zoom 0.0/ptzRvecs.npy"
+tvecsFile = "/home/sebalander/Code/sebaPhD/resources/PTZchessboard/zoom 0.0/ptzTvecs.npy"
+
 
 imgpoints = np.load(cornersFile)
 chessboardModel = np.load(patternFile)
@@ -40,6 +50,7 @@ tvecs = np.load(tvecsFile)
 
 # pruebo con la imagen j-esima
 imagePointsProjected = chessboardModel[0,:,0:2]
+
 for j in [2,5,7,10]:  # range(len(imgpoints)):
     
     imagePntsX = imgpoints[j,0,:,0]
