@@ -12,8 +12,8 @@ test calibrator class
 import cv2
 import numpy as np
 import matplotlib.pyplot as plt
-import poseCalibratorClass
-from lmfit import minimize, Parameters
+import poseCalibratorClass as pc
+#from lmfit import minimize, Parameters
 
 
 # % FILES
@@ -36,32 +36,25 @@ tvecOptimInvFile = "./resources/PTZchessboard/zoom 0.0/ptzSheetTvecOptimInv.npy"
 
 # % LOAD DATA
 img = cv2.imread(imageFile)
-corners = np.load(cornersFile)
-objectPoints = np.load(patternFile)
+imageCorners = np.load(cornersFile)
+fiducialPoints = np.load(patternFile)
 rVecIni = np.load(rvecInitialFile) # cond inicial de los extrinsecos
 tVecIni = np.load(tvecInitialFile)
-distCoeffs = np.load(distCoeffsFile) # coef intrinsecos
-linearCoeffs = np.load(linearCoeffsFile)
+linearCoeffs = np.load(linearCoeffsFile) # coef intrinsecos
+distCoeffs = np.load(distCoeffsFile)
 
 # %%
-reload(poseCalibratorClass)
+reload(pc)
 
-# %% CREATE INSTANCE
-calibrador = poseCalibratorClass.poseCalibrator(corners=corners,
-                                                fiducialPoints=objectPoints,
-                                                intrinsicLinear=linearCoeffs,
-                                                intrinsicDistortion=distCoeffs,
-                                                initialRotation=rVecIni,
-                                                initialTraslation=tVecIni,
-                                                model='rational')
+# %% test mapping
+pc.directRational(fiducialPoints, rVecIni, tVecIni, linearCoeffs, distCoeffs)
 
-# %% POINT PROJECTION WITH INITIAL POSE VALUES
-calibrador.direct(optimised=False)
-calibrador.inverse(optimised=False)
+# %% format parameters
+initialParams = pc.formatParameters(rVecIni, tVecIni, linearCoeffs, distCoeffs)
+pc.retrieveParameters(initialParams)
 
-# %% OPTIMISE POSE
-calibrador.optimizePoseDirect()
-calibrador.optimizePoseInverse()
+# %%
+rvecOpt, tvecOpt = pc.calibrateDirectRational(fiducialPoints, imageCorners, rVecIni, tVecIni, linearCoeffs, distCoeffs)
 
 # %% PLOT FOR INITIAL CONDITIONS
 cornersX = corners[:,0,0]
