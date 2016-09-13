@@ -34,7 +34,7 @@ tvecOptimDirFile = "./resources/PTZchessboard/zoom 0.0/ptzSheetTvecOptimDir.npy"
 rvecOptimInvFile = "./resources/PTZchessboard/zoom 0.0/ptzSheetRvecOptimInv.npy"
 tvecOptimInvFile = "./resources/PTZchessboard/zoom 0.0/ptzSheetTvecOptimInv.npy"
 
-# % LOAD DATA
+# %% LOAD DATA
 img = cv2.imread(imageFile)
 imageCorners = np.load(cornersFile)
 fiducialPoints = np.load(patternFile)
@@ -46,15 +46,95 @@ distCoeffs = np.load(distCoeffsFile)
 # %%
 reload(pc)
 
-# %% test mapping
+# %% DIRECT RATIONAL CALIBRATION
+
+# test mapping with initial conditions
 pc.directRational(fiducialPoints, rVecIni, tVecIni, linearCoeffs, distCoeffs)
 
-# %% format parameters
-initialParams = pc.formatParameters(rVecIni, tVecIni, linearCoeffs, distCoeffs)
-pc.retrieveParameters(initialParams)
+# test format parameters
+initialParams = pc.formatParametersRational(rVecIni, tVecIni, linearCoeffs, distCoeffs)
+# test retrieve parameters
+pc.retrieveParametersRational(initialParams)
+
+# calculate initial residual
+initialRes = np.sum(pc.residualDirectRational(initialParams, fiducialPoints, imageCorners)**2)
+
+# optimise rVec, tVec
+rVecOpt, tVecOpt, optParams = pc.calibrateDirectRational(fiducialPoints, imageCorners, rVecIni, tVecIni, linearCoeffs, distCoeffs)
+
+# test mapping with optimised conditions
+pc.directRational(fiducialPoints, rVecOpt, tVecOpt, linearCoeffs, distCoeffs)
+
+# residual after optimisation
+optRes = np.sum(pc.residualDirectRational(optParams, fiducialPoints, imageCorners)**2)
+
+# %% INVERSE RATIONAL CALIBRATION
+pc.inverseRational(imageCorners, rVecIni, tVecIni, linearCoeffs, distCoeffs)
+
+# calculate initial residual
+initialRes = np.sum(pc.residualInverseRational(initialParams, fiducialPoints, imageCorners)**2)
+
+# optimise rVec, tVec
+rVecOpt, tVecOpt, optParams = pc.calibrateInverseRational(fiducialPoints, imageCorners, rVecIni, tVecIni, linearCoeffs, distCoeffs)
+
+# residual after optimisation
+optRes = np.sum(pc.residualInverseRational(optParams, fiducialPoints, imageCorners)**2)
+
 
 # %%
-rvecOpt, tvecOpt = pc.calibrateDirectRational(fiducialPoints, imageCorners, rVecIni, tVecIni, linearCoeffs, distCoeffs)
+reload(pc)
+
+# %% DIRECT STEREOGRAPHIC CALCULATION
+linearCoeffs = np.array([1920,1920])/2
+distCoeffs = 952.16 # k calculated by stanganelli
+
+pc.directStereographic(fiducialPoints, rVecIni, tVecIni, linearCoeffs, distCoeffs)
+
+# test format parameters
+initialParams = pc.formatParametersStereographic(rVecIni, tVecIni, linearCoeffs, distCoeffs)
+# test retrieve parameters
+pc.retrieveParametersStereographic(initialParams)
+
+# calculate initial residual
+initialRes = np.sum(pc.residualDirectStereographic(initialParams, fiducialPoints, imageCorners)**2)
+
+# optimise rVec, tVec
+rVecOpt, tVecOpt, optParams = pc.calibrateDirectStereographic(fiducialPoints, imageCorners, rVecIni, tVecIni, linearCoeffs, distCoeffs)
+
+# residual after optimisation
+optRes = np.sum(pc.residualDirectStereographic(optParams, fiducialPoints, imageCorners)**2)
+
+# %%
+reload(pc)
+
+# %% INVERSE STEREOGRAPHIC CALCULATION
+linearCoeffs = np.array([1920,1920])/2
+distCoeffs = 952.16 # k calculated by stanganelli
+
+pc.inverseStereographic(imageCorners, rVecIni, tVecIni, linearCoeffs, distCoeffs)
+
+
+initialRes = np.sum(pc.residualInverseStereographic(initialParams, fiducialPoints, imageCorners)**2)
+
+# optimise rVec, tVec
+rVecOpt, tVecOpt, optParams = pc.calibrateInverseStereographic(fiducialPoints, imageCorners, rVecIni, tVecIni, linearCoeffs, distCoeffs)
+
+# residual after optimisation
+optRes = np.sum(pc.residualInverseStereographic(optParams, fiducialPoints, imageCorners)**2)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 # %% PLOT FOR INITIAL CONDITIONS
 cornersX = corners[:,0,0]

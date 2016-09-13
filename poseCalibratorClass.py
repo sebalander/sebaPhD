@@ -19,15 +19,13 @@ following tutorial in http://www.tutorialspoint.com/python/python_classes_object
 @author: sebalander
 """
 # %% IMPORTS
-import numpy as np
-import cv2
+from numpy import zeros, sqrt, roots, array, isreal, reshape, tan, arctan
+from cv2 import projectPoints, Rodrigues
 from lmfit import minimize, Parameters
 
 
-
-
-# %% ========== ========== PARAMETER HANDLING ========== ==========
-def formatParameters(rVec, tVec, linearCoeffs, distCoeffs):
+# %% ========== ========== STEREOGRAPHIC PARAMETER HANDLING ========== ==========
+def formatParametersStereographic(rVec, tVec, linearCoeffs, distCoeffs):
     '''
     get params into correct format for lmfit optimisation
     '''
@@ -38,101 +36,97 @@ def formatParameters(rVec, tVec, linearCoeffs, distCoeffs):
         params.add('tvec%d'%i,
                    value=tVec[i,0], vary=True)
     
-    
+    # image center
     params.add('cameraMatrix0',
-               value=linearCoeffs[0,0], vary=False)
+               value=linearCoeffs[0], vary=False)
     params.add('cameraMatrix1',
-               value=linearCoeffs[1,1], vary=False)
-    params.add('cameraMatrix2',
-               value=linearCoeffs[0,2], vary=False)
-    params.add('cameraMatrix3',
-               value=linearCoeffs[1,2], vary=False)
+               value=linearCoeffs[1], vary=False)
     
-    for i in range(14):
-        params.add('distCoeffs%d'%i,
-                   value=distCoeffs[i,0], vary=False)
+    # k
+    params.add('distCoeffs',
+               value=distCoeffs, vary=False)
     
     return params
 
-def retrieveParameters(params):
+def retrieveParametersStereographic(params):
     '''
     
     '''
-    rvec = np.zeros((3,1))
-    tvec = np.zeros((3,1))
+    rvec = zeros((3,1))
+    tvec = zeros((3,1))
     for i in range(3):
         rvec[i,0] = params['rvec%d'%i].value
         tvec[i,0] = params['tvec%d'%i].value
     
-    cameraMatrix = np.zeros((3,3))  
-    cameraMatrix[0,0] = params['cameraMatrix0'].value
-    cameraMatrix[1,1] = params['cameraMatrix1'].value
-    cameraMatrix[0,2] = params['cameraMatrix2'].value
-    cameraMatrix[1,2] = params['cameraMatrix3'].value
-    cameraMatrix[2,2] = 1
-
-    distCoeffs = np.zeros((14,1))
-    for i in range(14):
-        distCoeffs[i,0] = params['distCoeffs%d'%i].value 
-
+    cameraMatrix = zeros(2)
+    cameraMatrix[0] = params['cameraMatrix0'].value
+    cameraMatrix[1] = params['cameraMatrix1'].value
+    
+    distCoeffs = params['distCoeffs'].value
+    
     return rvec, tvec, cameraMatrix, distCoeffs
 
 
-# %% ========== ========== DIRECT RATIONAL ========== ==========
-def directRational(fiducialPoints, rVec, tVec, intrinsicLinear, intrinsicDistortion):
+# %% ========== ========== DIRECT STEREOGRAPHIC ========== ==========
+# we asume that intrinsic distortion paramters is just a scalar: distCoeffs=k
+def directStereographic(fiducialPoints, rVec, tVec, linearCoeffs, distCoeffs):
     '''
-    calls opencv's projection function cv2.projectPoints
     '''
-    projected, _ = cv2.projectPoints(fiducialPoints,
-                                        rVec,
-                                        tVec,
-                                        intrinsicLinear,
-                                        intrinsicDistortion)
+    # format as matrix
+    if rVec.shape != (3,3):
+        rVec, _ = Rodrigues(rVec)
     
-    return projected
+    xyz = rVec.dot(fiducialPoints[0].T)+tVec
+    
+    xp = xyz[0]/xyz[2]
+    yp = xyz[1]/xyz[2]
+    
+    rp = sqrt(xp**2 + yp**2)
+    thetap = arctan(rp)
+    
+    rpp = distCoeffs*tan(thetap/2)
+    
+    rpp_rp = rpp/rp
+    
+    xpp = xp*rpp_rp
+    ypp = yp*rpp_rp
+    
+    u = xpp + linearCoeffs[0]
+    v = ypp + linearCoeffs[1]
+    
+    return array([u,v]).reshape((fiducialPoints.shape[1],1,2))
 
-
-def residualDirectRational(params, objectPoints, corners):
+def residualDirectStereographic(params, fiducialPoints, imageCorners):
     '''
     '''
-    rvec, tvec, cameraMatrix, distCoeffs = retrieveParameters(params)
+    rVec, tVec, linearCoeffs, distCoeffs = retrieveParametersStereographic(params)
     
-    projectedCorners = directRational(objectPoints,
-                                            rvec,
-                                            tvec,
-                                            cameraMatrix,
-                                            distCoeffs)
+    projectedCorners = directStereographic(fiducialPoints,
+                                      rVec,
+                                      tVec,
+                                      linearCoeffs,
+                                      distCoeffs)
     
-    return corners[:,0,:] - projectedCorners[:,0,:]
+    return imageCorners[:,0,:] - projectedCorners[:,0,:]
 
-
-
-def calibrateDirectRational(fiducialPoints, imageCorners, rVec, tVec, linearCoeffs, distCoeffs):
+def calibrateDirectStereographic(fiducialPoints, imageCorners, rVec, tVec, linearCoeffs, distCoeffs):
     '''
     returns optimised rvecOpt, tvecOpt
-    
     '''
-    initialParams = formatParameters(rVec, tVec, linearCoeffs, distCoeffs) # generate Parameters obj
+    initialParams = formatParametersStereographic(rVec, tVec, linearCoeffs, distCoeffs) # generate Parameters obj
     
-    out = minimize(residualDirectRational,
+    out = minimize(residualDirectStereographic,
                    initialParams,
                    args=(fiducialPoints,
                          imageCorners))
     
-    rvecOpt, tvecOpt, _, _ = retrieveParameters(out.params)
+    rvecOpt, tvecOpt, _, _ = retrieveParametersStereographic(out.params)
     
-    return rvecOpt, tvecOpt
-#        self.directMinimizeOutput = out
-#        self.optimisedRotationDirect, self.optimisedTraslationDirect, _ , _ = \
-#                                            self.retrieveParameters(out.params)
+    return rvecOpt, tvecOpt, out.params
 
 
-
-
-
-
-# %% ========== ========== PROJECTION METHODS ========== ==========
-def inverseRational(self,optimised):
+# %% ========== ========== INVERSE STEREOGRAPHIC ========== ==========
+def inverseStereographic(imageCorners, rVec, tVec, linearCoeffs, distCoeffs):
     '''
     inverseRational(objPoints, rVec/rotMatrix, tVec, cameraMatrix,
                     distCoeffs)-> objPoints
@@ -141,35 +135,19 @@ def inverseRational(self,optimised):
     objPoints has size (1,n,3)
     ignores tangential and tilt distortions
     '''
-    if optimised:
-        rVec = self.optimisedRotation
-        tVec = self.optimisedTraslation
-    else:
-        rVec = self.initialRotation
-        tVec = self.initialTraslation
-    
+    # format as matrix
     if rVec.shape != (3,3):
-        rVec, _ = cv2.Rodrigues(rVec)
+        rVec, _ = Rodrigues(rVec)
     
-    xpp = ((self.imageCorners[:,0,0]-self.intrinsicLinear[0,2]) /
-            self.intrinsicLinear[0,0])
-    ypp = ((self.imageCorners[:,0,1]-self.intrinsicLinear[1,2]) /
-            self.intrinsicLinear[1,1])
-    rpp = np.sqrt(xpp**2 + ypp**2)
+    xpp = imageCorners[:,0,0]-linearCoeffs[0]
+    ypp = imageCorners[:,0,1]-linearCoeffs[1]
+    rpp = sqrt(xpp**2 + ypp**2)
     
-    # polynomial coeffs
-    # # (k1,k2,p1,p2[,k3[,k4,k5,k6[,s1,s2,s3,s4[,τx,τy]]]])
-    poly = [[self.intrinsicDistortion[4,0],
-             -r*self.intrinsicDistortion[7,0],
-             self.intrinsicDistortion[1,0],
-             -r*self.intrinsicDistortion[6,0],
-             self.intrinsicDistortion[0,0],
-             -r*self.intrinsicDistortion[5,0],
-             1,
-             -r] for r in rpp]
+    thetap = 2*arctan(rpp/distCoeffs)
     
-    roots = [np.roots(p) for p in poly]
-    rp_rpp = np.array([roo[np.isreal(roo)].real[0] for roo in roots]) / rpp
+    rp = tan(thetap)
+    
+    rp_rpp = rp/rpp
     
     xp = xpp * rp_rpp
     yp = ypp * rp_rpp
@@ -186,102 +164,228 @@ def inverseRational(self,optimised):
     X = -(c*e - f*b)/q # check why wrong sign, why must put '-' in front?
     Y = -(f*a - c*d)/q
     
-    shape = (1,self.imageCorners.shape[0],3)
-    XYZ = np.array([X, Y, np.zeros(shape[1])]).T
-    XYZ = np.reshape(XYZ, shape)
+    shape = (1,imageCorners.shape[0],3)
+    XYZ = array([X, Y, zeros(shape[1])]).T
+    XYZ = reshape(XYZ, shape)
     
-    self.projectedFiducialPoints = XYZ
+    return XYZ
 
 
+def residualInverseStereographic(params, fiducialPoints, imageCorners):
+    '''
+    '''
+    rVec, tVec, linearCoeffs, distCoeffs = retrieveParametersStereographic(params)
+    
+    projectedFiducialPoints = inverseStereographic(imageCorners,
+                                              rVec,
+                                              tVec,
+                                              linearCoeffs,
+                                              distCoeffs)
+    
+    return fiducialPoints[0,:,:2] - projectedFiducialPoints[0,:,:2]
+
+def calibrateInverseStereographic(fiducialPoints, imageCorners, rVec, tVec, linearCoeffs, distCoeffs):
+    '''
+    returns optimised rvecOpt, tvecOpt
+    
+    '''
+    initialParams = formatParametersStereographic(rVec, tVec, linearCoeffs, distCoeffs) # generate Parameters obj
+    
+    out = minimize(residualInverseStereographic,
+                   initialParams,
+                   args=(fiducialPoints,
+                         imageCorners))
+    
+    rvecOpt, tvecOpt, _, _ = retrieveParametersStereographic(out.params)
+    
+    return rvecOpt, tvecOpt, out.params
 
 
+# %% ========== ========== RATIONAL PARAMETER HANDLING ========== ==========
+def formatParametersRational(rVec, tVec, linearCoeffs, distCoeffs):
+    '''
+    get params into correct format for lmfit optimisation
+    '''
+    params = Parameters()
+    for i in range(3):
+        params.add('rvec%d'%i,
+                   value=rVec[i,0], vary=True)
+        params.add('tvec%d'%i,
+                   value=tVec[i,0], vary=True)
+    
+    params.add('cameraMatrix0',
+               value=linearCoeffs[0,0], vary=False)
+    params.add('cameraMatrix1',
+               value=linearCoeffs[1,1], vary=False)
+    params.add('cameraMatrix2',
+               value=linearCoeffs[0,2], vary=False)
+    params.add('cameraMatrix3',
+               value=linearCoeffs[1,2], vary=False)
+    
+    for i in range(14):
+        params.add('distCoeffs%d'%i,
+                   value=distCoeffs[i,0], vary=False)
+    
+    return params
+
+def retrieveParametersRational(params):
+    '''
+    
+    '''
+    rvec = zeros((3,1))
+    tvec = zeros((3,1))
+    for i in range(3):
+        rvec[i,0] = params['rvec%d'%i].value
+        tvec[i,0] = params['tvec%d'%i].value
+    
+    cameraMatrix = zeros((3,3))  
+    cameraMatrix[0,0] = params['cameraMatrix0'].value
+    cameraMatrix[1,1] = params['cameraMatrix1'].value
+    cameraMatrix[0,2] = params['cameraMatrix2'].value
+    cameraMatrix[1,2] = params['cameraMatrix3'].value
+    cameraMatrix[2,2] = 1
+    
+    distCoeffs = zeros((14,1))
+    for i in range(14):
+        distCoeffs[i,0] = params['distCoeffs%d'%i].value
+    
+    return rvec, tvec, cameraMatrix, distCoeffs
+
+
+# %% ========== ========== DIRECT RATIONAL ========== ==========
+def directRational(fiducialPoints, rVec, tVec, linearCoeffs, distCoeffs):
+    '''
+    calls opencv's projection function cv2.projectPoints
+    '''
+    projected, _ = projectPoints(fiducialPoints,
+                                        rVec,
+                                        tVec,
+                                        linearCoeffs,
+                                        distCoeffs)
+    
+    return projected
+
+def residualDirectRational(params, fiducialPoints, imageCorners):
+    '''
+    '''
+    rVec, tVec, linearCoeffs, distCoeffs = retrieveParametersRational(params)
+    
+    projectedCorners = directRational(fiducialPoints,
+                                      rVec,
+                                      tVec,
+                                      linearCoeffs,
+                                      distCoeffs)
+    
+    return imageCorners[:,0,:] - projectedCorners[:,0,:]
+
+
+def calibrateDirectRational(fiducialPoints, imageCorners, rVec, tVec, linearCoeffs, distCoeffs):
+    '''
+    returns optimised rvecOpt, tvecOpt
+    
+    '''
+    initialParams = formatParametersRational(rVec, tVec, linearCoeffs, distCoeffs) # generate Parameters obj
+    
+    out = minimize(residualDirectRational,
+                   initialParams,
+                   args=(fiducialPoints,
+                         imageCorners))
+    
+    rvecOpt, tvecOpt, _, _ = retrieveParametersRational(out.params)
+    
+    return rvecOpt, tvecOpt, out.params
+
+
+# %% ========== ========== INVERSE RATIONAL ========== ==========
+def inverseRational(imageCorners, rVec, tVec, linearCoeffs, distCoeffs):
+    '''
+    inverseRational(objPoints, rVec/rotMatrix, tVec, cameraMatrix,
+                    distCoeffs)-> objPoints
+    takes corners in image and returns coordinates in scene
+    corners must be of size (n,1,2)
+    objPoints has size (1,n,3)
+    ignores tangential and tilt distortions
+    '''
+    
+    if rVec.shape != (3,3):
+        rVec, _ = Rodrigues(rVec)
+    
+    xpp = ((imageCorners[:,0,0]-linearCoeffs[0,2]) /
+            linearCoeffs[0,0])
+    ypp = ((imageCorners[:,0,1]-linearCoeffs[1,2]) /
+            linearCoeffs[1,1])
+    rpp = sqrt(xpp**2 + ypp**2)
+    
+    # polynomial coeffs
+    # # (k1,k2,p1,p2[,k3[,k4,k5,k6[,s1,s2,s3,s4[,τx,τy]]]])
+    poly = [[distCoeffs[4,0],
+             -r*distCoeffs[7,0],
+             distCoeffs[1,0],
+             -r*distCoeffs[6,0],
+             distCoeffs[0,0],
+             -r*distCoeffs[5,0],
+             1,
+             -r] for r in rpp]
+    
+    rootsPoly = [roots(p) for p in poly]
+    rp_rpp = array([roo[isreal(roo)].real[0] for roo in rootsPoly]) / rpp
+    
+    xp = xpp * rp_rpp
+    yp = ypp * rp_rpp
+    
+    # project to z=0 plane. perhaps calculate faster with homography function?
+    # auxiliar calculations
+    a = rVec[0,0] - rVec[2,0] * xp
+    b = rVec[0,1] - rVec[2,1] * xp
+    c = tVec[0,0] - tVec[2,0] * xp
+    d = rVec[1,0] - rVec[2,0] * yp
+    e = rVec[1,1] - rVec[2,1] * yp
+    f = tVec[1,0] - tVec[2,0] * yp
+    q = a*e-d*b
+    
+    X = -(c*e - f*b)/q # check why wrong sign, why must put '-' in front?
+    Y = -(f*a - c*d)/q
+    
+    shape = (1,imageCorners.shape[0],3)
+    XYZ = array([X, Y, zeros(shape[1])]).T
+    XYZ = reshape(XYZ, shape)
+    
+    return XYZ
+
+def residualInverseRational(params, fiducialPoints, imageCorners):
+    '''
+    '''
+    rVec, tVec, linearCoeffs, distCoeffs = retrieveParametersRational(params)
+    
+    projectedFiducialPoints = inverseRational(imageCorners,
+                                              rVec,
+                                              tVec,
+                                              linearCoeffs,
+                                              distCoeffs)
+    
+    return fiducialPoints[0,:,:2] - projectedFiducialPoints[0,:,:2]
+
+def calibrateInverseRational(fiducialPoints, imageCorners, rVec, tVec, linearCoeffs, distCoeffs):
+    '''
+    returns optimised rvecOpt, tvecOpt
+    
+    '''
+    initialParams = formatParametersRational(rVec, tVec, linearCoeffs, distCoeffs) # generate Parameters obj
+    
+    out = minimize(residualInverseRational,
+                   initialParams,
+                   args=(fiducialPoints,
+                         imageCorners))
+    
+    rvecOpt, tvecOpt, _, _ = retrieveParametersRational(out.params)
+    
+    return rvecOpt, tvecOpt, out.params
+
+
+# %% ========== ========== DIRECT FISHEYE ========== ==========
+def directFisheye():
+    '''TODO'''
+# %% ========== ========== INVERSE FISHEYE ========== ==========
 def inverseFisheye():
     '''TODO'''
 
-def directFisheye():
-    '''TODO'''
-
-
-
-
-
-
-
-
-
-
-
-
-
-# ========== ========== DEFINE RESIDUALS ========== ==========
-def residualDirect(self, params, objectPoints, corners):
-    '''
-    '''
-    rvec, tvec, cameraMatrix, distCoeffs = self.retrieveParameters(params)
-    
-    if self.model=='rational':
-        projectedCorners, _ = cv2.projectPoints(objectPoints,
-                                                rvec,
-                                                tvec,
-                                                cameraMatrix,
-                                                distCoeffs)
-    elif self.model=='fisheye':
-        'TODO'
-    else:
-        print("model must be 'rational' or 'fisheye'")
-    
-    return corners[:,0,:] - projectedCorners[:,0,:]
-
-def residualInverse(self, params, objectPoints, corners):
-    '''
-    '''
-    rvec, tvec, cameraMatrix, distCoeffs = self.retrieveParameters(params)
-    
-    # project points
-    projectedPoints = self.inverse(corners,
-                                   rvec,
-                                   tvec,
-                                   cameraMatrix,
-                                   distCoeffs)
-    
-    return objectPoints[0,:,:2] - projectedPoints[0,:,:2]
-
-
-
-
-
-
-
-
-
-
-
-# ==================== OPTIMIZATION ========== ==========
-def optimizePoseDirect(self):
-    '''
-    '''
-    self.formatParameters() # generate Parameters obj
-    
-    out = minimize(self.residualDirect,
-                   self.initialParams,
-                   args=(self.fiducialPoints,
-                         self.imageCorners))
-    
-    self.directMinimizeOutput = out
-    self.optimisedRotationDirect, self.optimisedTraslationDirect, _ , _ = \
-                                        self.retrieveParameters(out.params)
-
-def optimizePoseInverse(self):
-    '''
-    '''
-    self.formatParameters() # generate Parameters obj
-    
-    out = minimize(self.residualInverse,
-                   self.initialParams,
-                   args=(self.fiducialPoints,
-                         self.imageCorners))
-    
-    self.inverseMinimizeOutput = out
-    self.optimisedRotationInverse, self.optimisedTraslationInverse, _ , _ = \
-                                        self.retrieveParameters(out.params)
-    
