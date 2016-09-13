@@ -4,7 +4,7 @@ Created on Tue Sep 13 19:01:57 2016
 
 @author: sebalander
 """
-from numpy import zeros, sqrt, roots, array, isreal, reshape
+from numpy import zeros, sqrt, roots, array, isreal, reshape, tan
 from cv2 import Rodrigues
 from cv2.fisheye import projectPoints
 from lmfit import minimize, Parameters
@@ -30,7 +30,7 @@ def formatParametersFisheye(rVec, tVec, linearCoeffs, distCoeffs):
     params.add('cameraMatrix3',
                value=linearCoeffs[1,2], vary=False)
     
-    for i in range(14):
+    for i in range(4):
         params.add('distCoeffs%d'%i,
                    value=distCoeffs[i,0], vary=False)
     
@@ -53,8 +53,8 @@ def retrieveParametersFisheye(params):
     cameraMatrix[1,2] = params['cameraMatrix3'].value
     cameraMatrix[2,2] = 1
     
-    distCoeffs = zeros((14,1))
-    for i in range(14):
+    distCoeffs = zeros((4,1))
+    for i in range(4):
         distCoeffs[i,0] = params['distCoeffs%d'%i].value
     
     return rvec, tvec, cameraMatrix, distCoeffs
@@ -124,19 +124,23 @@ def inverseFisheye(imageCorners, rVec, tVec, linearCoeffs, distCoeffs):
             linearCoeffs[1,1])
     rpp = sqrt(xpp**2 + ypp**2)
     
-    # polynomial coeffs
-    # # (k1,k2,p1,p2[,k3[,k4,k5,k6[,s1,s2,s3,s4[,τx,τy]]]])
-    poly = [[distCoeffs[4,0],
-             -r*distCoeffs[7,0],
-             distCoeffs[1,0],
-             -r*distCoeffs[6,0],
-             distCoeffs[0,0],
-             -r*distCoeffs[5,0],
+    # polynomial coeffs, grade 9
+    # # (k1,k2,k3,k4)
+    poly = [[distCoeffs[3,0], # k4
+             0,
+             distCoeffs[2,0], # k3
+             0,
+             distCoeffs[1,0], # k2
+             0,
+             distCoeffs[0,0], # k1
              1,
              -r] for r in rpp]
     
     rootsPoly = [roots(p) for p in poly]
-    rp_rpp = array([roo[isreal(roo)].real[0] for roo in rootsPoly]) / rpp
+    thetap = array([roo[isreal(roo)].real[0] for roo in rootsPoly]) / rpp
+    
+    rp = tan(thetap)
+    rp_rpp = rp/rpp
     
     xp = xpp * rp_rpp
     yp = ypp * rp_rpp

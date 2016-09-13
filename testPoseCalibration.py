@@ -185,6 +185,71 @@ optRes = np.sum(pc.unified.residualInverseUnified(optParams, fiducialPoints, ima
 
 
 
+# %%
+reload(pc)
+
+# %% DIRECT FISHEYE CALCULATION
+linearCoeffs = np.load(linearCoeffsFile) # coef intrinsecos
+distCoeffs = np.array([[1.1],[2.2],[3.3],[4.4]]) # k1, k2, k3, k4
+
+# test format parameters
+initialParams = pc.fisheye.formatParametersFisheye(rVecIni, tVecIni, linearCoeffs, distCoeffs)
+# test retrieve parameters
+pc.fisheye.retrieveParametersFisheye(initialParams)
+
+# test mapping with initial conditions
+pc.fisheye.directFisheye(fiducialPoints, rVecIni, tVecIni, linearCoeffs, distCoeffs)
+
+# calculate initial residual
+initialRes = np.sum(pc.fisheye.residualDirectFisheye(initialParams, fiducialPoints, imageCorners)**2)
+
+# optimise rVec, tVec
+rVecOpt, tVecOpt, optParams = pc.fisheye.calibrateDirectFisheye(fiducialPoints, imageCorners, rVecIni, tVecIni, linearCoeffs, distCoeffs)
+
+# residual after optimisation
+optRes = np.sum(pc.fisheye.residualDirectFisheye(optParams, fiducialPoints, imageCorners)**2)
+
+# %%
+reload(pc)
+
+# %% INVERSE FISHEYE CALCULATION
+linearCoeffs = np.load(linearCoeffsFile) # coef intrinsecos
+distCoeffs = np.array([[1.1],[2.2],[3.3],[4.4]]) # k1, k2, k3, k4
+
+# test format parameters
+initialParams = pc.fisheye.formatParametersFisheye(rVecIni, tVecIni, linearCoeffs, distCoeffs)
+# test retrieve parameters
+pc.fisheye.retrieveParametersFisheye(initialParams)
+
+# test mapping with initial conditions
+pc.fisheye.inverseFisheye(imageCorners, rVecIni, tVecIni, linearCoeffs, distCoeffs)
+
+initialRes = np.sum(pc.fisheye.residualInverseFisheye(initialParams, fiducialPoints, imageCorners)**2)
+
+# optimise rVec, tVec
+rVecOpt, tVecOpt, optParams = pc.fisheye.calibrateInverseFisheye(fiducialPoints, imageCorners, rVecIni, tVecIni, linearCoeffs, distCoeffs)
+
+# residual after optimisation
+optRes = np.sum(pc.fisheye.residualInverseFisheye(optParams, fiducialPoints, imageCorners)**2)
+
+
+
+
+
+
+
+
+
+# %%
+
+
+
+
+
+
+
+
+
 
 
 

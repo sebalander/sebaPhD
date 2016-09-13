@@ -123,14 +123,14 @@ def inverseRational(imageCorners, rVec, tVec, linearCoeffs, distCoeffs):
             linearCoeffs[1,1])
     rpp = sqrt(xpp**2 + ypp**2)
     
-    # polynomial coeffs
+    # polynomial coeffs, grade 7
     # # (k1,k2,p1,p2[,k3[,k4,k5,k6[,s1,s2,s3,s4[,τx,τy]]]])
-    poly = [[distCoeffs[4,0],
-             -r*distCoeffs[7,0],
-             distCoeffs[1,0],
-             -r*distCoeffs[6,0],
-             distCoeffs[0,0],
-             -r*distCoeffs[5,0],
+    poly = [[distCoeffs[4,0], # k3
+             -r*distCoeffs[7,0], # k6
+             distCoeffs[1,0], # k2
+             -r*distCoeffs[6,0], # k5
+             distCoeffs[0,0], # k1
+             -r*distCoeffs[5,0], # k4
              1,
              -r] for r in rpp]
     
