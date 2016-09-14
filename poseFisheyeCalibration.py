@@ -4,16 +4,14 @@ Created on Tue Sep 13 19:01:57 2016
 
 @author: sebalander
 """
-from numpy import zeros, sqrt, roots, array, isreal, reshape, tan
+from numpy import zeros, sqrt, roots, array, isreal, tan
 from cv2 import Rodrigues
 from cv2.fisheye import projectPoints
 from lmfit import minimize, Parameters
+from poseFunctions import xypToZplane
 
 # %% ========== ========== Fisheye PARAMETER HANDLING ========== ==========
-def formatParametersFisheye(rVec, tVec, linearCoeffs, distCoeffs):
-    '''
-    get params into correct format for lmfit optimisation
-    '''
+def formatParameters(rVec, tVec, linearCoeffs, distCoeffs):
     params = Parameters()
     for i in range(3):
         params.add('rvec%d'%i,
@@ -36,10 +34,7 @@ def formatParametersFisheye(rVec, tVec, linearCoeffs, distCoeffs):
     
     return params
 
-def retrieveParametersFisheye(params):
-    '''
-    
-    '''
+def retrieveParameters(params):
     rvec = zeros((3,1))
     tvec = zeros((3,1))
     for i in range(3):
@@ -61,10 +56,7 @@ def retrieveParametersFisheye(params):
 
 
 # %% ========== ========== DIRECT Fisheye ========== ==========
-def directFisheye(fiducialPoints, rVec, tVec, linearCoeffs, distCoeffs):
-    '''
-    calls opencv's projection function cv2.projectPoints
-    '''
+def direct(fiducialPoints, rVec, tVec, linearCoeffs, distCoeffs):
     projected, _ = projectPoints(fiducialPoints,
                                         rVec,
                                         tVec,
@@ -73,12 +65,10 @@ def directFisheye(fiducialPoints, rVec, tVec, linearCoeffs, distCoeffs):
     
     return projected
 
-def residualDirectFisheye(params, fiducialPoints, imageCorners):
-    '''
-    '''
-    rVec, tVec, linearCoeffs, distCoeffs = retrieveParametersFisheye(params)
+def residualDirect(params, fiducialPoints, imageCorners):
+    rVec, tVec, linearCoeffs, distCoeffs = retrieveParameters(params)
     
-    projectedCorners = directFisheye(fiducialPoints,
+    projectedCorners = direct(fiducialPoints,
                                       rVec,
                                       tVec,
                                       linearCoeffs,
@@ -87,33 +77,21 @@ def residualDirectFisheye(params, fiducialPoints, imageCorners):
     return imageCorners[:,0,:] - projectedCorners[:,0,:]
 
 
-def calibrateDirectFisheye(fiducialPoints, imageCorners, rVec, tVec, linearCoeffs, distCoeffs):
-    '''
-    returns optimised rvecOpt, tvecOpt
+def calibrateDirect(fiducialPoints, imageCorners, rVec, tVec, linearCoeffs, distCoeffs):
+    initialParams = formatParameters(rVec, tVec, linearCoeffs, distCoeffs) # generate Parameters obj
     
-    '''
-    initialParams = formatParametersFisheye(rVec, tVec, linearCoeffs, distCoeffs) # generate Parameters obj
-    
-    out = minimize(residualDirectFisheye,
+    out = minimize(residualDirect,
                    initialParams,
                    args=(fiducialPoints,
                          imageCorners))
     
-    rvecOpt, tvecOpt, _, _ = retrieveParametersFisheye(out.params)
+    rvecOpt, tvecOpt, _, _ = retrieveParameters(out.params)
     
     return rvecOpt, tvecOpt, out.params
 
 
 # %% ========== ========== INVERSE Fisheye ========== ==========
-def inverseFisheye(imageCorners, rVec, tVec, linearCoeffs, distCoeffs):
-    '''
-    inverseFisheye(objPoints, rVec/rotMatrix, tVec, cameraMatrix,
-                    distCoeffs)-> objPoints
-    takes corners in image and returns coordinates in scene
-    corners must be of size (n,1,2)
-    objPoints has size (1,n,3)
-    ignores tangential and tilt distortions
-    '''
+def inverse(imageCorners, rVec, tVec, linearCoeffs, distCoeffs):
     
     if rVec.shape != (3,3):
         rVec, _ = Rodrigues(rVec)
@@ -146,30 +124,16 @@ def inverseFisheye(imageCorners, rVec, tVec, linearCoeffs, distCoeffs):
     yp = ypp * rp_rpp
     
     # project to z=0 plane. perhaps calculate faster with homography function?
-    # auxiliar calculations
-    a = rVec[0,0] - rVec[2,0] * xp
-    b = rVec[0,1] - rVec[2,1] * xp
-    c = tVec[0,0] - tVec[2,0] * xp
-    d = rVec[1,0] - rVec[2,0] * yp
-    e = rVec[1,1] - rVec[2,1] * yp
-    f = tVec[1,0] - tVec[2,0] * yp
-    q = a*e-d*b
-    
-    X = -(c*e - f*b)/q # check why wrong sign, why must put '-' in front?
-    Y = -(f*a - c*d)/q
-    
-    shape = (1,imageCorners.shape[0],3)
-    XYZ = array([X, Y, zeros(shape[1])]).T
-    XYZ = reshape(XYZ, shape)
+    XYZ = xypToZplane(xp, yp, rVec, tVec)
     
     return XYZ
 
-def residualInverseFisheye(params, fiducialPoints, imageCorners):
+def residualInverse(params, fiducialPoints, imageCorners):
     '''
     '''
-    rVec, tVec, linearCoeffs, distCoeffs = retrieveParametersFisheye(params)
+    rVec, tVec, linearCoeffs, distCoeffs = retrieveParameters(params)
     
-    projectedFiducialPoints = inverseFisheye(imageCorners,
+    projectedFiducialPoints = inverse(imageCorners,
                                               rVec,
                                               tVec,
                                               linearCoeffs,
@@ -177,18 +141,14 @@ def residualInverseFisheye(params, fiducialPoints, imageCorners):
     
     return fiducialPoints[0,:,:2] - projectedFiducialPoints[0,:,:2]
 
-def calibrateInverseFisheye(fiducialPoints, imageCorners, rVec, tVec, linearCoeffs, distCoeffs):
-    '''
-    returns optimised rvecOpt, tvecOpt
+def calibrateInverse(fiducialPoints, imageCorners, rVec, tVec, linearCoeffs, distCoeffs):
+    initialParams = formatParameters(rVec, tVec, linearCoeffs, distCoeffs) # generate Parameters obj
     
-    '''
-    initialParams = formatParametersFisheye(rVec, tVec, linearCoeffs, distCoeffs) # generate Parameters obj
-    
-    out = minimize(residualInverseFisheye,
+    out = minimize(residualInverse,
                    initialParams,
                    args=(fiducialPoints,
                          imageCorners))
     
-    rvecOpt, tvecOpt, _, _ = retrieveParametersFisheye(out.params)
+    rvecOpt, tvecOpt, _, _ = retrieveParameters(out.params)
     
     return rvecOpt, tvecOpt, out.params

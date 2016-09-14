@@ -11,7 +11,6 @@ test calibrator class
 # %%
 import cv2
 import numpy as np
-import matplotlib.pyplot as plt
 import poseCalibration as pc
 #from lmfit import minimize, Parameters
 
@@ -46,271 +45,60 @@ distCoeffs = np.load(distCoeffsFile)
 # %%
 reload(pc)
 
-# %% DIRECT RATIONAL CALIBRATION
+# %% STEREOGRAPHIC params
+linearCoeffs = np.array([1920,1920])/2
+distCoeffs = np.array([1, 952]) # l,m calculated by stanganelli?
+
+# %% FISHEYE params
+linearCoeffs = np.load(linearCoeffsFile) # coef intrinsecos
+distCoeffs = np.array([[1.1],[2.2],[3.3],[4.4]]) # k1, k2, k3, k4
+
+# %%
+model= 'rational'
+
+# %% DIRECT GENERIC CALIBRATION
 # test format parameters
-initialParams = pc.rational.formatParametersRational(rVecIni, tVecIni, linearCoeffs, distCoeffs)
+initialParams = pc.formatParameters(rVecIni, tVecIni, linearCoeffs, distCoeffs,model)
 # test retrieve parameters
-pc.rational.retrieveParametersRational(initialParams)
+# pc.retrieveParameters(initialParams,model)
 
 # test mapping with initial conditions
-pc.rational.directRational(fiducialPoints, rVecIni, tVecIni, linearCoeffs, distCoeffs)
+cornersProjectedIni = pc.direct(fiducialPoints, rVecIni, tVecIni, linearCoeffs, distCoeffs,model)
 
+pc.cornerComparison(img, imageCorners, cornersProjectedIni)
 # calculate initial residual
-initialRes = np.sum(pc.rational.residualDirectRational(initialParams, fiducialPoints, imageCorners)**2)
+initialRes = np.sum(pc.residualDirect(initialParams, fiducialPoints, imageCorners,model)**2)
 
 # optimise rVec, tVec
-rVecOpt, tVecOpt, optParams = pc.rational.calibrateDirectRational(fiducialPoints, imageCorners, rVecIni, tVecIni, linearCoeffs, distCoeffs)
+rVecOpt, tVecOpt, optParams = pc.calibrateDirect(fiducialPoints, imageCorners, rVecIni, tVecIni, linearCoeffs, distCoeffs, model)
 
 # test mapping with optimised conditions
-pc.rational.directRational(fiducialPoints, rVecOpt, tVecOpt, linearCoeffs, distCoeffs)
+cornersProjectedOpt = pc.direct(fiducialPoints, rVecOpt, tVecOpt, linearCoeffs, distCoeffs, model)
+pc.cornerComparison(img, imageCorners, cornersProjectedOpt)
 
 # residual after optimisation
-optRes = np.sum(pc.rational.residualDirectRational(optParams, fiducialPoints, imageCorners)**2)
+optRes = np.sum(pc.residualDirect(optParams, fiducialPoints, imageCorners,model)**2)
 
-# %% INVERSE RATIONAL CALIBRATION
-# test format parameters
-initialParams = pc.rational.formatParametersRational(rVecIni, tVecIni, linearCoeffs, distCoeffs)
-# test retrieve parameters
-pc.rational.retrieveParametersRational(initialParams)
+# %% INVERSE GENERIC CALIBRATION
 
 # test mapping with initial conditions
-pc.rational.inverseRational(imageCorners, rVecIni, tVecIni, linearCoeffs, distCoeffs)
-
+fiducialProjectedIni = pc.inverse(imageCorners, rVecIni, tVecIni, linearCoeffs, distCoeffs,model)
+pc.fiducialComparison(fiducialPoints, fiducialProjectedIni)
 # calculate initial residual
-initialRes = np.sum(pc.rational.residualInverseRational(initialParams, fiducialPoints, imageCorners)**2)
+initialRes = np.sum(pc.residualInverse(initialParams, fiducialPoints, imageCorners,model)**2)
+# plot
+pc.fiducialComparison3D(rVecIni, tVecIni, fiducialPoints, fiducialProjectedIni, label1 = 'Fiducial points', label2 = 'Projected points')
 
 # optimise rVec, tVec
-rVecOpt, tVecOpt, optParams = pc.rational.calibrateInverseRational(fiducialPoints, imageCorners, rVecIni, tVecIni, linearCoeffs, distCoeffs)
+rVecOpt, tVecOpt, optParams = pc.calibrateInverse(fiducialPoints, imageCorners, rVecIni, tVecIni, linearCoeffs, distCoeffs,model)
 
+fiducialProjectedOpt = pc.inverse(imageCorners, rVecOpt, tVecOpt, linearCoeffs, distCoeffs,model)
+pc.fiducialComparison(fiducialPoints, fiducialProjectedOpt)
 # residual after optimisation
-optRes = np.sum(pc.rational.residualInverseRational(optParams, fiducialPoints, imageCorners)**2)
+optRes = np.sum(pc.residualInverse(optParams, fiducialPoints, imageCorners,model)**2)
+# plot
+pc.fiducialComparison3D(rVecOpt, tVecOpt, fiducialPoints, fiducialProjectedOpt, label1 = 'Fiducial points', label2 = 'Optimised points')
 
 
-# %%
-reload(pc)
 
-# %% DIRECT STEREOGRAPHIC CALCULATION
-linearCoeffs = np.array([1920,1920])/2
-distCoeffs = 952.16 # k calculated by stanganelli
 
-# test format parameters
-initialParams = pc.stereographic.formatParametersStereographic(rVecIni, tVecIni, linearCoeffs, distCoeffs)
-# test retrieve parameters
-pc.stereographic.retrieveParametersStereographic(initialParams)
-
-# test mapping with initial conditions
-pc.stereographic.directStereographic(fiducialPoints, rVecIni, tVecIni, linearCoeffs, distCoeffs)
-
-# calculate initial residual
-initialRes = np.sum(pc.stereographic.residualDirectStereographic(initialParams, fiducialPoints, imageCorners)**2)
-
-# optimise rVec, tVec
-rVecOpt, tVecOpt, optParams = pc.stereographic.calibrateDirectStereographic(fiducialPoints, imageCorners, rVecIni, tVecIni, linearCoeffs, distCoeffs)
-
-# residual after optimisation
-optRes = np.sum(pc.stereographic.residualDirectStereographic(optParams, fiducialPoints, imageCorners)**2)
-
-# %%
-reload(pc)
-
-# %% INVERSE STEREOGRAPHIC CALCULATION
-linearCoeffs = np.array([1920,1920])/2
-distCoeffs = 952.16 # k calculated by stanganelli
-
-# test format parameters
-initialParams = pc.stereographic.formatParametersStereographic(rVecIni, tVecIni, linearCoeffs, distCoeffs)
-# test retrieve parameters
-pc.stereographic.retrieveParametersStereographic(initialParams)
-
-# test mapping with initial conditions
-pc.stereographic.inverseStereographic(imageCorners, rVecIni, tVecIni, linearCoeffs, distCoeffs)
-
-initialRes = np.sum(pc.stereographic.residualInverseStereographic(initialParams, fiducialPoints, imageCorners)**2)
-
-# optimise rVec, tVec
-rVecOpt, tVecOpt, optParams = pc.stereographic.calibrateInverseStereographic(fiducialPoints, imageCorners, rVecIni, tVecIni, linearCoeffs, distCoeffs)
-
-# residual after optimisation
-optRes = np.sum(pc.stereographic.residualInverseStereographic(optParams, fiducialPoints, imageCorners)**2)
-
-
-
-
-# %%
-reload(pc)
-
-# %% DIRECT STEREOGRAPHIC CALCULATION
-linearCoeffs = np.array([1920,1920])/2
-distCoeffs = np.array([1, 952]) # l,m calculated by stanganelli?
-
-# test format parameters
-initialParams = pc.unified.formatParametersUnified(rVecIni, tVecIni, linearCoeffs, distCoeffs)
-# test retrieve parameters
-pc.unified.retrieveParametersUnified(initialParams)
-
-# test mapping with initial conditions
-pc.unified.directUnified(fiducialPoints, rVecIni, tVecIni, linearCoeffs, distCoeffs)
-
-# calculate initial residual
-initialRes = np.sum(pc.unified.residualDirectUnified(initialParams, fiducialPoints, imageCorners)**2)
-
-# optimise rVec, tVec
-rVecOpt, tVecOpt, optParams = pc.unified.calibrateDirectUnified(fiducialPoints, imageCorners, rVecIni, tVecIni, linearCoeffs, distCoeffs)
-
-# residual after optimisation
-optRes = np.sum(pc.unified.residualDirectUnified(optParams, fiducialPoints, imageCorners)**2)
-
-# %%
-reload(pc)
-
-# %% INVERSE STEREOGRAPHIC CALCULATION
-linearCoeffs = np.array([1920,1920])/2
-distCoeffs = np.array([1, 952]) # l,m calculated by stanganelli?
-
-# test format parameters
-initialParams = pc.unified.formatParametersUnified(rVecIni, tVecIni, linearCoeffs, distCoeffs)
-# test retrieve parameters
-pc.unified.retrieveParametersUnified(initialParams)
-
-# test mapping with initial conditions
-pc.unified.inverseUnified(imageCorners, rVecIni, tVecIni, linearCoeffs, distCoeffs)
-
-initialRes = np.sum(pc.unified.residualInverseUnified(initialParams, fiducialPoints, imageCorners)**2)
-
-# optimise rVec, tVec
-rVecOpt, tVecOpt, optParams = pc.unified.calibrateInverseUnified(fiducialPoints, imageCorners, rVecIni, tVecIni, linearCoeffs, distCoeffs)
-
-# residual after optimisation
-optRes = np.sum(pc.unified.residualInverseUnified(optParams, fiducialPoints, imageCorners)**2)
-
-
-
-# %%
-reload(pc)
-
-# %% DIRECT FISHEYE CALCULATION
-linearCoeffs = np.load(linearCoeffsFile) # coef intrinsecos
-distCoeffs = np.array([[1.1],[2.2],[3.3],[4.4]]) # k1, k2, k3, k4
-
-# test format parameters
-initialParams = pc.fisheye.formatParametersFisheye(rVecIni, tVecIni, linearCoeffs, distCoeffs)
-# test retrieve parameters
-pc.fisheye.retrieveParametersFisheye(initialParams)
-
-# test mapping with initial conditions
-pc.fisheye.directFisheye(fiducialPoints, rVecIni, tVecIni, linearCoeffs, distCoeffs)
-
-# calculate initial residual
-initialRes = np.sum(pc.fisheye.residualDirectFisheye(initialParams, fiducialPoints, imageCorners)**2)
-
-# optimise rVec, tVec
-rVecOpt, tVecOpt, optParams = pc.fisheye.calibrateDirectFisheye(fiducialPoints, imageCorners, rVecIni, tVecIni, linearCoeffs, distCoeffs)
-
-# residual after optimisation
-optRes = np.sum(pc.fisheye.residualDirectFisheye(optParams, fiducialPoints, imageCorners)**2)
-
-# %%
-reload(pc)
-
-# %% INVERSE FISHEYE CALCULATION
-linearCoeffs = np.load(linearCoeffsFile) # coef intrinsecos
-distCoeffs = np.array([[1.1],[2.2],[3.3],[4.4]]) # k1, k2, k3, k4
-
-# test format parameters
-initialParams = pc.fisheye.formatParametersFisheye(rVecIni, tVecIni, linearCoeffs, distCoeffs)
-# test retrieve parameters
-pc.fisheye.retrieveParametersFisheye(initialParams)
-
-# test mapping with initial conditions
-pc.fisheye.inverseFisheye(imageCorners, rVecIni, tVecIni, linearCoeffs, distCoeffs)
-
-initialRes = np.sum(pc.fisheye.residualInverseFisheye(initialParams, fiducialPoints, imageCorners)**2)
-
-# optimise rVec, tVec
-rVecOpt, tVecOpt, optParams = pc.fisheye.calibrateInverseFisheye(fiducialPoints, imageCorners, rVecIni, tVecIni, linearCoeffs, distCoeffs)
-
-# residual after optimisation
-optRes = np.sum(pc.fisheye.residualInverseFisheye(optParams, fiducialPoints, imageCorners)**2)
-
-
-
-
-
-
-
-
-
-# %%
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-# %% PLOT FOR INITIAL CONDITIONS
-cornersX = corners[:,0,0]
-cornersY = corners[:,0,1]
-prjtCnesXIni = projectedCornersIni[:,0,0]
-prjtCnesYIni = projectedCornersIni[:,0,1]
-plt.imshow(img)
-plt.plot(cornersX, cornersY, 'xr', markersize=10, label='Corners')
-plt.plot(prjtCnesXIni, prjtCnesYIni, '+b', markersize=10, label='Proyectados')
-plt.legend()
-plt.show()
-
-
-scenePntsX = objectPoints[0,:,0]
-scenePntsY = objectPoints[0,:,1]
-prjtPntsXIni = projectedPointsIni[0,:,0]
-prjtPntsYIni = projectedPointsIni[0,:,1]
-plt.plot(scenePntsX, scenePntsY, 'xr', markersize=10, label='pnts Calibracion')
-plt.plot(prjtPntsXIni, prjtPntsYIni, '+b', markersize=10, label='Proyectados')
-plt.legend()
-plt.show()
-
-
-
-# %% map with OPTIMAL conditions
-projectedCornersOut, jaco = cv2.projectPoints(objectPoints,
-                                          rVecOptDir,
-                                          tVecOptDir,
-                                          linearCoeffs,
-                                          distCoeffs)
-
-projectedPointsOut = inverseRational(corners,
-                                     rVecOptInv,
-                                     tVecOptInv,
-                                     linearCoeffs,
-                                     distCoeffs)
-
-# %% PLOT FOR FINAL CONDITIONS
-prjtCnesXOut = projectedCornersOut[:,0,0]
-prjtCnesYOut = projectedCornersOut[:,0,1]
-plt.imshow(img)
-plt.plot(cornersX, cornersY, 'xr', markersize=10, label='Corners')
-plt.plot(prjtCnesXIni, prjtCnesYIni, '+b', markersize=10, label='Proyectados')
-plt.plot(prjtCnesXOut, prjtCnesYOut, '+k', markersize=10, label='Optimized proj.')
-plt.legend()
-
-
-prjtPntsXOut = projectedPointsOut[0,:,0]
-prjtPntsYOut = projectedPointsOut[0,:,1]
-plt.plot(scenePntsX, scenePntsY, 'xr', markersize=10, label='pnts Calibracion')
-plt.plot(prjtPntsXIni, prjtPntsYIni, '+b', markersize=10, label='Proyectados')
-plt.plot(prjtPntsXOut, prjtPntsYOut, '+k', markersize=10, label='proy, Optimizados')
-plt.legend()
-plt.show()

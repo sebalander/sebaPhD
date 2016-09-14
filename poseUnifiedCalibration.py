@@ -4,15 +4,13 @@ Created on Tue Sep 13 19:14:17 2016
 
 @author: sebalander
 """
-from numpy import zeros, sqrt, array, reshape, tan, arctan
+from numpy import zeros, sqrt, array
 from cv2 import  Rodrigues
 from lmfit import minimize, Parameters
+from poseFunctions import xypToZplane
 
-# %% ========== ========== Unified PARAMETER HANDLING ========== ==========
-def formatParametersUnified(rVec, tVec, linearCoeffs, distCoeffs):
-    '''
-    get params into correct format for lmfit optimisation
-    '''
+# %% ========== ==========  PARAMETER HANDLING ========== ==========
+def formatParameters(rVec, tVec, linearCoeffs, distCoeffs):
     params = Parameters()
     for i in range(3):
         params.add('rvec%d'%i,
@@ -33,10 +31,7 @@ def formatParametersUnified(rVec, tVec, linearCoeffs, distCoeffs):
                value=distCoeffs[1], vary=False)
     return params
 
-def retrieveParametersUnified(params):
-    '''
-    
-    '''
+def retrieveParameters(params):
     rvec = zeros((3,1))
     tvec = zeros((3,1))
     for i in range(3):
@@ -53,11 +48,9 @@ def retrieveParametersUnified(params):
     return rvec, tvec, cameraMatrix, distCoeffs
 
 
-# %% ========== ========== DIRECT Unified ========== ==========
+# %% ========== ========== DIRECT  ========== ==========
 # we asume that intrinsic distortion paramters is just a scalar: distCoeffs=k
-def directUnified(fiducialPoints, rVec, tVec, linearCoeffs, distCoeffs):
-    '''
-    '''
+def direct(fiducialPoints, rVec, tVec, linearCoeffs, distCoeffs):
     # format as matrix
     if rVec.shape != (3,3):
         rVec, _ = Rodrigues(rVec)
@@ -79,12 +72,10 @@ def directUnified(fiducialPoints, rVec, tVec, linearCoeffs, distCoeffs):
     
     return array([u,v]).reshape((fiducialPoints.shape[1],1,2))
 
-def residualDirectUnified(params, fiducialPoints, imageCorners):
-    '''
-    '''
-    rVec, tVec, linearCoeffs, distCoeffs = retrieveParametersUnified(params)
+def residualDirect(params, fiducialPoints, imageCorners):
+    rVec, tVec, linearCoeffs, distCoeffs = retrieveParameters(params)
     
-    projectedCorners = directUnified(fiducialPoints,
+    projectedCorners = direct(fiducialPoints,
                                       rVec,
                                       tVec,
                                       linearCoeffs,
@@ -92,32 +83,21 @@ def residualDirectUnified(params, fiducialPoints, imageCorners):
     
     return imageCorners[:,0,:] - projectedCorners[:,0,:]
 
-def calibrateDirectUnified(fiducialPoints, imageCorners, rVec, tVec, linearCoeffs, distCoeffs):
-    '''
-    returns optimised rvecOpt, tvecOpt
-    '''
-    initialParams = formatParametersUnified(rVec, tVec, linearCoeffs, distCoeffs) # generate Parameters obj
+def calibrateDirect(fiducialPoints, imageCorners, rVec, tVec, linearCoeffs, distCoeffs):
+    initialParams = formatParameters(rVec, tVec, linearCoeffs, distCoeffs) # generate Parameters obj
     
-    out = minimize(residualDirectUnified,
+    out = minimize(residualDirect,
                    initialParams,
                    args=(fiducialPoints,
                          imageCorners))
     
-    rvecOpt, tvecOpt, _, _ = retrieveParametersUnified(out.params)
+    rvecOpt, tvecOpt, _, _ = retrieveParameters(out.params)
     
     return rvecOpt, tvecOpt, out.params
 
 
-# %% ========== ========== INVERSE Unified ========== ==========
-def inverseUnified(imageCorners, rVec, tVec, linearCoeffs, distCoeffs):
-    '''
-    inverseRational(objPoints, rVec/rotMatrix, tVec, cameraMatrix,
-                    distCoeffs)-> objPoints
-    takes corners in image and returns coordinates in scene
-    corners must be of size (n,1,2)
-    objPoints has size (1,n,3)
-    ignores tangential and tilt distortions
-    '''
+# %% ========== ========== INVERSE  ========== ==========
+def inverse(imageCorners, rVec, tVec, linearCoeffs, distCoeffs):
     # format as matrix
     if rVec.shape != (3,3):
         rVec, _ = Rodrigues(rVec)
@@ -134,31 +114,16 @@ def inverseUnified(imageCorners, rVec, tVec, linearCoeffs, distCoeffs):
     xp = xpp * aux1 / denom
     yp = ypp * aux2 / denom
     
-    # auxiliar calculations
-    a = rVec[0,0] - rVec[2,0] * xp
-    b = rVec[0,1] - rVec[2,1] * xp
-    c = tVec[0,0] - tVec[2,0] * xp
-    d = rVec[1,0] - rVec[2,0] * yp
-    e = rVec[1,1] - rVec[2,1] * yp
-    f = tVec[1,0] - tVec[2,0] * yp
-    q = a*e-d*b
-    
-    X = -(c*e - f*b)/q # check why wrong sign, why must put '-' in front?
-    Y = -(f*a - c*d)/q
-    
-    shape = (1,imageCorners.shape[0],3)
-    XYZ = array([X, Y, zeros(shape[1])]).T
-    XYZ = reshape(XYZ, shape)
+    # project to z=0 plane. perhaps calculate faster with homography function?
+    XYZ = xypToZplane(xp, yp, rVec, tVec)
     
     return XYZ
 
 
-def residualInverseUnified(params, fiducialPoints, imageCorners):
-    '''
-    '''
-    rVec, tVec, linearCoeffs, distCoeffs = retrieveParametersUnified(params)
+def residualInverse(params, fiducialPoints, imageCorners):
+    rVec, tVec, linearCoeffs, distCoeffs = retrieveParameters(params)
     
-    projectedFiducialPoints = inverseUnified(imageCorners,
+    projectedFiducialPoints = inverse(imageCorners,
                                               rVec,
                                               tVec,
                                               linearCoeffs,
@@ -166,18 +131,14 @@ def residualInverseUnified(params, fiducialPoints, imageCorners):
     
     return fiducialPoints[0,:,:2] - projectedFiducialPoints[0,:,:2]
 
-def calibrateInverseUnified(fiducialPoints, imageCorners, rVec, tVec, linearCoeffs, distCoeffs):
-    '''
-    returns optimised rvecOpt, tvecOpt
+def calibrateInverse(fiducialPoints, imageCorners, rVec, tVec, linearCoeffs, distCoeffs):
+    initialParams = formatParameters(rVec, tVec, linearCoeffs, distCoeffs) # generate Parameters obj
     
-    '''
-    initialParams = formatParametersUnified(rVec, tVec, linearCoeffs, distCoeffs) # generate Parameters obj
-    
-    out = minimize(residualInverseUnified,
+    out = minimize(residualInverse,
                    initialParams,
                    args=(fiducialPoints,
                          imageCorners))
     
-    rvecOpt, tvecOpt, _, _ = retrieveParametersUnified(out.params)
+    rvecOpt, tvecOpt, _, _ = retrieveParameters(out.params)
     
     return rvecOpt, tvecOpt, out.params
