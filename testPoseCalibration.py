@@ -44,7 +44,7 @@ distCoeffs = np.load(distCoeffsFile)
 
 # %%
 reload(pc)
-
+reload(pc.rational)
 # %% STEREOGRAPHIC params
 linearCoeffs = np.array([1920,1920])/2
 distCoeffs = np.array([1, 952]) # l,m calculated by stanganelli?

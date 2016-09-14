@@ -7,8 +7,6 @@ Created on Tue Sep 13 19:00:40 2016
 from numpy import zeros, sqrt, array, tan, arctan
 from cv2 import  Rodrigues
 from lmfit import minimize, Parameters
-from poseFunctions import xypToZplane
-
 
 # %% ========== ==========  PARAMETER HANDLING ========== ==========
 def formatParameters(rVec, tVec, linearCoeffs, distCoeffs):
