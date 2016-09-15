@@ -2,20 +2,46 @@
 """
 Created on Thu Aug 18 13:57:48 2016
 
-test calibrator class
+tutorail/examples on poseCalibrator
+
+There are two possible mappings: inverse and direct
+  - Direct mapping: converts the scene 3D points to the image 2D pixel points.
+        This mapping *distorts* (i.e. "applies the dostortion function") to the
+        coordinates.
+  - Inverse mapping: takes the 2D distorted coordinates from the image and maps
+        to the undistorted scene 3D coordinates. This *un-distorts* the points.
+
+Here we deal with three sets of rototranslation, pose, paramters: user
+provided, optimised via direct mapping and optimised via inverse mapping.
+  - Initial paramters: proposed by user, wherever he's gotten them from...
+  - Direct-optimised parameters: are obtained minimising the cuadratic error
+        between the direct-mapping of some 3D fiducial points into the image
+        and some 2D corner points that correspond to said fiducial points.
+  - Inverse.optimised paramters: The same as direct-optimised parameters, only
+        backwards. Are obtained minimising the cuadratic error between the
+        inverse-mapping of some 2D corner points into the scene and some 3D
+        fiducial points that correspond to said corner points.
+
+
+In this tutorial we compare all possible combination:
+
+|                   | Direct | Inverse|
+|-------------------|--------|--------|
+|     Initial       | case 1 | case 4 |
+| Direct-optimised  | case 2 | case 5 |
+| Inverse-optinised | case 3 | case 6 |
+
 
 @author: sebalander
 """
 
 
 # %%
-import cv2
-import numpy as np
+from cv2 import imread
+from numpy import load, sum
 import poseCalibration as pc
-#from lmfit import minimize, Parameters
 
-
-# % FILES
+# %% FILES
 # input files
 imageFile = "./resources/PTZgrid/ptz_(0.850278, -0.014444, 0.0).jpg"
 cornersFile = "./resources/PTZgrid/ptzCorners.npy"
@@ -27,83 +53,106 @@ tvecInitialFile = "./resources/PTZgrid/PTZsheetTvecInitial.npy"
 distCoeffsFile = "./resources/PTZchessboard/zoom 0.0/ptzDistCoeffs.npy"
 linearCoeffsFile = "./resources/PTZchessboard/zoom 0.0/ptzLinearCoeffs.npy"
 
-## output files
-#rvecOptimDirFile = "./resources/PTZchessboard/zoom 0.0/ptzSheetRvecOptimDir.npy"
-#tvecOptimDirFile = "./resources/PTZchessboard/zoom 0.0/ptzSheetTvecOptimDir.npy"
-#rvecOptimInvFile = "./resources/PTZchessboard/zoom 0.0/ptzSheetRvecOptimInv.npy"
-#tvecOptimInvFile = "./resources/PTZchessboard/zoom 0.0/ptzSheetTvecOptimInv.npy"
-
 # %% LOAD DATA
-img = cv2.imread(imageFile)
-imageCorners = np.load(cornersFile)
-fiducialPoints = np.load(patternFile)
-rVecIni = np.load(rvecInitialFile) # cond inicial de los extrinsecos
-tVecIni = np.load(tvecInitialFile)
-linearCoeffs = np.load(linearCoeffsFile) # coef intrinsecos
-distCoeffs = np.load(distCoeffsFile)
+img = imread(imageFile)
+imageCorners = load(cornersFile)
+fiducialPoints = load(patternFile)
+rVecIni = load(rvecInitialFile) # cond inicial de los extrinsecos
+tVecIni = load(tvecInitialFile)
+linearCoeffs = load(linearCoeffsFile) # coef intrinsecos
+distCoeffs = load(distCoeffsFile)
 
-# %%
-reload(pc)
+# this example works fine with theintrinsic parameters available
+# others: 'stereographic' 'fisheye', 'unified'
+model= 'rational'
 
-# %% STEREOGRAPHIC params
-linearCoeffs = np.array([1920,1920])/2
-distCoeffs = np.array(952) # k calculated by stanganelli?
-#
-## %% FISHEYE params
-#linearCoeffs = np.load(linearCoeffsFile) # coef intrinsecos
-#distCoeffs = np.array([[1.1],[2.2],[3.3],[4.4]]) # k1, k2, k3, k4
+# %% PARAMTER HANDLING
+# giving paramters the appropiate format for the optimisation function
+paramsIni = pc.formatParameters(rVecIni, tVecIni,
+                                linearCoeffs, distCoeffs, model)
+# also, retrieving the numerical values
+pc.retrieveParameters(paramsIni, model)
 
-# %%
-model= 'rational' # 'stereographic' 'fisheye', 'unified', 'stereographic'
+# %% OPTIMISATION
+# optimise rVec, tVec using direct (distorting) mapping
+rVecOptDir, tVecOptDir, paramsOptDir = pc.calibrateDirect(fiducialPoints,
+                                                          imageCorners,
+                                                          rVecIni,
+                                                          tVecIni,
+                                                          linearCoeffs,
+                                                          distCoeffs,
+                                                          model)
 
-# %% DIRECT GENERIC CALIBRATION
-
-# direct mapping with initial conditions
-cornersProjectedIni = pc.direct(fiducialPoints, rVecIni, tVecIni, linearCoeffs, distCoeffs, model)
-
-# plot corners in image
-pc.cornerComparison(img, imageCorners, cornersProjectedIni)
-
-# format parameters
-initialParams = pc.formatParameters(rVecIni, tVecIni, linearCoeffs, distCoeffs,model)
-
-# calculate initial residual
-initialRes = np.sum(pc.residualDirect(initialParams, fiducialPoints, imageCorners,model)**2)
-
-# optimise rVec, tVec
-rVecOpt, tVecOpt, optParams = pc.calibrateDirect(fiducialPoints, imageCorners, rVecIni, tVecIni, linearCoeffs, distCoeffs, model)
-
-# test mapping with optimised conditions
-cornersProjectedOpt = pc.direct(fiducialPoints, rVecOpt, tVecOpt, linearCoeffs, distCoeffs, model)
-pc.cornerComparison(img, imageCorners, cornersProjectedOpt)
-
-# residual after optimisation
-optRes = np.sum(pc.residualDirect(optParams, fiducialPoints, imageCorners,model)**2)
-
-# %% INVERSE GENERIC CALIBRATION
-
-# test mapping with initial conditions
-fiducialProjectedIni = pc.inverse(imageCorners, rVecIni, tVecIni, linearCoeffs, distCoeffs,model)
-
-# plot
-pc.fiducialComparison(fiducialPoints, fiducialProjectedIni)
-pc.fiducialComparison3D(rVecIni, tVecIni, fiducialPoints, fiducialProjectedIni, label1 = 'Fiducial points', label2 = 'Projected points')
-
-# calculate initial residual
-initialRes = np.sum(pc.residualInverse(initialParams, fiducialPoints, imageCorners,model)**2)
-# plot
-
-# optimise rVec, tVec
-rVecOpt, tVecOpt, optParams = pc.calibrateInverse(fiducialPoints, imageCorners, rVecIni, tVecIni, linearCoeffs, distCoeffs,model)
-
-fiducialProjectedOpt = pc.inverse(imageCorners, rVecOpt, tVecOpt, linearCoeffs, distCoeffs,model)
-# plot
-pc.fiducialComparison(fiducialPoints, fiducialProjectedOpt)
-pc.fiducialComparison3D(rVecOpt, tVecOpt, fiducialPoints, fiducialProjectedOpt, label1 = 'Fiducial points', label2 = 'Optimised points')
-
-# residual after optimisation
-optRes = np.sum(pc.residualInverse(optParams, fiducialPoints, imageCorners,model)**2)
+# optimise rVec, tVec using inverse (un-distorting) mapping
+rVecOptInv, tVecOptInv, paramsOptInv = pc.calibrateInverse(fiducialPoints,
+                                                           imageCorners,
+                                                           rVecIni,
+                                                           tVecIni,
+                                                           linearCoeffs,
+                                                           distCoeffs,
+                                                           model)
 
 
+# %% CASE 1: use direct mapping to test initial parameters
+# project
+cornersCase1 = pc.direct(fiducialPoints, rVecIni, tVecIni,
+                         linearCoeffs,distCoeffs, model)
+# plot to compare
+pc.cornerComparison(img, imageCorners, cornersCase1)
+# calculate residual
+sum(pc.residualDirect(paramsIni, fiducialPoints, imageCorners, model)**2)
 
+# %% CASE 2: use direct mapping to test direct-optimised parameters
+# project
+cornersCase2 = pc.direct(fiducialPoints, rVecOptDir, tVecOptDir,
+                         linearCoeffs, distCoeffs, model)
+# plot to compare
+pc.cornerComparison(img, imageCorners, cornersCase2)
+# calculate residual
+sum(pc.residualDirect(paramsOptDir, fiducialPoints, imageCorners, model)**2)
+
+# %% CASE 3: use direct mapping to test inverse-optimised parameters
+# project
+cornersCase3 = pc.direct(fiducialPoints, rVecOptInv, tVecOptInv,
+                         linearCoeffs, distCoeffs, model)
+# plot to compare
+pc.cornerComparison(img, imageCorners, cornersCase3)
+# calculate residual
+sum(pc.residualDirect(paramsOptInv, fiducialPoints, imageCorners, model)**2)
+
+# %% CASE 4: use inverse mapping to test initial parameters
+# project
+fiducialCase4 = pc.inverse(imageCorners, rVecIni, tVecIni,
+                           linearCoeffs, distCoeffs, model)
+# plot to compare
+pc.fiducialComparison(fiducialPoints, fiducialCase4)
+pc.fiducialComparison3D(rVecIni, tVecIni,
+                        fiducialPoints, fiducialCase4,
+                        label1='Fiducial points', label2='Projected points')
+# calculate residual
+sum(pc.residualInverse(paramsIni, fiducialPoints, imageCorners, model)**2)
+
+# %% CASE 5: use inverse mapping to test direct-optimised parameters
+# project
+fiducialCase5 = pc.inverse(imageCorners, rVecOptDir, tVecOptDir,
+                           linearCoeffs, distCoeffs,model)
+# plot to compare
+pc.fiducialComparison(fiducialPoints, fiducialCase5)
+pc.fiducialComparison3D(rVecOptDir, tVecOptDir,
+                        fiducialPoints, fiducialCase5,
+                        label1='Fiducial points', label2='Projected points')
+# calculate residual
+sum(pc.residualInverse(paramsOptDir, fiducialPoints, imageCorners, model)**2)
+
+# %% CASE 6: use inverse mapping to test inverse-optimised parameters
+# project
+fiducialCase6 = pc.inverse(imageCorners, rVecOptInv, tVecOptInv,
+                           linearCoeffs, distCoeffs,model)
+# plot to compare
+pc.fiducialComparison(fiducialPoints, fiducialCase6)
+pc.fiducialComparison3D(rVecOptInv, tVecOptInv,
+                        fiducialPoints, fiducialCase6,
+                        label1='Fiducial points', label2='Projected points')
+# calculate residual
+sum(pc.residualInverse(paramsOptInv, fiducialPoints, imageCorners, model)**2)
 
