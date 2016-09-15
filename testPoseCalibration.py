@@ -27,11 +27,11 @@ tvecInitialFile = "./resources/PTZgrid/PTZsheetTvecInitial.npy"
 distCoeffsFile = "./resources/PTZchessboard/zoom 0.0/ptzDistCoeffs.npy"
 linearCoeffsFile = "./resources/PTZchessboard/zoom 0.0/ptzLinearCoeffs.npy"
 
-# output files
-rvecOptimDirFile = "./resources/PTZchessboard/zoom 0.0/ptzSheetRvecOptimDir.npy"
-tvecOptimDirFile = "./resources/PTZchessboard/zoom 0.0/ptzSheetTvecOptimDir.npy"
-rvecOptimInvFile = "./resources/PTZchessboard/zoom 0.0/ptzSheetRvecOptimInv.npy"
-tvecOptimInvFile = "./resources/PTZchessboard/zoom 0.0/ptzSheetTvecOptimInv.npy"
+## output files
+#rvecOptimDirFile = "./resources/PTZchessboard/zoom 0.0/ptzSheetRvecOptimDir.npy"
+#tvecOptimDirFile = "./resources/PTZchessboard/zoom 0.0/ptzSheetTvecOptimDir.npy"
+#rvecOptimInvFile = "./resources/PTZchessboard/zoom 0.0/ptzSheetRvecOptimInv.npy"
+#tvecOptimInvFile = "./resources/PTZchessboard/zoom 0.0/ptzSheetTvecOptimInv.npy"
 
 # %% LOAD DATA
 img = cv2.imread(imageFile)
@@ -44,28 +44,29 @@ distCoeffs = np.load(distCoeffsFile)
 
 # %%
 reload(pc)
-reload(pc.rational)
+
 # %% STEREOGRAPHIC params
 linearCoeffs = np.array([1920,1920])/2
-distCoeffs = np.array([1, 952]) # l,m calculated by stanganelli?
-
-# %% FISHEYE params
-linearCoeffs = np.load(linearCoeffsFile) # coef intrinsecos
-distCoeffs = np.array([[1.1],[2.2],[3.3],[4.4]]) # k1, k2, k3, k4
+distCoeffs = np.array(952) # k calculated by stanganelli?
+#
+## %% FISHEYE params
+#linearCoeffs = np.load(linearCoeffsFile) # coef intrinsecos
+#distCoeffs = np.array([[1.1],[2.2],[3.3],[4.4]]) # k1, k2, k3, k4
 
 # %%
-model= 'rational'
+model= 'rational' # 'stereographic' 'fisheye', 'unified', 'stereographic'
 
 # %% DIRECT GENERIC CALIBRATION
-# test format parameters
-initialParams = pc.formatParameters(rVecIni, tVecIni, linearCoeffs, distCoeffs,model)
-# test retrieve parameters
-# pc.retrieveParameters(initialParams,model)
 
-# test mapping with initial conditions
-cornersProjectedIni = pc.direct(fiducialPoints, rVecIni, tVecIni, linearCoeffs, distCoeffs,model)
+# direct mapping with initial conditions
+cornersProjectedIni = pc.direct(fiducialPoints, rVecIni, tVecIni, linearCoeffs, distCoeffs, model)
 
+# plot corners in image
 pc.cornerComparison(img, imageCorners, cornersProjectedIni)
+
+# format parameters
+initialParams = pc.formatParameters(rVecIni, tVecIni, linearCoeffs, distCoeffs,model)
+
 # calculate initial residual
 initialRes = np.sum(pc.residualDirect(initialParams, fiducialPoints, imageCorners,model)**2)
 
@@ -83,21 +84,25 @@ optRes = np.sum(pc.residualDirect(optParams, fiducialPoints, imageCorners,model)
 
 # test mapping with initial conditions
 fiducialProjectedIni = pc.inverse(imageCorners, rVecIni, tVecIni, linearCoeffs, distCoeffs,model)
+
+# plot
 pc.fiducialComparison(fiducialPoints, fiducialProjectedIni)
+pc.fiducialComparison3D(rVecIni, tVecIni, fiducialPoints, fiducialProjectedIni, label1 = 'Fiducial points', label2 = 'Projected points')
+
 # calculate initial residual
 initialRes = np.sum(pc.residualInverse(initialParams, fiducialPoints, imageCorners,model)**2)
 # plot
-pc.fiducialComparison3D(rVecIni, tVecIni, fiducialPoints, fiducialProjectedIni, label1 = 'Fiducial points', label2 = 'Projected points')
 
 # optimise rVec, tVec
 rVecOpt, tVecOpt, optParams = pc.calibrateInverse(fiducialPoints, imageCorners, rVecIni, tVecIni, linearCoeffs, distCoeffs,model)
 
 fiducialProjectedOpt = pc.inverse(imageCorners, rVecOpt, tVecOpt, linearCoeffs, distCoeffs,model)
+# plot
 pc.fiducialComparison(fiducialPoints, fiducialProjectedOpt)
+pc.fiducialComparison3D(rVecOpt, tVecOpt, fiducialPoints, fiducialProjectedOpt, label1 = 'Fiducial points', label2 = 'Optimised points')
+
 # residual after optimisation
 optRes = np.sum(pc.residualInverse(optParams, fiducialPoints, imageCorners,model)**2)
-# plot
-pc.fiducialComparison3D(rVecOpt, tVecOpt, fiducialPoints, fiducialProjectedOpt, label1 = 'Fiducial points', label2 = 'Optimised points')
 
 
 

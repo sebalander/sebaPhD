@@ -12,11 +12,6 @@ from numpy import min, max, ndarray, zeros, array, reshape
 from matplotlib.patches import FancyArrowPatch
 from mpl_toolkits.mplot3d import proj3d
 
-import poseStereographicCalibration as stereographic
-import poseUnifiedCalibration as unified
-import poseRationalCalibration as rational
-import poseFisheyeCalibration as fisheye
-
 # %% Z=0 PROJECTION
 
 def xypToZplane(xp, yp, rVec, tVec, z=0):
@@ -37,6 +32,18 @@ def xypToZplane(xp, yp, rVec, tVec, z=0):
     XYZ = reshape(XYZ, shape)
     
     return XYZ
+
+# %%
+import poseStereographicCalibration as stereographic
+import poseUnifiedCalibration as unified
+import poseRationalCalibration as rational
+import poseFisheyeCalibration as fisheye
+
+reload(rational)
+
+reload(fisheye)
+reload(unified)
+reload(stereographic)
 
 
 # %% PARAMETER HANDLING
