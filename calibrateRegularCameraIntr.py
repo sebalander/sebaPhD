@@ -48,55 +48,77 @@ m = corners.shape[2] # points per image
 #p = fiducialPoints[0,j]
 cer = np.zeros(4)
 
-# los 1s se agregan porque tiene que se en coordenadas homogéneas
-def Pelement(x,p):
-    a = np.concatenate((p, [1], cer, -x[0]*p, [-x[0]]))
-    b = np.concatenate((cer, p, [1], -x[1]*p, [-x[1]]))
-    return np.concatenate(([a] ,[b] ),0)
 
 
-PP = np.array([[Pelement(corners[i,0,j],fiducialPoints[0,j]) for j in range(m)] for i in range(n)])
+def linea1(x,y,xp,yp):
+    return [x, 0, -x*xp, y, 0, -y*xp, 1, 0, -xp]
 
-PP = np.reshape(np.array(PP),(2*n*m,12),order='F')
+def linea2(x,y,xp,yp):
+    return [0, x, -x*yp, 0, y, -y*yp, 0, 1, -yp]
 
-# check that there are more rows than columns (12)
-# make square
-PTP = PP.T.dot(PP)
-l, v = np.linalg.eig(PTP)
+def lineas(x,y,xp,yp):
+    
+    [[x, 0, -x*xp, y, 0, -y*xp, 1, 0, -xp],
+     [0, x, -x*yp, 0, y, -y*yp, 0, 1, -yp]]
+    
+    return np.array([linea1(x,y,xp,yp),linea2(x,y,xp,yp)])
 
-# %% WHAT FOLLOWS IS OBSOLETE
-n = len(imgpoints)  # cantidad de imagenes
-# Parametros de entrada/salida de la calibracion
-rvecs = ()
-tvecs = ()
-cameraMatrix = ()
-distCoeffs = ()
+i = 0 # indice de imagen, hasta n
+j = 0 # indice de punto, hasta m
 
-# enable possible coefficients
-flags = cv2.CALIB_ZERO_TANGENT_DIST + cv2.CALIB_RATIONAL_MODEL
+x = corners[i,0,j,0]
+y = corners[i,0,j,1]
+xp = fiducialPoints[0,j,0]
+yp = fiducialPoints[0,j,1]
 
-objpoints = [chessboardModel]*n
+lineas(x,y,xp,yp)
 
-calibrationCriteria = (cv2.TERM_CRITERIA_EPS
-                       + cv2.TERM_CRITERIA_MAX_ITER,
-                       1000, # max number of iterations
-                       0.0001) # min accuracy
+def H(fiducialPoints,corners):
+    m = fiducialPoints.shape[1]
+    h = [ lineas(fiducialPoints[0,j,0], fiducialPoints[0,j,1],
+                 corners[0,j,0], corners[0,j,1])
+     for j in range(m)]
+    
+    h = np.array(h)
+    h = np.reshape(h,(m*2,9))
+    return h
 
-# %% OPTIMIZAR 
-rms, cameraMatrix, distCoeffs, rvecs, tvecs = cv2.calibrateCamera(objpoints,
-                                                                  imgpoints,
-                                                                  imgSize,
-                                                                  cameraMatrix,
-                                                                  distCoeffs,
-                                                                  rvecs,
-                                                                  tvecs,
-                                                                  flags)
+h = H(corners[0],fiducialPoints)
 
-# (k1,k2,p1,p2[,k3[,k4,k5,k6[,s1,s2,s3,s4[,τx,τy]]]])
+h2 = np.matmul(h.T,h)
+
+if np.linalg.matrix_rank(h2)==9:
+    "tiene rango 9, signifique lo que signifique"
+
+L, V = np.linalg.eigh(h2)
+
+U, S, V = np.linalg.svd(h)
+# elijo el menor
+v = V[8]
+# chequear que no este repetido?
+r1 = v[0:3]
+r2 = v[3:6]
+t = v[6:9]
+
+np.dot(r1, r2) # no dan perpendiculares
+r3 = np.cross(r1,r2)
 
 
-# %% SAVE PARAMETERS, INTRINSIC AND EXTRINSIC
-np.save(distCoeffsFile, distCoeffs)
-np.save(linearCoeffsFile, cameraMatrix)
-np.save(rvecsFile, rvecs)
-np.save(tvecsFile, tvecs)
+n1 = np.linalg.norm(r1)
+n2 = np.linalg.norm(r2) # las normas dan cualquier cosa
+n3 = np.linalg.norm(r3)
+nt = np.linalg.norm(t)
+
+# componer matriz de rotacion cruda
+# ortonormalizarla
+
+# normalizar los vectores, sacar el de rodrigues
+
+# %% 
+# hacer optimizacion para terminar de ajustar el pinhole y asi sacar la pose para cada imagen. usar las funciones de las librerias extrinsecas
+# es para cada imagen por separado
+
+# %%
+# para todas las imagenes juntas dejar la pose fija y optimizar los parametros de distorsion 
+
+# %% optimizar todo junto a la vez tomando lo anterior como condiciones iniciales.
