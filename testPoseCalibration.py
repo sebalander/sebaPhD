@@ -45,9 +45,9 @@ distCoeffs = np.load(distCoeffsFile)
 # %%
 reload(pc)
 
-# %% STEREOGRAPHIC params
-linearCoeffs = np.array([1920,1920])/2
-distCoeffs = np.array(952) # k calculated by stanganelli?
+## %% STEREOGRAPHIC params
+#linearCoeffs = np.array([1920,1920])/2
+#distCoeffs = np.array(952) # k calculated by stanganelli?
 #
 ## %% FISHEYE params
 #linearCoeffs = np.load(linearCoeffsFile) # coef intrinsecos

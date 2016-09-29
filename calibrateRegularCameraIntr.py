@@ -15,6 +15,8 @@ import cv2
 import numpy as np
 import glob
 import matplotlib.pyplot as plt
+from scipy import linalg
+import poseCalibration as pc
 
 # %% LOAD DATA
 #imagesFolder = "./resources/fishChessboardImg/"
@@ -23,24 +25,25 @@ import matplotlib.pyplot as plt
 #imgShapeFile = "/home/sebalander/code/sebaPhD/resources/fishShape.npy"
 
 imagesFolder = "./resources/PTZchessboard/zoom 0.0/"
-cornersFile = "/home/sebalander/Code/sebaPhD/resources/PTZchessboard/zoom 0.0/ptzCorners.npy"
-patternFile = "/home/sebalander/Code/sebaPhD/resources/chessPattern.npy"
-imgShapeFile = "/home/sebalander/Code/sebaPhD/resources/ptzImgShape.npy"
+cornersFile = "./resources/PTZchessboard/zoom 0.0/ptzCorners.npy"
+patternFile = "./resources/chessPattern.npy"
+imgShapeFile = "./resources/ptzImgShape.npy"
 
-corners = np.load(cornersFile)
+corners = np.load(cornersFile).transpose((0,2,1,3))
 fiducialPoints = np.load(patternFile)
 imgSize = tuple(np.load(imgShapeFile))
-images = glob.glob(imagesFolder+'*.png')
+f = 1e3
+images = glob.glob(imagesFolder+'*.jpg')
 
 # output files
-distCoeffsFile = "/home/sebalander/Code/sebaPhD/resources/PTZchessboard/zoom 0.0/ptzDistCoeffs.npy"
-linearCoeffsFile = "/home/sebalander/Code/sebaPhD/resources/PTZchessboard/zoom 0.0/ptzLinearCoeffs.npy"
-rvecsFile = "/home/sebalander/Code/sebaPhD/resources/PTZchessboard/zoom 0.0/ptzRvecs.npy"
-tvecsFile = "/home/sebalander/Code/sebaPhD/resources/PTZchessboard/zoom 0.0/ptzTvecs.npy"
+distCoeffsFile = "./resources/PTZchessboard/zoom 0.0/ptzDistCoeffs.npy"
+linearCoeffsFile = "./resources/PTZchessboard/zoom 0.0/ptzLinearCoeffs.npy"
+rvecsFile = "./resources/PTZchessboard/zoom 0.0/ptzRvecs.npy"
+tvecsFile = "./resources/PTZchessboard/zoom 0.0/ptzTvecs.npy"
 
 # %% LINEAR APPROACH TO CAMERA CALIBRATION
 n = corners.shape[0] # number of images
-m = corners.shape[2] # points per image
+m = corners.shape[1] # points per image
 
 #i = 3
 #j = 31
@@ -49,74 +52,174 @@ m = corners.shape[2] # points per image
 cer = np.zeros(4)
 
 
-
-def linea1(x,y,xp,yp):
-    return [x, 0, -x*xp, y, 0, -y*xp, 1, 0, -xp]
-
-def linea2(x,y,xp,yp):
-    return [0, x, -x*yp, 0, y, -y*yp, 0, 1, -yp]
-
 def lineas(x,y,xp,yp):
     
-    [[x, 0, -x*xp, y, 0, -y*xp, 1, 0, -xp],
+    lin = [[x, 0, -x*xp, y, 0, -y*xp, 1, 0, -xp],
      [0, x, -x*yp, 0, y, -y*yp, 0, 1, -yp]]
     
-    return np.array([linea1(x,y,xp,yp),linea2(x,y,xp,yp)])
+    return lin
 
 i = 0 # indice de imagen, hasta n
 j = 0 # indice de punto, hasta m
 
-x = corners[i,0,j,0]
-y = corners[i,0,j,1]
-xp = fiducialPoints[0,j,0]
-yp = fiducialPoints[0,j,1]
+xp = corners[i,j,0,0] - imgSize[0]/2
+yp = corners[i,j,0,1] - imgSize[1]/2
+x = fiducialPoints[0,j,0]
+y = fiducialPoints[0,j,1]
 
 lineas(x,y,xp,yp)
 
-def H(fiducialPoints,corners):
+def H(fiducialPoints, corner, imgSize, f):
     m = fiducialPoints.shape[1]
-    h = [ lineas(fiducialPoints[0,j,0], fiducialPoints[0,j,1],
-                 corners[0,j,0], corners[0,j,1])
-     for j in range(m)]
+    h = [ lineas(fiducialPoints[0,j,0],
+                 fiducialPoints[0,j,1],
+                 (corner[j,0,0] - imgSize[0]/2)/f,
+                 (corner[j,0,1] - imgSize[1]/2)/f)
+         for j in range(m)]
     
     h = np.array(h)
     h = np.reshape(h,(m*2,9))
     return h
 
-h = H(corners[0],fiducialPoints)
+H(fiducialPoints, corners[0], imgSize, f)
 
-h2 = np.matmul(h.T,h)
+def rotTras1(fiducialPoints, corner, imgSize, f):
+    
+    h = H(fiducialPoints, corner, imgSize, f)
+    
+    # uso svd
+    U, S, V = linalg.svd(h)
+    # elijo el menor
+    v = V[8]
+    # chequear que no este repetido?
+    r1 = v[0:3]
+    r2 = v[3:6]
+    tVec = v[6:9].reshape((3,1))
+    
+    # np.dot(r1, r2) # no dan perpendiculares
+    r3 = np.cross(r1,r2)
+    
+    # componer matriz de rotacion cruda
+    # ortonormalizarla
+    rot = np.array([r1, r2, r3])
+    
+    rot = rot.dot(linalg.inv(linalg.sqrtm(rot.T.dot(rot))))
+    
+    rVec, _ = cv2.Rodrigues(rot)
+    
+    return rVec, tVec
 
-if np.linalg.matrix_rank(h2)==9:
-    "tiene rango 9, signifique lo que signifique"
+def initialPoses1(fiducialPoints, corners, imgSize, f):
+    initialPoses = [rotTras1(fiducialPoints, corner, imgSize, f) for corner in corners]
+    
+    rVecsIni = [pose[0] for pose in initialPoses]
+    tVecsIni = [pose[1] for pose in initialPoses]
+    
+    return rVecsIni, tVecsIni
 
-L, V = np.linalg.eigh(h2)
+rVecsIni, tVecsIni = initialPoses1(fiducialPoints, corners, imgSize, f)
 
-U, S, V = np.linalg.svd(h)
-# elijo el menor
-v = V[8]
-# chequear que no este repetido?
-r1 = v[0:3]
-r2 = v[3:6]
-t = v[6:9]
+# %% 
 
-np.dot(r1, r2) # no dan perpendiculares
-r3 = np.cross(r1,r2)
+def rotTras2(fiducialPoints, corner, imgSize, f):
+    
+    homography = cv2.findHomography(fiducialPoints[0,:,:2], (corner[:,0]-np.array(imgSize)/2)/f, method='RANSAC')[0]
+    
+    r1 = homography[0]
+    r2 = homography[1]
+    tVec = homography[2].reshape((3,1))
+    
+    r3 = np.cross(r1,r2)
+    rot = np.array([r1, r2, r3])
+    
+    rot = rot.dot(linalg.inv(linalg.sqrtm(rot.T.dot(rot))))
+    rVec, _ = cv2.Rodrigues(rot)
+    
+    return rVec, tVec
 
 
-n1 = np.linalg.norm(r1)
-n2 = np.linalg.norm(r2) # las normas dan cualquier cosa
-n3 = np.linalg.norm(r3)
-nt = np.linalg.norm(t)
 
-# componer matriz de rotacion cruda
-# ortonormalizarla
+def initialPoses2(fiducialPoints, corners, imgSize, f):
+    
+    initialPoses = [rotTras2(fiducialPoints, corner, imgSize, f) for corner in corners]
+    
+    rVecsIni = [pose[0] for pose in initialPoses]
+    tVecsIni = [pose[1] for pose in initialPoses]
+    
+    return rVecsIni, tVecsIni
 
-# normalizar los vectores, sacar el de rodrigues
+rVecsIni, tVecsIni = initialPoses2(fiducialPoints, corners, imgSize, f)
+
+# %% 
+
+def initialPoses3(fiducialPoints, corners, imgSize, f):
+    
+    t = np.mean(fiducialPoints[0],axis=0)+[0,0,1]
+    tVec = t.reshape((3,1))
+    
+    rot = np.array([[1,0,0],
+                    [0,-1,0],
+                    [0,0,-1]], dtype='float32')
+    rVec = cv2.Rodrigues(rot)[0]
+    
+    rVecsIni = [rVec]*corners.shape[0]
+    tVecsIni = [tVec]*corners.shape[0]
+    
+    return rVecsIni, tVecsIni
+
+rVecsIni, tVecsIni = initialPoses3(fiducialPoints, corners, imgSize, f)
+
+# %%
+
+model= 'rational'
+i = 8
 
 # %% 
 # hacer optimizacion para terminar de ajustar el pinhole y asi sacar la pose para cada imagen. usar las funciones de las librerias extrinsecas
 # es para cada imagen por separado
+
+linearCoeffs = np.array([[f, 0, imgSize[0]/2],
+                         [0, f, imgSize[1]/2],
+                         [0, 0, 1]], dtype='float32')
+
+distCoeffs = np.zeros((14,1)) # no hay distorsion
+
+# %% test initial calibration DIRECT
+
+cornersProjectedIni = pc.direct(fiducialPoints,
+                                rVecsIni[i], tVecsIni[i],
+                                linearCoeffs, distCoeffs, model)
+
+# plot corners in image
+img = cv2.imread(images[i])
+pc.cornerComparison(img, corners[i], cornersProjectedIni)
+
+# %% optimise rVec, tVec
+rVecOpt, tVecOpt, optParams = pc.calibrateDirect(fiducialPoints, corners[i], rVecsIni[i], tVecsIni[i], linearCoeffs, distCoeffs, model)
+
+# test mapping with optimised conditions
+cornersProjectedOpt = pc.direct(fiducialPoints, rVecOpt, tVecOpt, linearCoeffs, distCoeffs, model)
+pc.cornerComparison(img, corners[i], cornersProjectedOpt)
+
+
+# %% test initial calibration INVERSE
+fiducialProjectedIni = pc.inverse(corners[i],
+                                  rVecsIni[i], tVecsIni[i],
+                                  linearCoeffs, distCoeffs, model)
+
+# plot
+pc.fiducialComparison(fiducialPoints, fiducialProjectedIni)
+pc.fiducialComparison3D(rVecsIni[i], tVecsIni[i], fiducialPoints, fiducialProjectedIni, label1 = 'Fiducial points', label2 = 'Projected points')
+
+
+# %% optimise rVec, tVec
+rVecOpt, tVecOpt, optParams = pc.calibrateInverse(fiducialPoints, corners[i], rVecsIni[i], tVecsIni[i], linearCoeffs, distCoeffs,model)
+
+fiducialProjectedOpt = pc.inverse(corners[i], rVecOpt, tVecOpt, linearCoeffs, distCoeffs,model)
+# plot
+pc.fiducialComparison(fiducialPoints, fiducialProjectedOpt)
+pc.fiducialComparison3D(rVecOpt, tVecOpt, fiducialPoints, fiducialProjectedOpt, label1 = 'Fiducial points', label2 = 'Optimised points')
+
 
 # %%
 # para todas las imagenes juntas dejar la pose fija y optimizar los parametros de distorsion 
