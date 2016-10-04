@@ -8,9 +8,9 @@ Created on Thu Aug 18 11:47:18 2016
 # %% IMPORTS
 from matplotlib.pyplot import plot, imshow, legend, show, figure
 from cv2 import Rodrigues
-import cv2
-from numpy import min, max, ndarray, zeros, array, reshape, float32
-from numpy import sin, cos
+from numpy import min, max, ndarray, zeros, array, reshape, sqrt
+from numpy import sin, cos, cross
+from scipy.linalg import sqrtm, norm, inv
 from matplotlib.patches import FancyArrowPatch
 from mpl_toolkits.mplot3d import proj3d
 
@@ -53,19 +53,59 @@ def euler(al,be,ga):
     
     return rot
 
+# %% HOMOGRAPHY
+def pose2homogr(rVec,tVec):
+    '''
+    generates the homography from the pose descriptors
+    '''
+    
+    # calcular las puntas de los versores
+    if rVec.shape == (3,3):
+        [x,y,z] = rVec
+    else:
+        [x,y,z] = Rodrigues(rVec)[0]
+    
+    
+    H = array([x,y,tVec[:,0]]).T
+    
+    return H
+
+
+
+def homogr2pose(H):
+    '''
+    returns pose from the homography matrix
+    '''
+    r1B = H[:,0]
+    r2B = H[:,1]
+    r3B = cross(r1B,r2B)
+    
+    # convert to versors of B described in A ref frame
+    r1 = array([r1B[0],r2B[0],r3B[0]])
+    r2 = array([r1B[1],r2B[1],r3B[1]])
+    r3 = array([r1B[2],r2B[2],r3B[2]])
+    
+    rot = array([r1, r2, r3]).T
+    # make sure is orthonormal
+    rotNorm = rot.dot(inv(sqrtm(rot.T.dot(rot))))
+    rVec = Rodrigues(rotNorm)[0]  # make into rot vector
+    
+    # rotate to get displ redcribed in A
+    # tVec = np.dot(rot, -homography[2]).reshape((3,1))
+    tVec = H[:,2].reshape((3,1))
+    
+    # rescale
+    k = sqrt(norm(r1)*norm(r2))  # geometric mean
+    tVec = tVec / k
+    
+    return [rVec, tVec]
+
 
 # %%
 import poseStereographicCalibration as stereographic
 import poseUnifiedCalibration as unified
 import poseRationalCalibration as rational
 import poseFisheyeCalibration as fisheye
-
-reload(rational)
-
-reload(fisheye)
-reload(unified)
-reload(stereographic)
-
 
 # %% PARAMETER HANDLING
 def formatParameters(rVec, tVec, linearCoeffs, distCoeffs, model):
@@ -218,11 +258,11 @@ def fiducialComparison3D(rVec, tVec, fiducial1, fiducial2 = False, label1 = 'Fid
     if rVec.shape == (3,3):
         [x,y,z] = rVec.T
     else:
-        [x,y,z] = cv2.Rodrigues(rVec)[0].T
+        [x,y,z] = Rodrigues(rVec)[0].T
     
     print(array([x,y,z]))
     [x,y,z] = [x,y,z] + t
-    
+    print(t)
     X1 = fiducial1[0,:,0]
     Y1 = fiducial1[0,:,1]
     Z1 = fiducial1[0,:,2]
