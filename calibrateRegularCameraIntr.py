@@ -140,7 +140,7 @@ rVecsIni, tVecsIni = initialPoses3(fiducialPoints, corners, imgSize, f)
 # %% 
 
 def rotTras2(fiducialPoints, corner, imgSize, f):
-    # i = 8
+    # i = 1
     # corner = corners[i]
     srcPoints = fiducialPoints[0,:,:2]
     dstPoints = (corner[:,0] - np.array(imgSize)/2) / f
@@ -148,19 +148,19 @@ def rotTras2(fiducialPoints, corner, imgSize, f):
     
     homography = cv2.findHomography(srcPoints, dstPoints, method=method)[0]
     
-    r1 = homography[:,0]
-    r2 = homography[:,1]
-    r3 = np.cross(r1,r2)
+    # r1 = homography[:,0]
+    # r2 = homography[:,1]
+    # r3 = np.cross(r1,r2)
     
     # get versors of A described in B ref frame
-    #r1B = homography[:,0]
-    #r2B = homography[:,1]
-    #r3B = np.cross(r1B,r2B)
+    r1B = homography[:,0]
+    r2B = homography[:,1]
+    r3B = np.cross(r1B,r2B)
     
     # convert to versors of B described in A ref frame
-    #r1 = np.array([r1B[0],r2B[0],r3B[0]])
-    #r2 = np.array([r1B[1],r2B[1],r3B[1]])
-    #r3 = np.array([r1B[2],r2B[2],r3B[2]])
+    r1 = np.array([r1B[0],r2B[0],r3B[0]])
+    r2 = np.array([r1B[1],r2B[1],r3B[1]])
+    r3 = np.array([r1B[2],r2B[2],r3B[2]])
     
     rot = np.array([r1, r2, r3]).T
     # make sure is orthonormal
@@ -169,7 +169,6 @@ def rotTras2(fiducialPoints, corner, imgSize, f):
     
     # rotate to get displ redcribed in A
     # tVec = np.dot(rot, -homography[2]).reshape((3,1))
-    
     tVec = homography[:,2].reshape((3,1))
     
     return [rVec, tVec]
@@ -183,19 +182,18 @@ def initialPoses2(fiducialPoints, corners, imgSize, f):
     rVecsIni = [pose[0] for pose in initialPoses]
     tVecsIni = [pose[1] for pose in initialPoses]
     
-    return rVecsIni, tVecsIni
+    return [rVecsIni, tVecsIni]
 
 
 
 # %%
 
 model= 'rational'
-i = 3
 
 # %% 
 # hacer optimizacion para terminar de ajustar el pinhole y asi sacar la pose para cada imagen. usar las funciones de las librerias extrinsecas
 # es para cada imagen por separado
-f = 1e3
+f = 3e1
 linearCoeffs = np.array([[f, 0, imgSize[0]/2],
                          [0, f, imgSize[1]/2],
                          [0, 0, 1]], dtype='float32')
@@ -205,6 +203,10 @@ distCoeffs = np.zeros((14,1)) # no hay distorsion
 # %% test initial calibration INVERSE
 
 rVecsIni, tVecsIni = initialPoses2(fiducialPoints, corners, imgSize, f)
+
+
+# %%
+i = 9
 
 
 fiducialProjectedIni = pc.inverse(corners[i],
