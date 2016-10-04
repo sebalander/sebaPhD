@@ -9,9 +9,9 @@ Created on Fri Sep 30 16:06:58 2016
 # %%
 import cv2
 import numpy as np
+import scipy as sp
 import glob
 import matplotlib.pyplot as plt
-from scipy import linalg
 import poseCalibration as pc
 np.random.seed(0)
 
@@ -38,138 +38,143 @@ rvecsFile = "./resources/PTZchessboard/zoom 0.0/ptzRvecs.npy"
 tvecsFile = "./resources/PTZchessboard/zoom 0.0/ptzTvecs.npy"
 
 
-
-# %%
-
-def pose2homogr(rVec,tVec,f):
-    
-    # calcular las puntas de los versores
-    if rVec.shape == (3,3):
-        [x,y,z] = rVec
-    else:
-        [x,y,z], _ = cv2.Rodrigues(rVec)
-    
-    
-    H = np.array([x,y,tVec[:,0]]).T
-    
-    return f*H
-
-
-
-def homogr2pose(H):
-    r1B = H[:,0]
-    r2B = H[:,1]
-    r3B = np.cross(r1B,r2B)
-    
-    # convert to versors of B described in A ref frame
-    r1 = np.array([r1B[0],r2B[0],r3B[0]])
-    r2 = np.array([r1B[1],r2B[1],r3B[1]])
-    r3 = np.array([r1B[2],r2B[2],r3B[2]])
-    
-    rot = np.array([r1, r2, r3]).T
-    # make sure is orthonormal
-    rotNorm = rot.dot(linalg.inv(linalg.sqrtm(rot.T.dot(rot))))
-    rVec, _ = cv2.Rodrigues(rotNorm) # make into rot vector
-    
-    # rotate to get displ redcribed in A
-    # tVec = np.dot(rot, -homography[2]).reshape((3,1))
-    tVec = H[:,2].reshape((3,1))
-    
-    # rescale
-    k = np.sqrt(np.linalg.norm(r1)*np.linalg.norm(r2))
-    tVec = tVec / k
-    
-    return [rVec, tVec]
-
-
-
-# %% custom homography
-
-rVec = np.array([[1,0,0],[0,-1,0],[0,0,-1]])
-tVec = np.array([[4],[5],[8]])
-f = 4.215687215
-
-H = pose2homogr(rVec, tVec, f)
-
 # %%
 reload(pc)
 
 # %% random homography
-rVec = cv2.Rodrigues(pc.euler(np.random.rand()*np.pi*2,
-                              np.random.rand()*np.pi*2,
-                              np.random.rand()*np.pi*2))[0]
-tVec = np.random.rand(3)*2 + 1
-f = np.random.rand()
+#rVec = cv2.Rodrigues(pc.euler(np.random.rand()*np.pi*2,
+#                              np.random.rand()*np.pi*2,
+#                              np.random.rand()*np.pi*2))[0]
+#tVec = np.random.rand(3)*2 + 1
+#rVec = rVec.reshape(3,1)
+#tVec = tVec.reshape(3,1)
 
-rVec = rVec.reshape(3,1)
-tVec = tVec.reshape(3,1)
-
-rVec
-cv2.Rodrigues(rVec)[0]
-#sarasa1(rVec)
-#sarasa2(rVec)
-
-tVec
+rVec = np.array([[-1.17365947],
+                 [ 1.71987668],
+                 [-0.48076979]])
+tVec = np.array([[ 2.53529204],
+                 [ 1.53850073],
+                 [ 1.362088  ]])
+f = 1e2
 
 pc.fiducialComparison3D(rVec, tVec, fiducialPoints)
 
-H = pose2homogr(rVec, tVec, f)
+H = pc.pose2homogr(rVec, tVec)
 
 
-
-# %%
+# %% produce sinthetic data
 
 src = fiducialPoints[0]+[0,0,1]
 src2 = np.array([np.dot(H, sr) for sr in src])
-dst = np.array([src2[:,0]/src2[:,2], src2[:,1]/src2[:,2]]).T
+dst = np.array([f*src2[:,0]/src2[:,2],
+                f*src2[:,1]/src2[:,2],
+                np.ones(src.shape[0])]).T
 
-# %% plot 
-
+# plot data
 plt.figure()
 plt.plot(src[:,0], src[:,1],'+k')
 plt.plot(dst[:,0], dst[:,1],'xr')
 
 
 
-# %% fit with function
+# %% fit homography from sinthetic data
 
-H2 = cv2.findHomography(src[:,:2], dst, method=8)[0]
+# fit homography
+H2 = cv2.findHomography(src[:,:2], dst[:,:2], method=0)[0]
+rVec, tVec = pc.homogr2pose(H2)
 
-H
-H2
-# %%
-
-rVec2, tVec2 = homogr2pose(H2)
-
+cv2.Rodrigues(rVec)[0]
 tVec
-tVec2
+
+# test it forward
+src2F = np.array([np.dot(H2, sr) for sr in src])
+dst2F = np.array([src2F[:,0]/src2F[:,2], src2F[:,1]/src2F[:,2]]).T
+
+# plot data
+plt.figure()
+plt.plot(dst[:,0], dst[:,1],'+k')
+plt.plot(dst2F[:,0], dst2F[:,1],'xr')
+plt.title("En plano imagen")
+
+
+# test it backward
+Hi = sp.linalg.inv(H2)
+dst2B = np.array([np.dot(Hi, ds) for ds in dst])
+src2B = np.array([dst2B[:,0]/dst2B[:,2],
+                  dst2B[:,1]/dst2B[:,2],
+                  np.ones(src.shape[0])]).T
+
+
+fiducialProjected = (src2B-[0,0,1]).reshape(fiducialPoints.shape)
+pc.fiducialComparison3D(rVec, tVec,
+                        fiducialPoints, fiducialProjected,
+                        label1="fiducial points",
+                        label2="ajuste")
+
+
 # %%
+def joinPoints(pts1, pts2):
+    plt.figure()
+    plt.plot(pts1[:,0], pts1[:,1],'+k')
+    plt.plot(pts2[:,0], pts2[:,1],'xr')
+    
+    # unir con puntos
+    for i in range(pts1.shape[0]):
+        plt.plot([pts1[i,0], pts2[i,0]],
+                 [pts1[i,1], pts2[i,1]],'-k')
 
-pc.fiducialComparison3D(rVec2,tVec2,fiducialPoints)
 
 
-## %%
-#import cv2
-#from cv2 import Rodrigues
-#
-#rVec = np.array([[ 1.26001985],
-#                 [ 5.55466931],
-#                 [ 2.65262444]])
-#
-#def sarasa1(rVec):
-#    ret = Rodrigues(rVec)[0]
-#    return ret
-#
-#
-#def sarasa2(rVec):
-#    ret = cv2.Rodrigues(rVec)[0]
-#    return ret
-#
-## estos dos dan bien
-#Rodrigues(rVec)[0]
-#cv2.Rodrigues(rVec)[0]
-#
-## estos dos dan mal
-#sarasa1(rVec)
-#sarasa2(rVec)
-#
+# %% load from real data
+
+src = fiducialPoints[0]+[0,0,1]
+f = 1e2 # proposal of f, can't be estimated from homography?
+i=5
+for i in [0,3,6,9]:
+    i
+    dst = (corners[i,:,0] - np.array(imgSize)/2) / f
+    
+    # cambio el signo de Y y parece que todo bien
+    dst = np.concatenate((dst*[1,-1],
+                          np.ones((dst.shape[0],1))),
+                         axis=1)
+    
+    # plot data
+    # plt.figure()
+    # plt.plot(src[:,0], src[:,1],'+k')
+    # plt.plot(dst[:,0], dst[:,1],'xr')
+    # plt.title("%d src y dst en el mismo plano"%i)
+    # joinPoints(src, dst)
+    
+    # fit homography
+    H = cv2.findHomography(src[:,:2], dst[:,:2], method=0)[0]
+    rVec, tVec = pc.homogr2pose(H)
+    
+    cv2.Rodrigues(rVec)[0]
+    tVec
+    
+    # test it forward
+    src2F = np.array([np.dot(H, sr) for sr in src])
+    dst2F = np.array([src2F[:,0]/src2F[:,2], src2F[:,1]/src2F[:,2]]).T
+    
+    # plot data
+    # plt.figure()
+    # plt.plot(dst[:,0], dst[:,1],'+k')
+    # plt.plot(dst2F[:,0], dst2F[:,1],'xr')
+    # plt.title("%d en plano imagen"%i)
+    # joinPoints(dst, dst2F)
+    
+    # test it backward
+    Hi = sp.linalg.inv(H)
+    dst2B = np.array([np.dot(Hi, ds) for ds in dst])
+    src2B = np.array([dst2B[:,0]/dst2B[:,2],
+                      dst2B[:,1]/dst2B[:,2],
+                      np.ones(src.shape[0])]).T
+    
+    
+    fiducialProjected = (src2B-[0,0,1]).reshape(fiducialPoints.shape)
+    pc.fiducialComparison3D(rVec, tVec,
+                            fiducialPoints, fiducialProjected,
+                            label1="fiducial points",
+                            label2="%d ajuste"%i)
+
