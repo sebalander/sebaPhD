@@ -13,6 +13,7 @@ import glob
 import matplotlib.pyplot as plt
 from scipy import linalg
 import poseCalibration as pc
+np.random.seed(0)
 
 # %% LOAD DATA
 #imagesFolder = "./resources/fishChessboardImg/"
@@ -85,18 +86,35 @@ def homogr2pose(H):
 # %% custom homography
 
 rVec = np.array([[1,0,0],[0,-1,0],[0,0,-1]])
-tVec = np.array([[4],[5],[8]])*2 +1
+tVec = np.array([[4],[5],[8]])
 f = 4.215687215
 
 H = pose2homogr(rVec, tVec, f)
 
-# %% randdom homography
-rVec = np.random.rand(3)*20 - 10
-tVec = np.random.rand(3).reshape(3,1)
+# %%
+reload(pc)
+
+# %% random homography
+rVec = cv2.Rodrigues(pc.euler(np.random.rand()*np.pi*2,
+                              np.random.rand()*np.pi*2,
+                              np.random.rand()*np.pi*2))[0]
+tVec = np.random.rand(3)*2 + 1
 f = np.random.rand()
 
+rVec = rVec.reshape(3,1)
+tVec = tVec.reshape(3,1)
+
+rVec
+cv2.Rodrigues(rVec)[0]
+#sarasa1(rVec)
+#sarasa2(rVec)
+
+tVec
+
+pc.fiducialComparison3D(rVec, tVec, fiducialPoints)
+
 H = pose2homogr(rVec, tVec, f)
-pc.fiducialComparison3D(rVec,tVec,fiducialPoints)
+
 
 
 # %%
@@ -128,3 +146,30 @@ tVec2
 # %%
 
 pc.fiducialComparison3D(rVec2,tVec2,fiducialPoints)
+
+
+## %%
+#import cv2
+#from cv2 import Rodrigues
+#
+#rVec = np.array([[ 1.26001985],
+#                 [ 5.55466931],
+#                 [ 2.65262444]])
+#
+#def sarasa1(rVec):
+#    ret = Rodrigues(rVec)[0]
+#    return ret
+#
+#
+#def sarasa2(rVec):
+#    ret = cv2.Rodrigues(rVec)[0]
+#    return ret
+#
+## estos dos dan bien
+#Rodrigues(rVec)[0]
+#cv2.Rodrigues(rVec)[0]
+#
+## estos dos dan mal
+#sarasa1(rVec)
+#sarasa2(rVec)
+#

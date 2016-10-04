@@ -8,7 +8,9 @@ Created on Thu Aug 18 11:47:18 2016
 # %% IMPORTS
 from matplotlib.pyplot import plot, imshow, legend, show, figure
 from cv2 import Rodrigues
-from numpy import min, max, ndarray, zeros, array, reshape
+import cv2
+from numpy import min, max, ndarray, zeros, array, reshape, float32
+from numpy import sin, cos
 from matplotlib.patches import FancyArrowPatch
 from mpl_toolkits.mplot3d import proj3d
 
@@ -32,6 +34,25 @@ def xypToZplane(xp, yp, rVec, tVec, z=0):
     XYZ = reshape(XYZ, shape)
     
     return XYZ
+
+def euler(al,be,ga):
+    '''
+    devuelve matriz de rotacion según angulos de euler.
+    Craigh, pag 42
+    '''
+    ca = cos(al)
+    sa = sin(al)
+    cb = cos(be)
+    sb = sin(be)
+    cg = cos(ga)
+    sg = sin(ga)
+    
+    rot = array([[ca*cb, ca*sb*sg-sa*cg, ca*sb*cg+sa*sg],
+                 [sa*cb, sa*sb*sg+ca*cg, sa*sb*cg+ca*sa],
+                 [ -sb ,      cb*sg    ,      cb*cg    ]])
+    
+    return rot
+
 
 # %%
 import poseStereographicCalibration as stereographic
@@ -189,21 +210,22 @@ class Arrow3D(FancyArrowPatch):
         self.set_positions((xs[0],ys[0]),(xs[1],ys[1]))
         FancyArrowPatch.draw(self, renderer)
 
-def fiducialComparison3D(rVec, tVec, fiducail1, fiducial2 = False, label1 = 'Fiducial points', label2 = 'Projected points'):
+def fiducialComparison3D(rVec, tVec, fiducial1, fiducial2 = False, label1 = 'Fiducial points', label2 = 'Projected points'):
     
     t = tVec[:,0]
     
     # calcular las puntas de los versores
     if rVec.shape == (3,3):
-        [x,y,z] = rVec
+        [x,y,z] = rVec.T
     else:
-        [x,y,z], _ = Rodrigues(rVec)
+        [x,y,z] = cv2.Rodrigues(rVec)[0].T
     
+    print(array([x,y,z]))
     [x,y,z] = [x,y,z] + t
     
-    X1 = fiducail1[0,:,0]
-    Y1 = fiducail1[0,:,1]
-    Z1 = fiducail1[0,:,2]
+    X1 = fiducial1[0,:,0]
+    Y1 = fiducial1[0,:,1]
+    Z1 = fiducial1[0,:,2]
     
     fig = figure()
     ax = fig.gca(projection='3d')
@@ -250,6 +272,7 @@ def fiducialComparison3D(rVec, tVec, fiducail1, fiducial2 = False, label1 = 'Fid
                      [0, t[1]],
                      [0, t[2]],
                      mutation_scale=20, lw=1, arrowstyle="-", color="k", linestyle="dashed")
+    
     ejeXc = Arrow3D([t[0], x[0]],
                    [t[1], x[1]],
                    [t[2], x[2]],
@@ -263,10 +286,10 @@ def fiducialComparison3D(rVec, tVec, fiducail1, fiducial2 = False, label1 = 'Fid
                    [t[2], z[2]],
                    mutation_scale=20, lw=3, arrowstyle="-|>", color="b")
     
-    ax.add_artist(origen)
     ax.add_artist(ejeX)
     ax.add_artist(ejeY)
     ax.add_artist(ejeZ)
+    ax.add_artist(origen)
     ax.add_artist(ejeXc)
     ax.add_artist(ejeYc)
     ax.add_artist(ejeZc)
