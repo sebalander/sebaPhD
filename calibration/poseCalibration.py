@@ -6,10 +6,10 @@ Created on Thu Aug 18 11:47:18 2016
 @author: sebalander
 """
 # %% IMPORTS
-from matplotlib.pyplot import plot, imshow, legend, show, figure
-from cv2 import Rodrigues
+from matplotlib.pyplot import plot, imshow, legend, show, figure, gcf, imread
+from cv2 import Rodrigues, findHomography
 from numpy import min, max, ndarray, zeros, array, reshape, sqrt
-from numpy import sin, cos, cross
+from numpy import sin, cos, cross, ones, concatenate, flipud, dot
 from scipy.linalg import sqrtm, norm, inv
 from matplotlib.patches import FancyArrowPatch
 from mpl_toolkits.mplot3d import proj3d
@@ -100,6 +100,44 @@ def homogr2pose(H):
     
     return [rVec, tVec]
 
+
+
+
+def estimateInitialPose(fiducialPoints, corners, f, imgSize):
+    '''
+    estimateInitialPose(fiducialPoints, corners, f, imgSize) -> [rVecs, tVecs, Hs]
+    
+    Recieves fiducial points and list of corners (one for each image), proposed
+    focal distance 'f' and returns the estimated pose of the camera. asumes
+    pinhole model.
+    '''
+    
+    src = fiducialPoints[0]+[0,0,1]
+    unos = ones((src.shape[0],1))
+    
+    rVecs = list()
+    tVecs = list()
+    Hs = list()
+    
+    if len(corners.shape) < 4:
+        corners = array([corners])
+    
+    for cor in corners:
+        # flip 'y' coordinates, so it works
+        # why flip image:
+        # http://stackoverflow.com/questions/14589642/python-matplotlib-inverted-image
+        dst = [0, imgSize[0]] + cor[:,0,:2]*[1,-1]
+        
+        # take to homogenous plane asuming intrinsic pinhole
+        dst = concatenate( ((dst-imgSize/2)/f, unos), axis=1)
+        # fit homography
+        H = findHomography(src[:,:2], dst[:,:2], method=0)[0]
+        rVec, tVec = homogr2pose(H)
+        rVecs.append(rVec)
+        tVecs.append(tVec)
+        Hs.append(H)
+    
+    return [array(rVecs), array(tVecs), array(Hs)]
 
 # %%
 import poseStereographicCalibration as stereographic
@@ -337,3 +375,105 @@ def fiducialComparison3D(rVec, tVec, fiducial1, fiducial2 = False, label1 = 'Fid
     ax.legend()
     
     show()
+
+
+def joinPoints(pts1, pts2):
+    figure()
+    plot(pts1[:,0], pts1[:,1],'+k');
+    plot(pts2[:,0], pts2[:,1],'xr');
+    
+    # unir con puntos
+    for i in range(pts1.shape[0]):
+        plot([pts1[i,0], pts2[i,0]],
+                 [pts1[i,1], pts2[i,1]],'-k');
+    return gcf()
+
+
+def plotHomographyToMatch(fiducialPoints, corners, f, imgSize, images=None):
+    
+    src = fiducialPoints[0]+[0,0,1]
+    
+    if len(corners.shape) < 4:
+        corners = array([corners])
+        if images!=None:
+            images = [images]
+    
+    for i in range(len(corners)):
+        # rectify corners and image
+        dst = [0, imgSize[0]] + corners[i,:,0,:2]*[1,-1]
+        
+        
+        figure()
+        if images!=None:
+            img = imread(images[i])
+            imshow(flipud(img),origin='lower');
+        aux = src[:,:2]*f+imgSize/2
+        plot(dst[:,0], dst[:,1], '+r')
+        plot(aux[:,0], aux[:,1], 'xk')
+        for j in range(src.shape[0]):
+            plot([dst[:,0], aux[:,0]],
+                 [dst[:,1], aux[:,1]],'-k');
+
+
+
+def plotForwardHomography(fiducialPoints, corners, f, imgSize, Hs, images=None):
+    src = fiducialPoints[0]+[0,0,1]
+    
+    if len(corners.shape) < 4:
+        corners = array([corners])
+    
+    if len(Hs.shape) < 3:
+        Hs = array([Hs])
+    
+    if len(Hs.shape) < 2:
+        if images!=None:
+            images = [images]
+    
+    
+    for i in range(len(corners)):
+        # cambio de signo y corrimiento de 'y'
+        dst = [0, imgSize[0]] + corners[i,:,0,:2]*[1,-1]
+        
+        # calculate forward, destination "Projected" points
+        dstP = array([dot(Hs[i], sr) for sr in src])
+        dstP = array([dstP[:,0]/dstP[:,2], dstP[:,1]/dstP[:,2]]).T
+        dstP = f*dstP+ imgSize/2
+        
+        # plot data
+        fig = joinPoints(dst, dstP)
+        if images!=None:
+            img = imread(images[i])
+            ax = fig.gca()
+            ax.imshow(flipud(img),origin='lower');
+
+
+def plotBackwardHomography(fiducialPoints, corners, f, imgSize, Hs):
+    src = fiducialPoints[0]+[0,0,1]
+    unos = ones((src.shape[0],1))
+    
+    if len(corners.shape) < 4:
+        corners = array([corners])
+        Hs = array([Hs])
+    
+    for i in range(len(corners)):
+        Hi = inv(Hs[i])
+        # cambio de signo y corrimiento de 'y'
+        dst = [0, imgSize[0]] + corners[i,:,0,:2]*[1,-1]
+        dst = (dst - imgSize/2) /f  # pinhole
+        dst = concatenate((dst,unos),axis=1)
+        
+        # calculate backward, source "Projected" points
+        srcP = array([dot(Hi, ds) for ds in dst])
+        srcP = array([srcP[:,0]/srcP[:,2],
+                         srcP[:,1]/srcP[:,2],
+                         unos[:,0]]).T
+        
+        
+        fiducialProjected = (srcP-[0,0,1]).reshape(fiducialPoints.shape)
+        
+        rVec, tVec = homogr2pose(Hs[i]);
+        fiducialComparison3D(rVec, tVec,
+                             fiducialPoints, fiducialProjected,
+                             label1="fiducial points",
+                             label2="%d ajuste"%i)
+
