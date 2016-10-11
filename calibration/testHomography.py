@@ -47,16 +47,16 @@ f = 5e2 # proposal of f, can't be estimated from homography
 
 rVecs, tVecs, Hs = pc.estimateInitialPose(fiducialPoints, corners, f, imgSize)
 
-#pc.plotHomographyToMatch(fiducialPoints, corners[1:3], f, imgSize, images[1:3])
+pc.plotHomographyToMatch(fiducialPoints, corners[1:3], f, imgSize, images[1:3])
 
-#pc.plotForwardHomography(fiducialPoints, corners[1:3], f, imgSize, Hs[1:3], images[1:3])
+pc.plotForwardHomography(fiducialPoints, corners[1:3], f, imgSize, Hs[1:3], images[1:3])
 
 pc.plotBackwardHomography(fiducialPoints, corners[1:3], f, imgSize, Hs[1:3])
 
 
 # %% custom sinthetic homography
 
-# estos valores se ven lindos
+# estos valores se ven lindos, podrían ser random tambien
 rVec = np.array([[-1.17365947],
                  [ 1.71987668],
                  [-0.48076979]])
@@ -79,40 +79,15 @@ dst = np.array([dst[:,0]/dst[:,2],
                 dst[:,1]/dst[:,2]]).T
 dst = f * dst + imgSize/2
 
-# sinthetic corners
-corners = np.reshape(dst,(len(dst),1,2))
-
-# %% fit homography from sinthetic data
-
-# fit homography
-H2 = cv2.findHomography(src[:,:2], dst[:,:2], method=0)[0]
-rVec, tVec = pc.homogr2pose(H2)
-
-cv2.Rodrigues(rVec)[0]
-tVec
-
-# test it forward
-src2F = np.array([np.dot(H2, sr) for sr in src])
-dst2F = np.array([src2F[:,0]/src2F[:,2], src2F[:,1]/src2F[:,2]]).T
-
-# plot data
-plt.figure()
-plt.plot(dst[:,0], dst[:,1],'+k')
-plt.plot(dst2F[:,0], dst2F[:,1],'xr')
-plt.title("En plano imagen")
+# sinthetic corners. always have shape (Nimg,Npts,1,2)
+corners = np.reshape(dst,(1,len(dst),1,2))
 
 
-# test it backward
-Hi = sp.linalg.inv(H2)
-dst2B = np.array([np.dot(Hi, ds) for ds in dst])
-src2B = np.array([dst2B[:,0]/dst2B[:,2],
-                  dst2B[:,1]/dst2B[:,2],
-                  np.ones(src.shape[0])]).T
+# %% test on sinthetic data
+rVecs, tVecs, Hs = pc.estimateInitialPose(fiducialPoints, corners, f, imgSize)
 
+pc.plotHomographyToMatch(fiducialPoints, corners, f, imgSize)
 
-fiducialProjected = (src2B-[0,0,1]).reshape(fiducialPoints.shape)
-pc.fiducialComparison3D(rVec, tVec,
-                        fiducialPoints, fiducialProjected,
-                        label1="fiducial points",
-                        label2="ajuste")
+pc.plotForwardHomography(fiducialPoints, corners, f, imgSize, Hs)
 
+pc.plotBackwardHomography(fiducialPoints, corners, f, imgSize, Hs)
