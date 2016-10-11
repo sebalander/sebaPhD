@@ -393,10 +393,6 @@ def plotHomographyToMatch(fiducialPoints, corners, f, imgSize, images=None):
     
     src = fiducialPoints[0]+[0,0,1]
     
-    if len(corners.shape) < 4:
-        corners = array([corners])
-        if images!=None:
-            images = [images]
     
     for i in range(len(corners)):
         # rectify corners and image
@@ -419,17 +415,6 @@ def plotHomographyToMatch(fiducialPoints, corners, f, imgSize, images=None):
 def plotForwardHomography(fiducialPoints, corners, f, imgSize, Hs, images=None):
     src = fiducialPoints[0]+[0,0,1]
     
-    if len(corners.shape) < 4:
-        corners = array([corners])
-    
-    if len(Hs.shape) < 3:
-        Hs = array([Hs])
-    
-    if len(Hs.shape) < 2:
-        if images!=None:
-            images = [images]
-    
-    
     for i in range(len(corners)):
         # cambio de signo y corrimiento de 'y'
         dst = [0, imgSize[0]] + corners[i,:,0,:2]*[1,-1]
@@ -450,10 +435,6 @@ def plotForwardHomography(fiducialPoints, corners, f, imgSize, Hs, images=None):
 def plotBackwardHomography(fiducialPoints, corners, f, imgSize, Hs):
     src = fiducialPoints[0]+[0,0,1]
     unos = ones((src.shape[0],1))
-    
-    if len(corners.shape) < 4:
-        corners = array([corners])
-        Hs = array([Hs])
     
     for i in range(len(corners)):
         Hi = inv(Hs[i])
