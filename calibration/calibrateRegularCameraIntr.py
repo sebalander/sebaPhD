@@ -13,10 +13,17 @@ http://docs.opencv.org/ref/master/d9/d0c/group__calib3d.html#ga3207604e4b1a1758a
 # %%
 import cv2
 import numpy as np
+from numpy import zeros
 import glob
 import matplotlib.pyplot as plt
 from scipy import linalg
 import poseCalibration as pc
+from lmfit import minimize, Parameters
+import poseRationalCalibration as rational
+
+# %%
+reload(pc)
+
 
 # %% LOAD DATA
 #imagesFolder = "./resources/fishChessboardImg/"
@@ -31,7 +38,7 @@ imgShapeFile = "./resources/ptzImgShape.npy"
 
 corners = np.load(cornersFile).transpose((0,2,1,3))
 fiducialPoints = np.load(patternFile)
-imgSize = tuple(np.load(imgShapeFile))
+imgSize = np.load(imgShapeFile)
 images = glob.glob(imagesFolder+'*.jpg')
 
 # output files
@@ -40,160 +47,178 @@ linearCoeffsFile = "./resources/PTZchessboard/zoom 0.0/ptzLinearCoeffs.npy"
 rvecsFile = "./resources/PTZchessboard/zoom 0.0/ptzRvecs.npy"
 tvecsFile = "./resources/PTZchessboard/zoom 0.0/ptzTvecs.npy"
 
-# %% LINEAR APPROACH TO CAMERA CALIBRATION
+
+# %% # %% from testHomography.py
+## use real data
+#f = 5e2 # proposal of f, can't be estimated from homography
+#
+#rVecs, tVecs, Hs = pc.estimateInitialPose(fiducialPoints, corners, f, imgSize)
+#
+#pc.plotHomographyToMatch(fiducialPoints, corners[1:3], f, imgSize, images[1:3])
+#
+#pc.plotForwardHomography(fiducialPoints, corners[1:3], f, imgSize, Hs[1:3], images[1:3])
+#
+#pc.plotBackwardHomography(fiducialPoints, corners[1:3], f, imgSize, Hs[1:3])
+
+# %%
 n = corners.shape[0] # number of images
 m = corners.shape[1] # points per image
 
-#i = 3
-#j = 31
-#x = corners[i,0,j]
-#p = fiducialPoints[0,j]
-cer = np.zeros(4)
+model= 'rational'
 
+f = 5e2  # importa el orden de magnitud aunque no demaisado.
+         # entre 1e2 y 1e3 anda?
 
-def lineas(x,y,xp,yp):
+# %% ========== ========== RATIONAL PARAMETER HANDLING ========== ==========
+def formatParametersChessIntrs(rVecs, tVecs, linearCoeffs, distCoeffs):
+    '''
+    set to vary all parameetrs
+    '''
+    params = Parameters()
     
-    lin = [[x, 0, -x*xp, y, 0, -y*xp, 1, 0, -xp],
-     [0, x, -x*yp, 0, y, -y*yp, 0, 1, -yp]]
+    for j in range(len(rVecs)):
+        for i in range(3):
+            params.add('rvec%d%d'%(j,i),
+                       value=rVecs[j,i,0], vary=True)
+            params.add('tvec%d%d'%(j,i),
+                       value=tVecs[j,i,0], vary=True)
     
-    return lin
-
-i = 0 # indice de imagen, hasta n
-j = 0 # indice de punto, hasta m
-
-xp = corners[i,j,0,0] - imgSize[0]/2
-yp = corners[i,j,0,1] - imgSize[1]/2
-x = fiducialPoints[0,j,0]
-y = fiducialPoints[0,j,1]
-
-lineas(x,y,xp,yp)
-
-def H(fiducialPoints, corner, imgSize, f):
-    m = fiducialPoints.shape[1]
-    h = [ lineas(fiducialPoints[0,j,0],
-                 fiducialPoints[0,j,1],
-                 (corner[j,0,0] - imgSize[0]/2)/f,
-                 (corner[j,0,1] - imgSize[1]/2)/f)
-         for j in range(m)]
+    params.add('cameraMatrix0',
+               value=linearCoeffs[0,0], vary=True)
+    params.add('cameraMatrix1',
+               value=linearCoeffs[1,1], vary=True)
+    params.add('cameraMatrix2',
+               value=linearCoeffs[0,2], vary=True)
+    params.add('cameraMatrix3',
+               value=linearCoeffs[1,2], vary=True)
     
-    h = np.array(h)
-    h = np.reshape(h,(m*2,9))
-    return h
-
-H(fiducialPoints, corners[0], imgSize, f)
-
-def rotTras1(fiducialPoints, corner, imgSize, f):
+    # polynomial coeffs, grade 7
+    # # (k1,k2,p1,p2[,k3[,k4,k5,k6[,s1,s2,s3,s4[,τx,τy]]]])
+    for i in [2,3,8,9,10,11,12,13]:
+        params.add('distCoeffs%d'%i,
+                   value=distCoeffs[i,0], vary=False)
     
-    h = H(fiducialPoints, corner, imgSize, f)
+    for i in [0,1,4,5,6,7]:
+        params.add('distCoeffs%d'%i,
+                   value=distCoeffs[i,0], vary=True)
     
-    # uso svd
-    U, S, V = linalg.svd(h)
-    # elijo el menor
-    v = V[8]
-    # chequear que no este repetido?
-    r1 = v[0:3]
-    r2 = v[3:6]
-    tVec = v[6:9].reshape((3,1))
-    
-    # np.dot(r1, r2) # no dan perpendiculares
-    r3 = np.cross(r1,r2)
-    
-    # componer matriz de rotacion cruda
-    # ortonormalizarla
-    rot = np.array([r1, r2, r3])
-    
-    rot = rot.dot(linalg.inv(linalg.sqrtm(rot.T.dot(rot))))
-    
-    rVec, _ = cv2.Rodrigues(rot)
-    
-    return rVec, tVec
-
-def initialPoses1(fiducialPoints, corners, imgSize, f):
-    initialPoses = [rotTras1(fiducialPoints, corner, imgSize, f) for corner in corners]
-    
-    rVecsIni = [pose[0] for pose in initialPoses]
-    tVecsIni = [pose[1] for pose in initialPoses]
-    
-    return rVecsIni, tVecsIni
-
-rVecsIni, tVecsIni = initialPoses1(fiducialPoints, corners, imgSize, f)
-
-# %% 
-
-def initialPoses3(fiducialPoints, corners, imgSize, f):
-    
-    t = np.mean(fiducialPoints[0],axis=0)+[0,0,1]
-    tVec = t.reshape((3,1))
-    
-    rot = np.array([[1,0,0],
-                    [0,-1,0],
-                    [0,0,-1]], dtype='float32')
-    rVec = cv2.Rodrigues(rot)[0]
-    
-    rVecsIni = [rVec]*corners.shape[0]
-    tVecsIni = [tVec]*corners.shape[0]
-    
-    return rVecsIni, tVecsIni
-
-rVecsIni, tVecsIni = initialPoses3(fiducialPoints, corners, imgSize, f)
-
-# %% 
-
-def rotTras2(fiducialPoints, corner, imgSize, f):
-    # i = 1
-    # corner = corners[i]
-    srcPoints = fiducialPoints[0,:,:2]
-    dstPoints = (corner[:,0] - np.array(imgSize)/2) / f
-    method = 0 #cv2.RANSAC
-    
-    homography = cv2.findHomography(srcPoints, dstPoints, method=method)[0]
-    
-    # r1 = homography[:,0]
-    # r2 = homography[:,1]
-    # r3 = np.cross(r1,r2)
-    
-    # get versors of A described in B ref frame
-    r1B = homography[:,0]
-    r2B = homography[:,1]
-    r3B = np.cross(r1B,r2B)
-    
-    # convert to versors of B described in A ref frame
-    r1 = np.array([r1B[0],r2B[0],r3B[0]])
-    r2 = np.array([r1B[1],r2B[1],r3B[1]])
-    r3 = np.array([r1B[2],r2B[2],r3B[2]])
-    
-    rot = np.array([r1, r2, r3]).T
-    # make sure is orthonormal
-    rot = rot.dot(linalg.inv(linalg.sqrtm(rot.T.dot(rot))))
-    rVec, _ = cv2.Rodrigues(rot) # make into rot vector
-    
-    # rotate to get displ redcribed in A
-    # tVec = np.dot(rot, -homography[2]).reshape((3,1))
-    tVec = homography[:,2].reshape((3,1))
-    
-    return [rVec, tVec]
-
-
-
-def initialPoses2(fiducialPoints, corners, imgSize, f):
-    
-    initialPoses = [rotTras2(fiducialPoints, corner, imgSize, f) for corner in corners]
-    
-    rVecsIni = [pose[0] for pose in initialPoses]
-    tVecsIni = [pose[1] for pose in initialPoses]
-    
-    return [rVecsIni, tVecsIni]
-
-
+    return params
 
 # %%
 
-model= 'rational'
+def retrieveParametersChess(params, n):
+    rvec = zeros((n,3,1))
+    tvec = zeros((n,3,1))
+    
+    for j in range(n):
+        for i in range(3):
+            rvec[j,i,0] = params['rvec%d%d'%(j,i)].value
+            tvec[j,i,0] = params['tvec%d%d'%(j,i)].value
+    
+    cameraMatrix = zeros((3,3))
+    cameraMatrix[0,0] = params['cameraMatrix0'].value
+    cameraMatrix[1,1] = params['cameraMatrix1'].value
+    cameraMatrix[0,2] = params['cameraMatrix2'].value
+    cameraMatrix[1,2] = params['cameraMatrix3'].value
+    cameraMatrix[2,2] = 1
+    
+    distCoeffs = zeros((14,1))
+    for i in range(14):
+        distCoeffs[i,0] = params['distCoeffs%d'%i].value
+    
+    return rvec, tvec, cameraMatrix, distCoeffs
 
-# %% 
-# hacer optimizacion para terminar de ajustar el pinhole y asi sacar la pose para cada imagen. usar las funciones de las librerias extrinsecas
+# %% intrinsic parameters initial conditions
+linearCoeffs = np.array([[f, 0, imgSize[0]/2], [0, f, imgSize[0]/2], [0, 0, 1]])
+distCoeffs = np.zeros((14, 1))  # despues hacer generico para todos los modelos
+
+# %% extrinsic parameters initial conditions, from estimated homography
+rVecs, tVecs, Hs = pc.estimateInitialPose(fiducialPoints, corners, f, imgSize)
+
+# %%
+# format parameters
+
+initialParams = formatParametersChessIntrs(rVecs, tVecs, linearCoeffs, distCoeffs)
+
+# test retrieving 
+# n=10
+# retrieveParametersChess(initialParams,n)
+
+
+# %% residual
+
+def residualDirectChessRatio(params, fiducialPoints, imageCorners):
+    '''
+    '''
+    n = len(imageCorners)
+    rVecs, tVecs, linearCoeffs, distCoeffs = retrieveParametersChess(params, n)
+    E = list()
+    
+    for j in range(n):
+        projectedCorners = rational.direct(fiducialPoints,
+                                          rVecs[j],
+                                          tVecs[j],
+                                          linearCoeffs,
+                                          distCoeffs)
+        err = imageCorners[j,:,0,:] - projectedCorners[:,0,:]
+        E.append(err)
+    
+    return np.reshape(E,(n*len(fiducialPoints[0]),2))
+
+# %%
+def calibrateDirectChessRatio(fiducialPoints, corners, rVecs, tVecs, linearCoeffs, distCoeffs):
+    initialParams = formatParametersChessIntrs(rVecs, tVecs, linearCoeffs, distCoeffs) # generate Parameters obj
+    
+    out = minimize(residualDirectChessRatio,
+                   initialParams,
+                   args=(fiducialPoints,
+                         corners))
+    
+    return out
+
+# %%
+# E = residualDirectChessRatio(initialParams, fiducialPoints, corners)
+
+out = calibrateDirectChessRatio(fiducialPoints, corners, rVecs, tVecs, linearCoeffs, distCoeffs)
+
+rVecsOpt, tVecsOpt, cameraMatrixOpt, distCoeffsOpt = retrieveParametersChess(out.params, len(corners))
+
+
+# %%
+i=9
+img = plt.imread(images[i])
+imageCorners = corners[i]
+rVecOpt = rVecsOpt[i]
+tVecOpt = tVecsOpt[i]
+
+cornersProjectedOpt = pc.direct(fiducialPoints, rVecOpt, tVecOpt, linearCoeffs, distCoeffs, model)
+
+pc.cornerComparison(img, imageCorners, cornersProjectedOpt)
+
+# %%
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+# %% ==========================================================================
+'''
+hacer optimizacion para terminar de ajustar el pinhole y asi sacar la pose para
+cada imagen. usar las funciones de las librerias extrinsecas
+'''
 # es para cada imagen por separado
-f = 3e1
 linearCoeffs = np.array([[f, 0, imgSize[0]/2],
                          [0, f, imgSize[1]/2],
                          [0, 0, 1]], dtype='float32')
