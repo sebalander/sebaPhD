@@ -126,7 +126,9 @@ def estimateInitialPose(fiducialPoints, corners, f, imgSize):
         # flip 'y' coordinates, so it works
         # why flip image:
         # http://stackoverflow.com/questions/14589642/python-matplotlib-inverted-image
-        dst = [0, imgSize[0]] + cor[:,0,:2]*[1,-1]
+        # dst = [0, imgSize[0]] + cor[:,0,:2]*[1,-1]
+        dst = [0, 0] + cor[:,0,:2]*[1,1]
+        # le saque el -1 y el corrimiento y parece que da mejor??
         
         # take to homogenous plane asuming intrinsic pinhole
         dst = concatenate( ((dst-imgSize/2)/f, unos), axis=1)
