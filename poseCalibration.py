@@ -7,9 +7,11 @@ Created on Thu Aug 18 11:47:18 2016
 """
 # %% IMPORTS
 from matplotlib.pyplot import plot, imshow, legend, show, figure, gcf, imread
+from matplotlib.pyplot import xlabel, ylabel
 from cv2 import Rodrigues, findHomography
-from numpy import min, max, ndarray, zeros, array, reshape, sqrt
-from numpy import sin, cos, cross, ones, concatenate, flipud, dot
+from numpy import min, max, ndarray, zeros, array, reshape, sqrt, roots
+from numpy import sin, cos, cross, ones, concatenate, flipud, dot, isreal
+from numpy import linspace, polyval
 from scipy.linalg import sqrtm, norm, inv
 from matplotlib.patches import FancyArrowPatch
 from mpl_toolkits.mplot3d import proj3d
@@ -127,11 +129,11 @@ def estimateInitialPose(fiducialPoints, corners, f, imgSize):
         # why flip image:
         # http://stackoverflow.com/questions/14589642/python-matplotlib-inverted-image
         # dst = [0, imgSize[0]] + cor[:,0,:2]*[1,-1]
-        dst = [0, 0] + cor[:,0,:2]*[1,1]
+        dst = cor[:,0,:2]
         # le saque el -1 y el corrimiento y parece que da mejor??
         
         # take to homogenous plane asuming intrinsic pinhole
-        dst = concatenate( ((dst-imgSize/2)/f, unos), axis=1)
+        dst = concatenate( ((dst-imgSize[::-1]/2)/f, unos), axis=1)
         # fit homography
         H = findHomography(src[:,:2], dst[:,:2], method=0)[0]
         rVec, tVec = homogr2pose(H)
@@ -459,4 +461,38 @@ def plotBackwardHomography(fiducialPoints, corners, f, imgSize, Hs):
                              fiducialPoints, fiducialProjected,
                              label1="fiducial points",
                              label2="%d ajuste"%i)
+
+def plotRationalDist(distCoeffs,imgSize, linearCoeffs):
+    
+    k = distCoeffs[[0,1,4,5,6,7],0]
+    pNum = [0, 1, 0, k[0], 0, k[1], 0, k[2]]
+    pDen = [1, 0, k[3], 0, k[4], 0, k[5]]
+    
+    # buscar un buen rango de radio
+    rDistMax = sqrt((imgSize[1]/linearCoeffs[0,0])**2 +
+                    (imgSize[0]/linearCoeffs[1,1])**2)/2
+    
+    # polynomial coeffs, grade 7
+    # # (k1,k2,p1,p2[,k3[,k4,k5,k6[,s1,s2,s3,s4[,τx,τy]]]])
+    poly = [k[2], # k3
+             -rDistMax*k[5], # k6
+             k[1], # k2
+             -rDistMax*k[4], # k5
+             k[0], # k1
+             -rDistMax*k[3], # k4
+             1,
+             -rDistMax]
+    
+    rootsPoly = roots(poly)
+    rMax = rootsPoly[isreal(rootsPoly)].real[0]
+    
+    r = linspace(0,rMax)
+    rDist = polyval(pNum,r) / polyval(pDen,r)
+    
+    figure()
+    plot(r, rDist)
+    xlabel("radio")
+    ylabel("radio distorsionado")
+    
+
 
