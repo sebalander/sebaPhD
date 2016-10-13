@@ -16,58 +16,11 @@ import numpy as np
 from numpy import zeros
 import glob
 import matplotlib.pyplot as plt
-from scipy import linalg
+#from scipy import linalg
 import poseCalibration as pc
 from lmfit import minimize, Parameters
 import poseRationalCalibration as rational
 
-# %%
-reload(pc)
-
-
-# %% LOAD DATA
-#imagesFolder = "./resources/fishChessboardImg/"
-#cornersFile = "/home/sebalander/code/sebaPhD/resources/fishCorners.npy"
-#patternFile = "/home/sebalander/code/sebaPhD/resources/chessPattern.npy"
-#imgShapeFile = "/home/sebalander/code/sebaPhD/resources/fishShape.npy"
-
-imagesFolder = "./resources/PTZchessboard/zoom 0.0/"
-cornersFile = "./resources/PTZchessboard/zoom 0.0/ptzCorners.npy"
-patternFile = "./resources/chessPattern.npy"
-imgShapeFile = "./resources/ptzImgShape.npy"
-
-corners = np.load(cornersFile).transpose((0,2,1,3))
-fiducialPoints = np.load(patternFile)
-imgSize = np.load(imgShapeFile)
-images = glob.glob(imagesFolder+'*.jpg')
-
-# output files
-distCoeffsFile = "./resources/PTZchessboard/zoom 0.0/ptzDistCoeffs.npy"
-linearCoeffsFile = "./resources/PTZchessboard/zoom 0.0/ptzLinearCoeffs.npy"
-rvecsFile = "./resources/PTZchessboard/zoom 0.0/ptzRvecs.npy"
-tvecsFile = "./resources/PTZchessboard/zoom 0.0/ptzTvecs.npy"
-
-
-# %% # %% from testHomography.py
-## use real data
-#f = 5e2 # proposal of f, can't be estimated from homography
-#
-#rVecs, tVecs, Hs = pc.estimateInitialPose(fiducialPoints, corners, f, imgSize)
-#
-#pc.plotHomographyToMatch(fiducialPoints, corners[1:3], f, imgSize, images[1:3])
-#
-#pc.plotForwardHomography(fiducialPoints, corners[1:3], f, imgSize, Hs[1:3], images[1:3])
-#
-#pc.plotBackwardHomography(fiducialPoints, corners[1:3], f, imgSize, Hs[1:3])
-
-# %%
-n = corners.shape[0] # number of images
-m = corners.shape[1] # points per image
-
-model= 'rational'
-
-f = 5e2  # importa el orden de magnitud aunque no demaisado.
-         # entre 1e2 y 1e3 anda?
 
 # %% ========== ========== RATIONAL PARAMETER HANDLING ========== ==========
 def formatParametersChessIntrs(rVecs, tVecs, linearCoeffs, distCoeffs):
@@ -128,21 +81,6 @@ def retrieveParametersChess(params, n):
     
     return rvec, tvec, cameraMatrix, distCoeffs
 
-# %% intrinsic parameters initial conditions
-linearCoeffs = np.array([[f, 0, imgSize[0]/2], [0, f, imgSize[0]/2], [0, 0, 1]])
-distCoeffs = np.zeros((14, 1))  # despues hacer generico para todos los modelos
-
-# %% extrinsic parameters initial conditions, from estimated homography
-rVecs, tVecs, Hs = pc.estimateInitialPose(fiducialPoints, corners, f, imgSize)
-
-# %%
-# format parameters
-
-initialParams = formatParametersChessIntrs(rVecs, tVecs, linearCoeffs, distCoeffs)
-
-# test retrieving 
-# n=10
-# retrieveParametersChess(initialParams,n)
 
 
 # %% residual
@@ -172,105 +110,183 @@ def calibrateDirectChessRatio(fiducialPoints, corners, rVecs, tVecs, linearCoeff
     out = minimize(residualDirectChessRatio,
                    initialParams,
                    args=(fiducialPoints,
-                         corners))
+                         corners),
+                   xtol=1e-7, # Relative error in the approximate solution
+                   ftol=1e-7) # Relative error in the desired sum of squares
     
     return out
 
-# %%
-# E = residualDirectChessRatio(initialParams, fiducialPoints, corners)
-
-out = calibrateDirectChessRatio(fiducialPoints, corners, rVecs, tVecs, linearCoeffs, distCoeffs)
-
-rVecsOpt, tVecsOpt, cameraMatrixOpt, distCoeffsOpt = retrieveParametersChess(out.params, len(corners))
-
 
 # %%
-i=9
+reload(pc)
+
+# %% LOAD DATA
+#imagesFolder = "./resources/fishChessboardImg/"
+#cornersFile = "/home/sebalander/code/sebaPhD/resources/fishCorners.npy"
+#patternFile = "/home/sebalander/code/sebaPhD/resources/chessPattern.npy"
+#imgShapeFile = "/home/sebalander/code/sebaPhD/resources/fishShape.npy"
+
+imagesFolder = "./resources/PTZchessboard/zoom 0.0/"
+cornersFile = "./resources/PTZchessboard/zoom 0.0/ptzCorners.npy"
+patternFile = "./resources/chessPattern.npy"
+imgShapeFile = "./resources/ptzImgShape.npy"
+
+corners = np.load(cornersFile).transpose((0,2,1,3))
+fiducialPoints = np.load(patternFile)
+imgSize = np.load(imgShapeFile)
+images = glob.glob(imagesFolder+'*.jpg')
+
+# calibration using chessboard method opencv
+distCoeffsFile = "./resources/PTZchessboard/zoom 0.0/ptzDistCoeffs.npy"
+linearCoeffsFile = "./resources/PTZchessboard/zoom 0.0/ptzLinearCoeffs.npy"
+rvecsFile = "./resources/PTZchessboard/zoom 0.0/ptzRvecs.npy"
+tvecsFile = "./resources/PTZchessboard/zoom 0.0/ptzTvecs.npy"
+
+distCoeffsTrue = np.load(distCoeffsFile)
+linearCoeffsTrue = np.load(linearCoeffsFile)
+rVecsTrue = np.load(rvecsFile)
+tVecsTrue = np.load(tvecsFile)
+
+flip = False # hacer el flip da muuucho peor y no tiene sentido además
+
+# %% reverse y axis
+# flip 'y' coordinates, so it works
+# why flip image:
+# http://stackoverflow.com/questions/14589642/python-matplotlib-inverted-image
+corners = np.load(cornersFile).transpose((0,2,1,3))
+
+if flip:
+    corners = np.array([ [0, imgSize[0]] + cor[:,:,:2]*[1,-1] for cor in corners])
+
+# %% # %% from testHomography.py
+## use real data
+#f = 5e2 # proposal of f, can't be estimated from homography
+#
+#rVecs, tVecs, Hs = pc.estimateInitialPose(fiducialPoints, corners, f, imgSize)
+#
+#pc.plotHomographyToMatch(fiducialPoints, corners[1:3], f, imgSize, images[1:3])
+#
+#pc.plotForwardHomography(fiducialPoints, corners[1:3], f, imgSize, Hs[1:3], images[1:3])
+#
+#pc.plotBackwardHomography(fiducialPoints, corners[1:3], f, imgSize, Hs[1:3])
+
+# %%
+model= 'rational'
+
+f = 1e3  # importa el orden de magnitud aunque no demaisado.
+         # entre 1e2 y 1e3 anda?
+
+# %% intrinsic parameters initial conditions
+linearCoeffsIni = np.array([[f, 0, imgSize[1]/2], [0, f, imgSize[0]/2], [0, 0, 1]])
+distCoeffsIni = np.zeros((14, 1))  # despues hacer generico para todos los modelos
+#distCoeffsIni = distCoeffsTrue
+# %% extrinsic parameters initial conditions, from estimated homography
+rVecsIni, tVecsIni, Hs = pc.estimateInitialPose(fiducialPoints, corners, f, imgSize)
+
+# %% from testposecalibration DIRECT GENERIC CALIBRATION
+i=3
 img = plt.imread(images[i])
+if flip:
+    img = np.flipud(img)
 imageCorners = corners[i]
-rVecOpt = rVecsOpt[i]
-tVecOpt = tVecsOpt[i]
+rVec = rVecsIni[i]
+tVec = tVecsIni[i]
+linearCoeffs = linearCoeffsIni
+distCoeffs = distCoeffsIni
 
-cornersProjectedOpt = pc.direct(fiducialPoints, rVecOpt, tVecOpt, linearCoeffs, distCoeffs, model)
-
-pc.cornerComparison(img, imageCorners, cornersProjectedOpt)
-
-# %%
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-# %% ==========================================================================
-'''
-hacer optimizacion para terminar de ajustar el pinhole y asi sacar la pose para
-cada imagen. usar las funciones de las librerias extrinsecas
-'''
-# es para cada imagen por separado
-linearCoeffs = np.array([[f, 0, imgSize[0]/2],
-                         [0, f, imgSize[1]/2],
-                         [0, 0, 1]], dtype='float32')
-
-distCoeffs = np.zeros((14,1)) # no hay distorsion
-
-# %% test initial calibration INVERSE
-
-rVecsIni, tVecsIni = initialPoses2(fiducialPoints, corners, imgSize, f)
-
-
-# %%
-i = 9
-
-
-fiducialProjectedIni = pc.inverse(corners[i],
-                                  rVecsIni[i], tVecsIni[i],
-                                  linearCoeffs, distCoeffs, model)
-
-# plot
-# pc.fiducialComparison(fiducialPoints, fiducialProjectedIni)
-pc.fiducialComparison3D(rVecsIni[i], tVecsIni[i], fiducialPoints, fiducialProjectedIni, label1 = 'Fiducial points', label2 = 'Projected points')
-
-
-# %% optimise rVec, tVec
-rVecOpt, tVecOpt, optParams = pc.calibrateInverse(fiducialPoints, corners[i], rVecsIni[i], tVecsIni[i], linearCoeffs, distCoeffs,model)
-
-fiducialProjectedOpt = pc.inverse(corners[i], rVecOpt, tVecOpt, linearCoeffs, distCoeffs,model)
-# plot
-pc.fiducialComparison(fiducialPoints, fiducialProjectedOpt)
-pc.fiducialComparison3D(rVecOpt, tVecOpt, fiducialPoints, fiducialProjectedOpt, label1 = 'Fiducial points', label2 = 'Optimised points')
-
-
-# %% test initial calibration DIRECT
-
-cornersProjectedIni = pc.direct(fiducialPoints,
-                                rVecsIni[i], tVecsIni[i],
-                                linearCoeffs, distCoeffs, model)
+# direct mapping with initial conditions
+cornersProjected = pc.direct(fiducialPoints, rVec, tVec, linearCoeffs, distCoeffs, model)
 
 # plot corners in image
-img = cv2.imread(images[i])
-pc.cornerComparison(img, corners[i], cornersProjectedIni)
+pc.cornerComparison(img, imageCorners, cornersProjected)
 
-# %% optimise rVec, tVec
-rVecOpt, tVecOpt, optParams = pc.calibrateDirect(fiducialPoints, corners[i], rVecsIni[i], tVecsIni[i], linearCoeffs, distCoeffs, model)
+# test mapping with initial conditions
+fiducialProjected = pc.inverse(imageCorners, rVec, tVec, linearCoeffs, distCoeffs, model)
 
-# test mapping with optimised conditions
-cornersProjectedOpt = pc.direct(fiducialPoints, rVecOpt, tVecOpt, linearCoeffs, distCoeffs, model)
-pc.cornerComparison(img, corners[i], cornersProjectedOpt)
+# plot
+pc.fiducialComparison3D(rVec, tVec, fiducialPoints, fiducialProjected, label1 = 'Fiducial points', label2 = 'Projected points')
+
 
 
 # %%
-# para todas las imagenes juntas dejar la pose fija y optimizar los parametros de distorsion 
+# format parameters
 
-# %% optimizar todo junto a la vez tomando lo anterior como condiciones iniciales.
+initialParams = formatParametersChessIntrs(rVecsIni, tVecsIni, linearCoeffsIni, distCoeffsIni)
+
+# test retrieving parameters
+# n=10
+# retrieveParametersChess(initialParams,n)
+
+
+
+# %%
+#E = residualDirectChessRatio(initialParams, fiducialPoints, corners)
+
+out = calibrateDirectChessRatio(fiducialPoints, corners, rVecsIni, tVecsIni, linearCoeffsIni, distCoeffsIni)
+
+out.nfev
+out.message
+out.lmdif_message
+(out.residual**2).sum()
+
+
+rVecsOpt, tVecsOpt, cameraMatrixOpt, distCoeffsOpt = retrieveParametersChess(out.params, len(corners))
+rVecsOpt 
+
+
+# %%
+img = plt.imread(images[i])
+if flip:
+    img = np.flipud(img)
+imageCorners = corners[i]
+rVec = rVecsOpt[i]
+tVec = tVecsOpt[i]
+linearCoeffs = cameraMatrixOpt
+distCoeffs = distCoeffsOpt
+
+# direct mapping with initial conditions
+cornersProjected = pc.direct(fiducialPoints, rVec, tVec, linearCoeffs, distCoeffs, model)
+
+# plot corners in image
+pc.cornerComparison(img, imageCorners, cornersProjected)
+
+
+# test mapping with initial conditions
+fiducialProjected = pc.inverse(imageCorners, rVec, tVec, linearCoeffs, distCoeffs, model)
+
+# plot
+pc.fiducialComparison3D(rVec, tVec, fiducialPoints, fiducialProjected, label1 = 'Fiducial points', label2 = 'Projected points')
+
+# %% comparar fiteos. true corresponde a lo que da chessboard
+distCoeffsTrue
+distCoeffsOpt
+pc.plotRationalDist(distCoeffsTrue,imgSize, linearCoeffsTrue)
+pc.plotRationalDist(distCoeffsOpt,imgSize, cameraMatrixOpt)
+
+linearCoeffsTrue
+cameraMatrixOpt
+
+rVecsTrue[i]
+rVecsOpt[i] # da muy parecido pero con los signos al reves!??
+
+tVecsTrue[i]
+tVecsOpt[i] # muy parecido
+
+np.linalg.norm(rVecsTrue[9])
+np.linalg.norm(rVecsOpt[9])
+
+
+# %% ver porque el signo cambiado en rVecs, que significa?
+r1, r2 = rVecsTrue[1,:,0],rVecsOpt[1,:,0]
+r1
+r2
+np.linalg.norm(r1), np.linalg.norm(r2)
+
+distance = np.array([np.linalg.norm(rVecsTrue[j,:,0] - rVecsOpt[j,:,0]) for j in range(len(rVecsTrue))]) / np.pi / 2
+# es por la periodicidad en 2pi
+plt.figure()
+plt.plot(distance)
+'''
+pero no quiere decir que la camara apunta hacia donde debe. pero da igual
+que opencv al menos
+'''

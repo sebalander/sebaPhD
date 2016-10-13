@@ -57,10 +57,10 @@ def retrieveParameters(params):
 # %% ========== ========== DIRECT RATIONAL ========== ==========
 def direct(fiducialPoints, rVec, tVec, linearCoeffs, distCoeffs):
     projected, _ = projectPoints(fiducialPoints,
-                                        rVec,
-                                        tVec,
-                                        linearCoeffs,
-                                        distCoeffs)
+                                 rVec,
+                                 tVec,
+                                 linearCoeffs,
+                                 distCoeffs)
     
     return projected
 
@@ -70,10 +70,10 @@ def residualDirect(params, fiducialPoints, imageCorners):
     rVec, tVec, linearCoeffs, distCoeffs = retrieveParameters(params)
     
     projectedCorners = direct(fiducialPoints,
-                                      rVec,
-                                      tVec,
-                                      linearCoeffs,
-                                      distCoeffs)
+                               rVec,
+                               tVec,
+                               linearCoeffs,
+                               distCoeffs)
     
     return imageCorners[:,0,:] - projectedCorners[:,0,:]
 
