@@ -105,7 +105,7 @@ def homogr2pose(H):
 
 
 
-def estimateInitialPose(fiducialPoints, corners, f, imgSize):
+def estimateInitialPose(fiducialPoints, corners, linearCoeffs):
     '''
     estimateInitialPose(fiducialPoints, corners, f, imgSize) -> [rVecs, tVecs, Hs]
     
@@ -129,17 +129,20 @@ def estimateInitialPose(fiducialPoints, corners, f, imgSize):
         # why flip image:
         # http://stackoverflow.com/questions/14589642/python-matplotlib-inverted-image
         # dst = [0, imgSize[0]] + cor[:,0,:2]*[1,-1]
-        dst = cor[:,0,:2]
+        x,y = cor.transpose((2,0,1))
         # le saque el -1 y el corrimiento y parece que da mejor??
         
         # take to homogenous plane asuming intrinsic pinhole
-        dst = concatenate( ((dst-imgSize[::-1]/2)/f, unos), axis=1)
+        dst = concatenate(((x-linearCoeffs[0,2])/linearCoeffs[0,0],
+                           (y-linearCoeffs[1,2])/linearCoeffs[1,1],
+                           unos), axis=1)
         # fit homography
         H = findHomography(src[:,:2], dst[:,:2], method=0)[0]
+        Hs.append(H)
+        
         rVec, tVec = homogr2pose(H)
         rVecs.append(rVec)
         tVecs.append(tVec)
-        Hs.append(H)
     
     return [array(rVecs), array(tVecs), array(Hs)]
 
@@ -265,6 +268,8 @@ def cornerComparison(img, corners1, corners2, label1='Corners', label2='Proyecta
     imshow(img)
     plot(X1, Y1, 'xr', markersize=10, label=label1)
     plot(X2, Y2, '+b', markersize=10, label=label2)
+    for i in range(len(X1)):
+        plot([X1[i],X2[i]],[Y1[i],Y2[i]],'k-')
     legend()
     show()
 
@@ -469,8 +474,8 @@ def plotRationalDist(distCoeffs,imgSize, linearCoeffs):
     pDen = [1, 0, k[3], 0, k[4], 0, k[5]]
     
     # buscar un buen rango de radio
-    rDistMax = sqrt((imgSize[1]/linearCoeffs[0,0])**2 +
-                    (imgSize[0]/linearCoeffs[1,1])**2)/2
+    rDistMax = sqrt((linearCoeffs[0,2]/linearCoeffs[0,0])**2 +
+                    (linearCoeffs[1,2]/linearCoeffs[1,1])**2)
     
     # polynomial coeffs, grade 7
     # # (k1,k2,p1,p2[,k3[,k4,k5,k6[,s1,s2,s3,s4[,τx,τy]]]])
@@ -484,7 +489,8 @@ def plotRationalDist(distCoeffs,imgSize, linearCoeffs):
              -rDistMax]
     
     rootsPoly = roots(poly)
-    rMax = rootsPoly[isreal(rootsPoly)].real[0]
+    realRoots = rootsPoly[isreal(rootsPoly)].real
+    rMax = max(realRoots)
     
     r = linspace(0,rMax)
     rDist = polyval(pNum,r) / polyval(pDen,r)
