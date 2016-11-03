@@ -6,7 +6,7 @@ Created on Sat Jan 16 13:04:06 2016
 """
 
 #from onvif import ONVIFCamera
-from IPCamera import IPCamera
+from cameraUtils import IPCamera
 import urllib
 import logging
 import time
@@ -37,7 +37,7 @@ class PTZCamera(IPCamera):
         
     def getStreamUri(self):
 #        return self.mediaService.GetStreamUri()[0]
-        return 'rtsp://10.2.1.49:554/Streaming/Channels/1?transportmode=unicast&profile=Profile_1'
+        return 'rtsp://192.168.1.49:554/Streaming/Channels/1?transportmode=unicast&profile=Profile_1'
         
         
     def getStatus(self):
