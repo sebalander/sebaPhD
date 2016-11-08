@@ -165,7 +165,7 @@ def captureTStamp(files, duration, cod,  fps=0, verbose=True):
         ts.append(t)
         out.write(frame)
         if verbose:
-            print("first frame captured")
+            print("second frame captured")
     # Tercera captura
     ret, frame = cap.read()
     if ret:
@@ -173,7 +173,7 @@ def captureTStamp(files, duration, cod,  fps=0, verbose=True):
         ts.append(t)
         out.write(frame)
         if verbose:
-            print("first frame captured")
+            print("third frame captured")
     
     s1 = getsize(files[1])  # size after saving 3 frames
     

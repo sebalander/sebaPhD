@@ -14,7 +14,7 @@ from sys import argv
 # %%
 # load arguments
 arguments = argv
-print(arguments)
+#print(arguments)
 
 yea = int(argv[1])
 mon = int(argv[2])
@@ -24,58 +24,33 @@ mnt = int(argv[5])
 fpsCam = int(argv[6])
 duration = int(argv[7])
 
-## date
-#yea=2016
-#mon=11
-#day=7
-#hor=16
-#mnt=0
-## set video duration in minutes
-#duration=0.5
-## framerate in fps
-#fpsCam=10
-
 # para la FE
 url = 'rtsp://192.168.1.48/live.sdp'
 cod = 'XVID'
 
+ahora = datetime.now()
+
 endDate = datetime(yea,mon,day,hor,mnt,0)
 lastStart = endDate - timedelta(minutes=duration)
 
-## %%
-#while(datetime.now() < lastStart):
-#    ahora = datetime.now()
-#    files = [url,
-#             "/home/alumno/Documentos/sebaPhDdatos/vca_%s.avi"%ahora,
-#             "/home/alumno/Documentos/sebaPhDdatos/vca_%s_tsFrame.txt"%ahora]
-#    
-#    
-#    videoFailed = captureTStamp(files, duration, cod, fps=fpsCam)
-#    # video saved correctly <=> videoFailed=0
-
-
-# calculate duration
-durationTillEnd = endDate - datetime.now()
+# calculate duration in minutes
+durationTillEnd = endDate - ahora
 durationTillEnd = durationTillEnd.total_seconds() / 60
 
 if duration < durationTillEnd:
-    ret = 0 # more videos are needed
+    ret = 1 # more videos are needed
 else:
     duration = durationTillEnd
-    ret = 1 # this is the last video
+    ret = 0 # this is the last video
 
 
-ahora = datetime.now()
 files = [url,
          "/home/alumno/Documentos/sebaPhDdatos/vca_%s.avi"%ahora,
          "/home/alumno/Documentos/sebaPhDdatos/vca_%s_tsFrame.txt"%ahora]
 
-videoFailed = captureTStamp(files, duration, cod, fps=fpsCam)
+print(duration)
+videoFailed = captureTStamp(files, duration, cod, fps=fpsCam, verbose=True)
 # video saved correctly <=> videoFailed=0
 
-while videoFailed:
-    # keep trying
-    sleep(2)
-    print("retry opening file to save video")
-    videoFailed = captureTStamp(files, duration, cod, fps=fpsCam)
+print(ret)
 
