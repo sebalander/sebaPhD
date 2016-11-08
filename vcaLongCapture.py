@@ -42,25 +42,40 @@ cod = 'XVID'
 endDate = datetime(yea,mon,day,hor,mnt,0)
 lastStart = endDate - timedelta(minutes=duration)
 
-# %%
-while(datetime.now() < lastStart):
-    ahora = datetime.now()
-    files = [url,
-             "/home/alumno/Documentos/sebaPhDdatos/vca_%s.avi"%ahora,
-             "/home/alumno/Documentos/sebaPhDdatos/vca_%s_tsFrame.txt"%ahora]
-    
-    captureTStamp(files, duration, cod, fps=fpsCam)
-    # sleep(60)
+## %%
+#while(datetime.now() < lastStart):
+#    ahora = datetime.now()
+#    files = [url,
+#             "/home/alumno/Documentos/sebaPhDdatos/vca_%s.avi"%ahora,
+#             "/home/alumno/Documentos/sebaPhDdatos/vca_%s_tsFrame.txt"%ahora]
+#    
+#    
+#    videoFailed = captureTStamp(files, duration, cod, fps=fpsCam)
+#    # video saved correctly <=> videoFailed=0
 
-# %% last video to complete desired endDate
-lastDuration = endDate - datetime.now()
-lastDuration = lastDuration.total_seconds() / 60
+
+# calculate duration
+durationTillEnd = endDate - datetime.now()
+durationTillEnd = durationTillEnd.total_seconds() / 60
+
+if duration < durationTillEnd:
+    ret = 0 # more videos are needed
+else:
+    duration = durationTillEnd
+    ret = 1 # this is the last video
+
 
 ahora = datetime.now()
 files = [url,
          "/home/alumno/Documentos/sebaPhDdatos/vca_%s.avi"%ahora,
          "/home/alumno/Documentos/sebaPhDdatos/vca_%s_tsFrame.txt"%ahora]
 
-captureTStamp(files, lastDuration, cod, fps=fpsCam)
+videoFailed = captureTStamp(files, duration, cod, fps=fpsCam)
+# video saved correctly <=> videoFailed=0
 
+while videoFailed:
+    # keep trying
+    sleep(2)
+    print("retry opening file to save video")
+    videoFailed = captureTStamp(files, duration, cod, fps=fpsCam)
 

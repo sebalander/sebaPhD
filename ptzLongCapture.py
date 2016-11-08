@@ -66,7 +66,17 @@ i=0
 while(datetime.now() < lastStart):
     eP, eT, z = posiciones[i]
     print(eP, eT, z)
-    cam.moveAbsolute(eP, eT, z)
+    
+    # to avoid connection reset by peer when moving camera
+    while True:
+        try:
+            cam.moveAbsolute(eP, eT, z)
+        except:
+            # reconnect if connection was reset
+            print("problem conecting, retrying in 2 secs")
+            sleep(2)
+            cam = PTZCamera(ip, portHTTP, usr, psw)
+        break
     
     # position index counting
     if i < nPos:
@@ -79,8 +89,10 @@ while(datetime.now() < lastStart):
              "/home/alumno/Documentos/sebaPhDdatos/ptz_%s.avi"%ahora,
              "/home/alumno/Documentos/sebaPhDdatos/ptz_%s_tsFrame.txt"%ahora]
     
-    captureTStamp(files, duration, cod, fps=fpsCam)
-    # sleep(5)
+    
+    videoFailed = captureTStamp(files, duration, cod, fps=fpsCam)
+    # video saved correctly <=> videoFailed=0
+
 
 # %% last video to complete desired endDate
 lastDuration = endDate - datetime.now()
@@ -95,7 +107,12 @@ files = [url,
          "/home/alumno/Documentos/sebaPhDdatos/ptz_%s.avi"%ahora,
          "/home/alumno/Documentos/sebaPhDdatos/ptz_%s_tsFrame.txt"%ahora]
 
-captureTStamp(files, lastDuration, cod, fps=fpsCam)
+videoFailed = captureTStamp(files, duration, cod, fps=fpsCam)
+# video saved correctly <=> videoFailed=0
 
+while videoFailed:
+    # keep trying
+    sleep(2)
+    videoFailed = captureTStamp(files, duration, cod, fps=fpsCam)
 
 

@@ -63,6 +63,7 @@ from cv2.cv import CV_CAP_PROP_POS_MSEC as pos_msec
 from numpy import savetxt
 import datetime
 from time import time
+from os.path import getsize
 
 # %%
 def captureTStamp(files, duration, cod,  fps=0, verbose=True):
@@ -148,6 +149,7 @@ def captureTStamp(files, duration, cod,  fps=0, verbose=True):
         # exit function if unable to open cap or out
         return
     
+    s0 = getsize(files[1]) # initial filesize before writing frame
     # Primera captura
     ret, frame = cap.read()
     if ret:
@@ -156,7 +158,31 @@ def captureTStamp(files, duration, cod,  fps=0, verbose=True):
         out.write(frame)
         if verbose:
             print("first frame captured")
-        
+    # Segunda captura
+    ret, frame = cap.read()
+    if ret:
+        t = datetime.datetime.now()
+        ts.append(t)
+        out.write(frame)
+        if verbose:
+            print("first frame captured")
+    # Tercera captura
+    ret, frame = cap.read()
+    if ret:
+        t = datetime.datetime.now()
+        ts.append(t)
+        out.write(frame)
+        if verbose:
+            print("first frame captured")
+    
+    s1 = getsize(files[1])  # size after saving 3 frames
+    
+    if s1==s0:
+        out.release()
+        cap.release()
+        print("error when saving 3 frames, exiting")
+        return 1 # error while saving first frame to file
+    
     # loop
     while (t <= tFin):
         ret, frame = cap.read()
@@ -178,6 +204,8 @@ def captureTStamp(files, duration, cod,  fps=0, verbose=True):
         print('loop exited, cap, out released, times saved to files')
         
     savetxt(files[2],ts, fmt= ["%s"])
+    
+    return 0  # success
 
 
 # %% functions originaly from PTZCamera
