@@ -22,7 +22,7 @@ day = int(argv[3])
 hor = int(argv[4])
 mnt = int(argv[5])
 fpsCam = int(argv[6])
-duration = int(argv[7])
+duration = int(argv[7])/60.0
 
 ## date
 #yea=2016

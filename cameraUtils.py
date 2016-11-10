@@ -54,12 +54,14 @@ class IPCamera(ONVIFCamera):
 
 
 # %%
-from cv2 import VideoCapture, VideoWriter
+from cv2 import VideoCapture
 from cv2.cv import CV_CAP_PROP_FPS as prop_fps
 from cv2.cv import CV_FOURCC as fourcc
 from cv2.cv import CV_CAP_PROP_FRAME_WIDTH as frame_width
 from cv2.cv import CV_CAP_PROP_FRAME_HEIGHT as frame_height
 from cv2.cv import CV_CAP_PROP_POS_MSEC as pos_msec
+
+from skvideo.io import VideoWriter
 from numpy import savetxt
 import datetime
 from time import time
@@ -109,7 +111,7 @@ def captureTStamp(files, duration, cod,  fps=0, verbose=True):
     
     '''
     
-    fcc = fourcc(cod[0],cod[1],cod[2],cod[3]) # Códec de video
+    # fcc = fourcc(cod[0],cod[1],cod[2],cod[3]) # Códec de video
     
     if verbose:
         print(files)
@@ -135,7 +137,9 @@ def captureTStamp(files, duration, cod,  fps=0, verbose=True):
         fps = cap.get(prop_fps)
     #para fe especificar los fps pq toma cualquier cosa con la propiedad
     
-    out = VideoWriter(files[1], fcc, fps,( w, h), True)
+    #out = VideoWriter(files[1], fcc, fps,( w, h), True)
+    out = VideoWriter(files[1], frameSize=(w,h), fourcc='XVID')
+    out.open()
     
     if verbose:
         print("capture open",cap.isOpened())
@@ -167,12 +171,16 @@ def captureTStamp(files, duration, cod,  fps=0, verbose=True):
             out.write(frame)
             if verbose:
                 print("seconds elapsed",cap.get(pos_msec)/1000)
+                print(frame.size)
 
     # end of loop
     
     # release and save
     out.release()
     cap.release()
+    
+    del out
+    del cap
     
     if verbose:
         print('loop exited, cap, out released, times saved to files')
