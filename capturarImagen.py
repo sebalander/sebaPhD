@@ -22,6 +22,66 @@ def fovVsZoom(z):
     return 2 * np.arctan(0.0248305/(z + 0.0485368))
 
 # %%
+def angles2point(pan,tilt):
+    return [np.cos(pan)*np.cos(tilt),
+            np.sin(pan)*np.cos(tilt),
+            np.sin(tilt)]
+
+
+def point2angles(points):
+    pan = np.arctan2(points[1],points[0])   # pan angle?
+    r_xy = np.sqrt(points[0]**2, points[1]**2)
+    tilt = np.arctan2(r_xy, points[2]) # tilt angle?
+    return pan, tilt
+
+# %%
+def anglesMeridian(z, densityFactor):
+    '''
+    distributes pans and tilts according to custum made method that evenly
+    distributes pictures along meridians
+    '''
+    
+    a = fovVsZoom(z) / densityFactor
+    Ntilts = np.int(np.ceil(np.pi/2/a))
+    tilts = np.linspace(0,np.pi/2,Ntilts)
+    
+    circunferencias = np.cos(tilts) * np.pi * 2
+    Npans = np.array(np.ceil(circunferencias / a),dtype=np.int)
+    pans = [np.linspace(-np.pi,np.pi,n) for n in Npans]
+    
+    t = 0
+    angles = np.concatenate([[pans[t]], [np.ones(pans[t].shape)*tilts[t]]])
+    
+    for t in range(Ntilts)[1:]:
+        aux = np.concatenate([[pans[t]], [np.ones(Npans[t])*tilts[t]]])
+        angles = np.concatenate((angles,aux),axis=1)
+    
+    return angles[0], angles[1]
+
+# %%
+def anglesIco(z,densityFactor):
+    '''
+    distributes angles avenly using icosaedron method, via dotsphere
+    
+    '''
+    solidAngle = fovVsZoom(z)**2
+    density = densityFactor * 4 * np.pi / solidAngle  # more than the "correct" density
+    points = dotsphere2(density).T
+    # remove points in upper half 
+    points = points[:,points[2]>=0]
+    nPics = points.shape[1]
+    print(np.shape(points))
+    
+    # calculate corresponding angles
+    pan, tilt = point2angles(points)
+    
+    # sort to take less time
+    indSorted = np.lexsort((tilt,pan))
+    tilt, pan = tilt[indSorted], pan[indSorted]
+
+    return pan, tilt
+
+# %%
 ip = '192.168.1.49'
 portHTTP = 80
 portRTSP = '554'
@@ -38,7 +98,6 @@ cap.isOpened()
 domoPath = "./resources/PTZdomo/"
 
 
-
 #%%
 header = "encoderPan,  encoderTil,  fi,  theta,   points"
 
@@ -47,37 +106,18 @@ Zoom = [0.0]
 # saca aprox 24 fotos por minuto
 
 for z in Zoom:
-    solidAngle = fovVsZoom(z)**2
-    density = 4 * 4 * np.pi / solidAngle  # more than the "correct" density
-    points = dotsphere2(density).T
-    # remove points in upper half 
-    points = points[:,points[2]>=0]
-    nPics = points.shape[1]
-    print(np.shape(points))
+    densityFactor = 2 # increases image density wrpt the "correct" density
     
-    # calculate corresponding angles
-    fi = np.arctan2(points[1],points[0])   # pan angle?
-    r_xy = np.sqrt(points[0]**2, points[1]**2)
-    the = np.arctan2(r_xy, points[2]) # tilt angle?
-    
-    # sort to take less time
-    indSorted = np.lexsort((the,fi))
-    the, fi = the[indSorted], fi[indSorted]
-    
-    points = points[:,indSorted]
-    fig=plt.figure()
-    ax = fig.add_subplot(111, projection='3d')
-    ax.plot(points[0],points[1],points[2],'-o')
-    plt.plot([0],[0],[0])
-    plt.show()
-    
+    pan, tilt = anglesMeridian(z, densityFactor)
+    nPics = len(pan)
     # convert to encoder, asuming home position
-    ePan = fi / np.pi
-    eTil = the * 4 / np.pi -1
+    ePan = pan / np.pi
+    eTil = tilt * 4 / np.pi -1
     
-    data = np.concatenate(([ePan],[eTil],[fi],[the],points)).T
+    data = np.concatenate(([ePan],[eTil],[pan],[tilt])).T
     
     np.savetxt("%sangulos_%1.1f.txt"%(domoPath,z),data,header=header)
+    
     
     #plt.figure()
     for i in range(nPics):
