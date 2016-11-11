@@ -41,12 +41,15 @@ def anglesMeridian(z, densityFactor):
     distributes pictures along meridians
     '''
     
-    a = fovVsZoom(z) / densityFactor
-    Ntilts = np.int(np.ceil(np.pi/2/a))
+    a = fovVsZoom(z)
+    Ntilts = np.int(np.ceil(densityFactor * np.pi / 2 / a))
     tilts = np.linspace(0,np.pi/2,Ntilts)
     
-    circunferencias = np.cos(tilts) * np.pi * 2
-    Npans = np.array(np.ceil(circunferencias / a),dtype=np.int)
+    # circunferencias calculated half the correct value so that the pans are 
+    # half of the expected number
+    # apparently the FOV in pan is twice the FOV in tilt
+    circunferencias = np.cos(tilts) * np.pi
+    Npans = np.array(np.ceil(densityFactor * circunferencias / a),dtype=np.int)
     pans = [np.linspace(-np.pi,np.pi,n) for n in Npans]
     
     t = 0
@@ -106,7 +109,7 @@ Zoom = [0.0]
 # saca aprox 24 fotos por minuto
 
 for z in Zoom:
-    densityFactor = 2 # increases image density wrpt the "correct" density
+    densityFactor = 4 # increases image density wrpt the "correct" density
     
     pan, tilt = anglesMeridian(z, densityFactor)
     nPics = len(pan)
@@ -123,7 +126,7 @@ for z in Zoom:
     for i in range(nPics):
         ep, et = ePan[i], eTil[i]
         cam.moveAbsolute(ep, et, z)
-        sleep(0.1)
+        sleep(1)
         print(i, 'de', nPics, ep, et)
         # muevo el indice a ultio frame que vio la camara
         cap.set(cv2.cv.CV_CAP_PROP_POS_AVI_RATIO,1)
@@ -132,6 +135,6 @@ for z in Zoom:
             ret, frame = cap.read()
 
         # Guardar imagen
-        cv2.imwrite('%sdomo_%1.1f_%d.jpg'%(domoPath,z,i), frame)
+        cv2.imwrite('%seomo_%1.1f_%d.jpg'%(domoPath,z,i), frame)
 
 
