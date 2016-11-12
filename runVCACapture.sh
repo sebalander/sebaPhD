@@ -12,12 +12,12 @@ control_c(){
 # set finishing date
 yea=2016
 mon=11
-day=9
-hor=14
+day=14
+hor=8
 mnt=0
 finishDate=$(date -d "$yea-$mon-$day $hor:$mnt" +'%s') # fecha final en segundos desde 1979
 # set video duration in minutes
-vcaDur=30
+vcaDur=2
 # framerate in fps
 vcaFPS=10
 

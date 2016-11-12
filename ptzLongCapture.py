@@ -54,9 +54,12 @@ else:
 
 
 # pan tilt y zoom para grabar
-posiciones = [[0.7, -0.3, 0],
-              [0.9, -1, 0]]
-nPos = 2 # cantidad de posiciones diferentes
+posiciones = [[0.8, -0.1, 0],
+              [0.2, -0.7, 0.07],
+              [0.5, -0.5, 0],
+              [-0.95, -0.75, 0.1]]
+              
+nPos = len(posiciones) # cantidad de posiciones diferentes
 
 cam = PTZCamera(ip, portHTTP, usr, psw)
 cam.getStatus()
