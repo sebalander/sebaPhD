@@ -182,7 +182,7 @@ def captureTStamp(files, duration, cod,  fps=0, verbose=True):
         cap.release()
         print("error when saving 3 frames, exiting")
         return 1 # error while saving first frame to file
-    
+    print(tFin)
     # loop
     while (t <= tFin):
         ret, frame = cap.read()
@@ -192,7 +192,9 @@ def captureTStamp(files, duration, cod,  fps=0, verbose=True):
             ts.append(t)
             out.write(frame)
             if verbose:
+                print(tFin,t)
                 print("seconds elapsed",cap.get(pos_msec)/1000)
+                print(frame.size)
 
     # end of loop
     
