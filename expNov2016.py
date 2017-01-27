@@ -23,19 +23,21 @@ pixs = np.array([np.linalg.norm([541-545,319-299]), # parabolica 1
                  np.linalg.norm([798-756,652-651]), # 5xancho de cajon cerveza
                  np.linalg.norm([767-766,668-613])]) # 4xalto de cajon cerveza
 
-# corresponding values in meters
-mets = np.array([0.6, 0.6, 1.8, 5*0.275, 4*0.310]) # 
+# %%corresponding values in meters
+# usando las medidas de cajon de cerveza de ulises
+mets = np.array([0.6, 0.6, 1.8, 5*0.297, 4*0.342]) # 
 
 h_m = h_pix*mets/pixs
+h_m
 
-
-# according to google earth, a good a priori position is
+# %%according to google earth, a good a priori position is
 # -34.629344, -58.370350
 y0, x0 = -34.629344, -58.370350
-z0 = 15.0 # metros
-# and a rough conversion to height is using the radious of the earth
+z0 = 15.7 # metros, as measured by oliva
+# and a rough conversion to height is using the radius of the earth
 # initial height 
 z0 = z0 * 180.0 / np.pi / 6400000.0 # now in degrees
 
 # %% initial pose
+
 
