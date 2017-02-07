@@ -11,6 +11,13 @@ import cv2
 from copy import deepcopy as dc
 #import matplotlib.pyplot as plt
 from glob import glob
+from skimage.morphology import disk
+from skimage.filters import rank
+from skimage.color.adapt_rgb import adapt_rgb, each_channel
+
+@adapt_rgb(each_channel)
+def localEqualize(image,selem):
+    return rank.equalize(image,selem=selem)
 
 # %% data
 
@@ -21,10 +28,9 @@ roiFile = '/home/sebalander/Code/VisionUNQextra/2016-11-13 medicion/roi.png'
 im = cv2.imread(imFile)
 showKp = dc(im)
 roi = cv2.imread(roiFile,cv2.IMREAD_GRAYSCALE)
-cv2.namedWindow('frame',cv2.WINDOW_KEEPRATIO+cv2.WINDOW_AUTOSIZE)
 
-
-showOnscreen = False
+showOnscreen = True
+writeToDIsk = False
 
 # %% surf on video
 path = '/home/sebalander/Code/VisionUNQextra/Videos y Mediciones/2016-11-13 medicion/'
@@ -67,10 +73,12 @@ blurKsize = (7,7)
 blurSigmaX = 2
 erodeKernel = np.ones([2,2])
 dilateKernel = np.ones([5,5])
+selem = disk(500)
 
 # %% open video for writing
-fcc = cv2.VideoWriter_fourcc('X','V','I','D')
-out = cv2.VideoWriter(vidOutputBSSURF,fcc,10,sh[:2])
+if writeToDIsk:
+    fcc = cv2.VideoWriter_fourcc('X','V','I','D')
+    out = cv2.VideoWriter(vidOutputBSSURF,fcc,10,sh[:2])
 
 im = dc(roi)
 
@@ -82,7 +90,10 @@ for i, vidFile in enumerate(vidList):
     while vid.get(cv2.CAP_PROP_POS_FRAMES) < framesN: #vid.isOpened:
         
         frame = vid.read()[1]
+        
         frame2 = cv2.GaussianBlur(frame,blurKsize,blurSigmaX) # reduce noise
+        frame2 = localEqualize(frame2,selem)
+        
         fgmask = bs.apply(frame2)
         im = cv2.bitwise_and(coloredIm,coloredIm,mask=fgmask)
         im = cv2.addWeighted(frame,0.5,im,0.5,0)
@@ -98,16 +109,22 @@ for i, vidFile in enumerate(vidList):
         im = cv2.putText(im,textIm,(50,850),
                            cv2.FONT_HERSHEY_COMPLEX ,1,[0,0,0])
         
-        out.write(im)
+        if writeToDIsk:
+            out.write(im)
         
         if showOnscreen:
             cv2.imshow('frame Foreground + SURF',cv2.pyrDown(im))
             cv2.waitKey(1);
         
     vid.release()
+    
+    if i > 5: # salir despues dehacer 5 videos
+        break 
 
-out.release()
+if writeToDIsk:
+    out.release()
 
 if showOnscreen:
     cv2.destroyAllWindows()
+
 
