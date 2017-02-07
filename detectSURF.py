@@ -9,7 +9,7 @@ jan 2017
 import numpy as np
 import cv2
 from copy import deepcopy as dc
-import matplotlib.pyplot as plt
+#import matplotlib.pyplot as plt
 from glob import glob
 
 # %% data
@@ -24,20 +24,15 @@ roi = cv2.imread(roiFile,cv2.IMREAD_GRAYSCALE)
 cv2.namedWindow('frame',cv2.WINDOW_KEEPRATIO+cv2.WINDOW_AUTOSIZE)
 
 
-# %% surf on single image
-surf = cv2.xfeatures2d.SURF_create(1000)
-
-keypoints, descriptors = surf.detectAndCompute(im,roi)
-showKp = cv2.drawKeypoints(im,keypoints,showKp)
-cv2.imshow('frame',cv2.pyrDown(showKp[:,:,::-1]))
-
+showOnscreen = False
 
 # %% surf on video
-roiFile = '/home/sebalander/Code/VisionUNQextra/2016-11-13 medicion/roi.png'
-videosFile = '/home/sebalander/Code/VisionUNQextra/2016-11-13 medicion/Videos/vca_2016*.avi'
-vidOutput = '/home/sebalander/Code/VisionUNQextra/2016-11-13 medicion/Videos/vca_BS.avi'
+path = '/home/sebalander/Code/VisionUNQextra/Videos y Mediciones/2016-11-13 medicion/'
+roiFile =    path + 'roi.png'
+videosFile = path + 'Videos/vca_2016*.avi'
+vidOutputBSSURF = path + 'Videos/vca_BS_SURF.avi'
 
-
+# %%
 vidList = glob(videosFile)
 vidList.sort()
 vidN = len(vidList)
@@ -50,7 +45,7 @@ frame = vid.read()[1] # get one frame
 sh = np.shape(frame)
 vid.release()
 
-# create surf object
+# %% create surf object
 surf = cv2.xfeatures2d.SURF_create(500)
 bs = cv2.createBackgroundSubtractorMOG2(history=5000,
                                         varThreshold=16,
@@ -62,7 +57,10 @@ coloredIm = np.array([[[255,255,0]
                                  for i in range(sh[0])],dtype=np.uint8)
 
 # open ocv window
-cv2.namedWindow('frame',cv2.WINDOW_KEEPRATIO+cv2.WINDOW_AUTOSIZE)
+if showOnscreen:
+    cv2.namedWindow('frame Foreground + SURF',
+                    cv2.WINDOW_KEEPRATIO+cv2.WINDOW_AUTOSIZE)
+
 
 # filtering parameters
 blurKsize = (7,7)
@@ -71,9 +69,10 @@ erodeKernel = np.ones([2,2])
 dilateKernel = np.ones([5,5])
 
 # %% open video for writing
-fcc = 
-out = cv2.VideoWriter(vidOutput,['XVID'],10,sh[:1])
+fcc = cv2.VideoWriter_fourcc('X','V','I','D')
+out = cv2.VideoWriter(vidOutputBSSURF,fcc,10,sh[:2])
 
+im = dc(roi)
 
 # %%
 for i, vidFile in enumerate(vidList):
@@ -84,26 +83,31 @@ for i, vidFile in enumerate(vidList):
         
         frame = vid.read()[1]
         frame2 = cv2.GaussianBlur(frame,blurKsize,blurSigmaX) # reduce noise
-        #frameRoi = cv2.bitwise_and(frame2,frame2,mask=roi) # apply roi mask
+        fgmask = bs.apply(frame2)
+        im = cv2.bitwise_and(coloredIm,coloredIm,mask=fgmask)
+        im = cv2.addWeighted(frame,0.5,im,0.5,0)
         
-        fgmask = bs.apply(frame)
-        #fgmask = cv2.dilate(fgmask,dilateKernel)
-        #fgmask = cv2.erode(fgmask,erodeKernel)
-        #fgmask = cv2.dilate(fgmask,dilateKernel)
+        keypoints_now, descriptors_now = surf.detectAndCompute(frame,mask=roi)
+        im = cv2.drawKeypoints(im,keypoints_now,im)
         
-        colored2 = cv2.bitwise_and(coloredIm,coloredIm,mask=fgmask)
-        im = cv2.addWeighted(frame,0.5,colored2,0.5,0)
-        #im = cv2.bitwise_and(frame,frame,mask=roi)
-        
-        # keypoints_now, descriptors_now = surf.detectAndCompute(frame,mask=roi)
-        #im = cv2.drawKeypoints(frame,keypoints,im)
         textIm = "Frame %d de %d. "%(vid.get(cv2.CAP_PROP_POS_FRAMES),framesN)
-        textIm = textIm + "Video  " + vidFile[68:87]
+        textIm = textIm + "Video  " + vidFile[84:]
+        
+        print(textIm)
         
         im = cv2.putText(im,textIm,(50,850),
-                         cv2.FONT_HERSHEY_COMPLEX ,1,[0,0,0])
+                           cv2.FONT_HERSHEY_COMPLEX ,1,[0,0,0])
         
-        cv2.imshow('frame',cv2.pyrDown(im))
-        cv2.waitKey(1)
+        out.write(im)
+        
+        if showOnscreen:
+            cv2.imshow('frame Foreground + SURF',cv2.pyrDown(im))
+            cv2.waitKey(1);
+        
     vid.release()
+
+out.release()
+
+if showOnscreen:
+    cv2.destroyAllWindows()
 
