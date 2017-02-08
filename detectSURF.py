@@ -9,45 +9,41 @@ jan 2017
 import numpy as np
 import cv2
 from copy import deepcopy as dc
-#import matplotlib.pyplot as plt
+# import matplotlib.pyplot as plt
 from glob import glob
 from skimage.morphology import disk
 from skimage.filters import rank
 from skimage.color.adapt_rgb import adapt_rgb, each_channel
 
+
 @adapt_rgb(each_channel)
-def localEqualize(image,selem):
-    return rank.equalize(image,selem=selem)
+def localEqualize(image, selem):
+    return rank.equalize(image, selem=selem)
 
 # %% data
-
-# sample screenshot
-imFile = "/home/sebalander/Code/VisionUNQextra/2016-11-13 medicion/vcaSnapShot.png"
-roiFile = '/home/sebalander/Code/VisionUNQextra/2016-11-13 medicion/roi.png'
+path = '/home/sebalander/Code/VisionUNQextra/Videos y Mediciones/2016-11-13 medicion/'
+imFile = path + "vcaSnapShot.png"
+roiFile = path + 'roi.png'
+videosFile = path + 'Videos/vca_2016*.avi'
+vidOutputBSSURF = path + 'Videos/vca_BS_SURF.avi'
 
 im = cv2.imread(imFile)
 showKp = dc(im)
-roi = cv2.imread(roiFile,cv2.IMREAD_GRAYSCALE)
+roi = cv2.imread(roiFile, cv2.IMREAD_GRAYSCALE)
 
 showOnscreen = True
 writeToDIsk = False
-
-# %% surf on video
-path = '/home/sebalander/Code/VisionUNQextra/Videos y Mediciones/2016-11-13 medicion/'
-roiFile =    path + 'roi.png'
-videosFile = path + 'Videos/vca_2016*.avi'
-vidOutputBSSURF = path + 'Videos/vca_BS_SURF.avi'
 
 # %%
 vidList = glob(videosFile)
 vidList.sort()
 vidN = len(vidList)
-roi = cv2.imread(roiFile,cv2.IMREAD_GRAYSCALE)[:904] # lo recorto xq es mas chico?
+roi = cv2.imread(roiFile, cv2.IMREAD_GRAYSCALE)[:904]  # recorto xq es mas chico?
 
 # open first video to get one frame sample
 vid = cv2.VideoCapture(vidList[0])
 vid.isOpened()
-frame = vid.read()[1] # get one frame
+frame = vid.read()[1]  # get one frame
 sh = np.shape(frame)
 vid.release()
 
@@ -58,9 +54,8 @@ bs = cv2.createBackgroundSubtractorMOG2(history=5000,
                                         detectShadows=False)
 
 # an image of plain color
-coloredIm = np.array([[[255,255,0] 
-                            for j in range(sh[1])] 
-                                 for i in range(sh[0])],dtype=np.uint8)
+coloredIm = np.array([[[255, 255, 0] for j in range(sh[1])]
+                      for i in range(sh[0])], dtype=np.uint8)
 
 # open ocv window
 if showOnscreen:
@@ -69,16 +64,16 @@ if showOnscreen:
 
 
 # filtering parameters
-blurKsize = (7,7)
+blurKsize = (7, 7)
 blurSigmaX = 2
-erodeKernel = np.ones([2,2])
-dilateKernel = np.ones([5,5])
+erodeKernel = np.ones([2, 2])
+dilateKernel = np.ones([5, 5])
 selem = disk(500)
 
 # %% open video for writing
 if writeToDIsk:
-    fcc = cv2.VideoWriter_fourcc('X','V','I','D')
-    out = cv2.VideoWriter(vidOutputBSSURF,fcc,10,sh[:2])
+    fcc = cv2.VideoWriter_fourcc('X', 'V', 'I', 'D')
+    out = cv2.VideoWriter(vidOutputBSSURF, fcc, 10, sh[:2])
 
 im = dc(roi)
 
@@ -86,40 +81,40 @@ im = dc(roi)
 for i, vidFile in enumerate(vidList):
     vid = cv2.VideoCapture(vidFile)
     framesN = vid.get(cv2.CAP_PROP_FRAME_COUNT)
-    
-    while vid.get(cv2.CAP_PROP_POS_FRAMES) < framesN: #vid.isOpened:
-        
+
+    while vid.get(cv2.CAP_PROP_POS_FRAMES) < framesN:
+
         frame = vid.read()[1]
-        
-        frame2 = cv2.GaussianBlur(frame,blurKsize,blurSigmaX) # reduce noise
-        frame2 = localEqualize(frame2,selem)
-        
+
+        frame2 = cv2.GaussianBlur(frame, blurKsize, blurSigmaX)  # reduce noise
+        frame2 = localEqualize(frame2, selem)
+
         fgmask = bs.apply(frame2)
-        im = cv2.bitwise_and(coloredIm,coloredIm,mask=fgmask)
-        im = cv2.addWeighted(frame,0.5,im,0.5,0)
-        
-        keypoints_now, descriptors_now = surf.detectAndCompute(frame,mask=roi)
-        im = cv2.drawKeypoints(im,keypoints_now,im)
-        
-        textIm = "Frame %d de %d. "%(vid.get(cv2.CAP_PROP_POS_FRAMES),framesN)
+        im = cv2.bitwise_and(coloredIm, coloredIm, mask=fgmask)
+        im = cv2.addWeighted(frame, 0.5, im, 0.5, 0)
+
+        keypoints_now, descriptors_now = surf.detectAndCompute(frame, mask=roi)
+        im = cv2.drawKeypoints(im, keypoints_now, im)
+
+        textIm = "Frame %d/%d. " % (vid.get(cv2.CAP_PROP_POS_FRAMES), framesN)
         textIm = textIm + "Video  " + vidFile[84:]
-        
+
         print(textIm)
-        
-        im = cv2.putText(im,textIm,(50,850),
-                           cv2.FONT_HERSHEY_COMPLEX ,1,[0,0,0])
-        
+
+        im = cv2.putText(im, textIm, (50, 850),
+                         cv2.FONT_HERSHEY_COMPLEX, 1, [0, 0, 0])
+
         if writeToDIsk:
             out.write(im)
-        
+
         if showOnscreen:
-            cv2.imshow('frame Foreground + SURF',cv2.pyrDown(im))
-            cv2.waitKey(1);
-        
+            cv2.imshow('frame Foreground + SURF', cv2.pyrDown(im))
+            cv2.waitKey(1)
+
     vid.release()
-    
-    if i > 5: # salir despues dehacer 5 videos
-        break 
+
+    if i > 5:  # salir despues de hacer 5 videos
+        break
 
 if writeToDIsk:
     out.release()
