@@ -22,7 +22,6 @@ def localEqualize(image, selem):
 
 # %% data de entrada
 path = '/home/sebalander/Code/VisionUNQextra/Videos y Mediciones/2016-11-13 medicion/'
-imFile = path + "vcaSnapShot.png"
 roiFile = path + 'roi.png'
 videosFile = path + 'Videos/vca_2016*.avi'
 vidOutputBSSURF = path + 'Videos/vca_BS_SURF.avi'
@@ -30,26 +29,35 @@ vidOutputBSSURF = path + 'Videos/vca_BS_SURF.avi'
 showOnscreen = True
 writeToDIsk = True
 
+surfTrhes = 500
+surfHist = 5000
+blurSigmaX = 2
+equalDiskSize = 500
+nVideosMax = 5  # number of videos to process, default 0
+
 # %% preparacion o inicializacion
-im = cv2.imread(imFile)
-showKp = dc(im)
-roi = cv2.imread(roiFile, cv2.IMREAD_GRAYSCALE)
 
 vidList = glob(videosFile)
 vidList.sort()
 vidN = len(vidList)
-roi = cv2.imread(roiFile, cv2.IMREAD_GRAYSCALE)[:904]  # recorto xq es mas chico?
+
+# filtering parameters
+blurKsize = (blurSigmaX*4+1, blurSigmaX*4+1)
+selem = disk(equalDiskSize)
 
 # open first video to get one frame sample
 vid = cv2.VideoCapture(vidList[0])
 vid.isOpened()
 frame = vid.read()[1]  # get one frame
-sh = np.shape(frame)
+sh = np.shape(frame)  # get it's shape
 vid.release()
 
-#  create surf object
-surf = cv2.xfeatures2d.SURF_create(500)
-bs = cv2.createBackgroundSubtractorMOG2(history=5000,
+roi = cv2.imread(roiFile, cv2.IMREAD_GRAYSCALE)[:904]  # recorto xq es mas chico?
+im = dc(frame)
+
+# create surf object
+surf = cv2.xfeatures2d.SURF_create(surfTrhes)
+bs = cv2.createBackgroundSubtractorMOG2(history=surfHist,
                                         varThreshold=16,
                                         detectShadows=False)
 
@@ -57,27 +65,19 @@ bs = cv2.createBackgroundSubtractorMOG2(history=5000,
 coloredIm = np.array([[[255, 255, 0] for j in range(sh[1])]
                       for i in range(sh[0])], dtype=np.uint8)
 
+
+# %% ejecucion
+
 # open ocv window
 if showOnscreen:
-    cv2.namedWindow('frame Foreground + SURF',
+    cv2.namedWindow('frame',
                     cv2.WINDOW_KEEPRATIO+cv2.WINDOW_AUTOSIZE)
-
-
-# filtering parameters
-blurKsize = (7, 7)
-blurSigmaX = 2
-erodeKernel = np.ones([2, 2])
-dilateKernel = np.ones([5, 5])
-selem = disk(500)
 
 # open video for writing
 if writeToDIsk:
     fcc = cv2.VideoWriter_fourcc('X', 'V', 'I', 'D')
     out = cv2.VideoWriter(vidOutputBSSURF, fcc, 10, sh[:2])
 
-im = dc(roi)
-
-# %% ejecucion
 for i, vidFile in enumerate(vidList):
     vid = cv2.VideoCapture(vidFile)
     framesN = vid.get(cv2.CAP_PROP_FRAME_COUNT)
@@ -108,14 +108,17 @@ for i, vidFile in enumerate(vidList):
             out.write(im)
 
         if showOnscreen:
-            cv2.imshow('frame Foreground + SURF', cv2.pyrDown(im))
-            cv2.waitKey(1)
+            cv2.imshow('frame', cv2.pyrDown(im))
+            keyPressed = cv2.waitKey(-1)
+
 
     vid.release()
 
-    if i > 5:  # salir despues de hacer 5 videos
+    # salir despues de hacer 5 videos
+    if nVideosMax!=0 and i > nVideosMax:
         break
 
+# close
 if writeToDIsk:
     out.release()
 
