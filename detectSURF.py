@@ -20,21 +20,21 @@ from skimage.color.adapt_rgb import adapt_rgb, each_channel
 def localEqualize(image, selem):
     return rank.equalize(image, selem=selem)
 
-# %% data
+# %% data de entrada
 path = '/home/sebalander/Code/VisionUNQextra/Videos y Mediciones/2016-11-13 medicion/'
 imFile = path + "vcaSnapShot.png"
 roiFile = path + 'roi.png'
 videosFile = path + 'Videos/vca_2016*.avi'
 vidOutputBSSURF = path + 'Videos/vca_BS_SURF.avi'
 
+showOnscreen = True
+writeToDIsk = True
+
+# %% preparacion o inicializacion
 im = cv2.imread(imFile)
 showKp = dc(im)
 roi = cv2.imread(roiFile, cv2.IMREAD_GRAYSCALE)
 
-showOnscreen = True
-writeToDIsk = False
-
-# %%
 vidList = glob(videosFile)
 vidList.sort()
 vidN = len(vidList)
@@ -47,7 +47,7 @@ frame = vid.read()[1]  # get one frame
 sh = np.shape(frame)
 vid.release()
 
-# %% create surf object
+#  create surf object
 surf = cv2.xfeatures2d.SURF_create(500)
 bs = cv2.createBackgroundSubtractorMOG2(history=5000,
                                         varThreshold=16,
@@ -70,14 +70,14 @@ erodeKernel = np.ones([2, 2])
 dilateKernel = np.ones([5, 5])
 selem = disk(500)
 
-# %% open video for writing
+# open video for writing
 if writeToDIsk:
     fcc = cv2.VideoWriter_fourcc('X', 'V', 'I', 'D')
     out = cv2.VideoWriter(vidOutputBSSURF, fcc, 10, sh[:2])
 
 im = dc(roi)
 
-# %%
+# %% ejecucion
 for i, vidFile in enumerate(vidList):
     vid = cv2.VideoCapture(vidFile)
     framesN = vid.get(cv2.CAP_PROP_FRAME_COUNT)
@@ -89,13 +89,14 @@ for i, vidFile in enumerate(vidList):
         frame2 = cv2.GaussianBlur(frame, blurKsize, blurSigmaX)  # reduce noise
         frame2 = localEqualize(frame2, selem)
 
-        fgmask = bs.apply(frame2)
+        fgmask = bs.apply(frame2) #  esta linea da error:
+                                  #  cv2.error: /build/opencv/src/opencv-3.1.0/modules/python/src2/cv2.cpp:163: error: (-215) The data should normally be NULL! in function allocate
+
         im = cv2.bitwise_and(coloredIm, coloredIm, mask=fgmask)
         im = cv2.addWeighted(frame, 0.5, im, 0.5, 0)
 
         keypoints_now, descriptors_now = surf.detectAndCompute(frame, mask=roi)
         im = cv2.drawKeypoints(im, keypoints_now, im)
-
         textIm = "Frame %d/%d. " % (vid.get(cv2.CAP_PROP_POS_FRAMES), framesN)
         textIm = textIm + "Video  " + vidFile[84:]
 
@@ -103,7 +104,6 @@ for i, vidFile in enumerate(vidList):
 
         im = cv2.putText(im, textIm, (50, 850),
                          cv2.FONT_HERSHEY_COMPLEX, 1, [0, 0, 0])
-
         if writeToDIsk:
             out.write(im)
 
@@ -121,5 +121,4 @@ if writeToDIsk:
 
 if showOnscreen:
     cv2.destroyAllWindows()
-
 
