@@ -33,7 +33,7 @@ X_train = X_train[:len(X_train)/2,:,:,:]
 y_train = y_train[:,:len(y_train)/2]
 
 [n_x,n_y] = [100,100]
-[o_x,o_y] = shape(X_train)[1:3]
+[o_x,o_y] = X_train.shape[1:3]
 n_ims = len(X_train)
 
 im=np.zeros([n_ims,n_x,n_y,1])
@@ -44,7 +44,7 @@ for l in range(n_ims):
         for j in range(o_y):
             im[l,r_x+i,r_y+i,:]= X_train[l,i,j,:]
             
-X_train = im
+X_train = im + 20*np.random.randint(0,high=255,size=[len(im),n_x,n_y,1])
 
 # this returns a tensor
 inputs = Input(shape=(None,None,1))
@@ -75,8 +75,8 @@ y_ts = to_categorical(y_test.reshape(len(y_test),1))
 
 model.fit(X_train, y_tr)  # starts training
 #
-#model.save('ModeloCompletos.h5')
-#model2.save('ModeloSinsoft.h5')
+model.save('ModeloCompletos.h5')
+model2.save('ModeloSinsoft.h5')
 
 
 
