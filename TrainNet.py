@@ -56,8 +56,8 @@ y_ts = to_categorical(y_test.reshape(10000,1))
 
 model.fit(X_train, y_tr)  # starts training
 #
-#model.save('ModeloCompleto.h5')
-#model2.save('ModeloSinsoft.h5')
+model.save('ModeloCompleto.h5')
+model2.save('ModeloSinsoft.h5')
 
 
 
@@ -65,8 +65,8 @@ model.fit(X_train, y_tr)  # starts training
 #
 #-----------------------------------------------------------------------------
 #
-#m1 = load_model('ModeloCompleto.h5')
-#m2 = load_model('ModeloSinsoft.h5')
+m1 = load_model('ModeloCompleto.h5')
+m2 = load_model('ModeloSinsoft.h5')
 ##Hago una prueba
 
 ind=173
