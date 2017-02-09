@@ -16,9 +16,9 @@ from skimage.filters import rank
 from skimage.color.adapt_rgb import adapt_rgb, each_channel
 
 
-@adapt_rgb(each_channel)
-def localEqualize(image, selem):
-    return rank.equalize(image, selem=selem)
+#@adapt_rgb(each_channel)
+#def localEqualize(image, selem):
+#    return rank.equalize(image, selem=selem)
 
 ## %% data de entrada
 #path = '/home/sebalander/Code/VisionUNQextra/Videos y Mediciones/2016-11-13 medicion/'
@@ -120,10 +120,14 @@ class detector():
                 # aplly to BS algorith MOG2
                 frame2 = cv2.GaussianBlur(frame, self.blurKsize,
                                           self.blurSigmaX)  # reduce noise
-                frame2 = localEqualize(frame2, self.selem)
+                # equlize too slow
+                # frame2 = localEqualize(frame2, self.selem)
                 fgmask = self.bs.apply(frame2)
                 # esta linea da error:
                 # cv2.error: /build/opencv/src/opencv-3.1.0/modules/python/src2/cv2.cpp:163: error: (-215) The data should normally be NULL! in function allocate
+                # ver https://github.com/opencv/opencv/issues/5667
+                # parece que se arreglo en abril de 2016 pero la release
+                # sigueinte es 3.2 asi que habra que instalar al nueva?
 
 
                 # compose images
