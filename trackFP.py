@@ -51,10 +51,16 @@ class detector():
                  equalDiskSize=500,
                  nVideosMax=3,
                  showOnscreen=True,
-                 writeToDIsk=True):
+                 writeToDIsk=True,
+                 useBS=False,
+                 featureDetection=True,
+                 featureTracking=True):
 
         self.showOnscreen = showOnscreen
         self.writeToDIsk = writeToDIsk
+        self.useBS = useBS
+        self.featureDetection = featureDetection
+        self.featureTracking = featureTracking
 
         # paths
         self.path = path
@@ -83,15 +89,35 @@ class detector():
         self.roi = cv2.imread(self.roiFile, cv2.IMREAD_GRAYSCALE)[:904]
         self.im = dc(frame)
 
-        # create surf object
-        self.surf = cv2.xfeatures2d.SURF_create(surfThres)
-        self.bs = cv2.createBackgroundSubtractorMOG2(history=bsHist,
-                                                     varThreshold=bsThres,
-                                                     detectShadows=False)
+        # objects: feature detector, matcher, background subtraction
+        if self.featureDetection:
+            #self.featDet = cv2.ORB_create()
+            self.featDet = cv2.xfeatures2d.SURF_create(surfThres)
+            #self.featDet = cv2.xfeatures2d.SIFT_create()
+            
+            if self.featureTracking:
+                self.matcher = cv2.BFMatcher(crossCheck=True)
+                # sin crosscheck porque da assertion fails in 
+                # modules/core/src/stat.cpp, line 3776
+        
+        if self.useBS:
+            self.bs = cv2.createBackgroundSubtractorMOG2(history=bsHist,
+                                                         varThreshold=bsThres,
+                                                         detectShadows=False)
 
         # an image of plain color
         self.coloredIm = np.array([[[255, 255, 0] for j in range(self.sh[1])]
                               for i in range(self.sh[0])], dtype=np.uint8)
+
+
+
+
+
+
+
+
+
+
 
     # %% ejecucion
     def detectar(self):
@@ -110,31 +136,54 @@ class detector():
             vid = cv2.VideoCapture(vidFile)
             framesN = vid.get(cv2.CAP_PROP_FRAME_COUNT)
 
+            # open first frame and detect features
+            if self.featureDetection and self.featureTracking:
+                frame = vid.read()[1]
+                kp0, des0 = self.featDet.detectAndCompute(frame, mask=self.roi)
+
             while vid.get(cv2.CAP_PROP_POS_FRAMES) < framesN:
                 frame = vid.read()[1]
 
-                # find surf keypoints
-                keypoints_now, descriptors_now = (
-                            self.surf.detectAndCompute(frame, mask=self.roi))
-
-                # aplly to BS algorith MOG2
-                frame2 = cv2.GaussianBlur(frame, self.blurKsize,
+                if self.useBS:
+                    frame2 = cv2.GaussianBlur(frame, self.blurKsize,
                                           self.blurSigmaX)  # reduce noise
-                # equlize too slow
-                # frame2 = localEqualize(frame2, self.selem)
-                fgmask = self.bs.apply(frame2)
-                # esta linea da error:
-                # cv2.error: /build/opencv/src/opencv-3.1.0/modules/python/src2/cv2.cpp:163: error: (-215) The data should normally be NULL! in function allocate
-                # ver https://github.com/opencv/opencv/issues/5667
-                # parece que se arreglo en abril de 2016 pero la release
-                # sigueinte es 3.2 asi que habra que instalar al nueva?
+                    # equlize is too slow
+                    # frame2 = localEqualize(frame2, self.selem)
+                    fgmask = self.bs.apply(frame2)
+                    # esta linea da error:
+                    # cv2.error: /build/opencv/src/opencv-3.1.0/modules/python/src2/cv2.cpp:163: error: (-215) The data should normally be NULL! in function allocate
+                    # ver https://github.com/opencv/opencv/issues/5667
+                    # parece que se arreglo en abril de 2016 pero la release
+                    # sigueinte es 3.2 asi que habra que instalar al nueva?
+
+                    # stain frame to show foreground
+                    im = cv2.bitwise_and(self.coloredIm, self.coloredIm,
+                                         mask=fgmask)
+                    im = cv2.addWeighted(frame, 0.5, im, 0.5, 0)
+                else:
+                    im = frame
 
 
-                # compose images
-                im = cv2.bitwise_and(self.coloredIm, self.coloredIm,
-                                     mask=fgmask)
-                im = cv2.addWeighted(frame, 0.5, im, 0.5, 0)
-                im = cv2.drawKeypoints(im, keypoints_now, im)
+                if self.featureDetection:
+                    kp, des = self.featDet.detectAndCompute(frame, mask=self.roi)
+                    im = cv2.drawKeypoints(im, kp, im)
+
+                    if self.featureTracking:
+                        # para crosscheck k=1
+                        matches = self.matcher.knnMatch(des0, des, k=1)
+                        for m in matches:
+                            # some elements may be empty
+                            if 0 < len(m):
+                                m = m[0]
+                                pos0 = kp0[m.queryIdx].pt
+                                pos = kp[m.trainIdx].pt
+                                pos0 = (int(pos0[0]), int(pos0[1]))
+                                pos = (int(pos[0]), int(pos[1]))
+                                im = cv2.line(im,pos0,pos,0)
+
+
+
+
 
                 textIm = "Frame %d/%d. " % (vid.get(cv2.CAP_PROP_POS_FRAMES),
                                             framesN)
