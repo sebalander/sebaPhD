@@ -67,7 +67,7 @@ model2.save('ModeloSinsoft.h5')
 #
 m1 = load_model('ModeloCompleto.h5')
 m2 = load_model('ModeloSinsoft.h5')
-##Hago una prueba
+    ##Hago una prueba
 
 ind=173
 a=X_test[ind].reshape(28,28)
