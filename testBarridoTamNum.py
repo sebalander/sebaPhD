@@ -1,9 +1,10 @@
 # -*- coding: utf-8 -*-
 """
-Created on Mon Feb 13 15:59:33 2017
+Created on Tue Feb 14 19:47:59 2017
 
 @author: ulises
 """
+
 
 from keras.datasets import  mnist
 from keras.models import Model, load_model
@@ -34,29 +35,38 @@ m2 = load_model('ModeloSinsoft_2.h5')
 
 
 #------------------------------------------------------------------------------
-# barrido en tamaño de imagen desde 30x30 a 200x200
+# La imagen es de tamaño constante, se hace un barrido cambiando el tamanio del
+# numero
 #------------------------------------------------------------------------------
-K=18
-M_conf = np.zeros([K,n_classes,n_classes])
+
+
+import cv2
+
+K=15
+
 acc = np.zeros([K])
 t = np.zeros([K])
-tam = np.zeros([K])
+tam_num = np.zeros([K])
+
+[n_x,n_y] = [150,150] #new image size
+
 for k in range(K):
     ## create an image with a handmade number somewhere
-    [n_x,n_y] = [30+k*10,30+k*10] #new image size
-    tam[k]=30+k*10
-    [n_test,o_x,o_y] = X_test.shape[0:3] #old size 
+    X=np.zeros([len(X_test),28+8*k,28+8*k,1])
+    for i in range(len(X_test)):
+        X[i,:,:,0]=cv2.resize(X_test[i,:,:,0],(28+8*k,28+8*k))
+
+    [n_test,o_x,o_y] = X.shape[0:3] #old size 
     
     im_test=np.zeros([n_test,n_x,n_y,1]) #new image matrix, n° of images, size
-    
+    tam_num[k]= 28+8*k
     #add number to image
     for l in range(n_test):
         r_x=np.random.randint(n_x-o_x)
         r_y=np.random.randint(n_y-o_y)
         for i in range(o_x):
             for j in range(o_y):
-                im_test[l,r_x+i,r_y+j,0] = X_test[l,i,j,0]
-           
+                im_test[l,r_x+i,r_y+j,0] = X[l,i,j,0]
     #add noise intensity 20 (~8% noise)
     im_test= im_test + np.random.randint(0,high=20,size=[1,n_x,n_y,1])
     
@@ -87,4 +97,4 @@ for k in range(K):
     print("La precisión de prediccion es: %.1f%% " %acc[k])
     print("El tiempo es: %f" %t[k] )
     
-
+#
