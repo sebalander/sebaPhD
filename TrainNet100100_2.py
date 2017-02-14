@@ -54,9 +54,9 @@ X_train = im + np.random.randint(0,high=20,size=[len(im),n_x,n_y,1])
 inputs = Input(shape=(None,None,1))
 
 # a layer instance is callable on a tensor, and returns a tensor
-x = Convolution2D(10,5,5, border_mode='same')(inputs)
+x = Convolution2D(5,5,5, border_mode='same')(inputs)
 x = Activation('relu')(x)
-x = Convolution2D(12,3,3, border_mode='same')(x)
+x = Convolution2D(10,8,8, border_mode='same')(x)
 x = Activation('relu')(x)
 x = Convolution2D(10,3,3, border_mode='same')(x)
 
@@ -77,7 +77,7 @@ model2.compile(optimizer='rmsprop',
 
 model.fit(X_train, y_tr,batch_size=15,nb_epoch=20)  # starts training
 #
-#model.save('ModeloCompletos.h5')
-#model2.save('ModeloSinsoft.h5')
+model.save('ModeloCompleto_2.h5')
+model2.save('ModeloSinsoft_2.h5')
 #
 
