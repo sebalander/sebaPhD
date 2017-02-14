@@ -81,12 +81,11 @@ im= im_test[12,:,:,0].reshape([1,n_x,n_y,1])
 FeatureMaps = m2.predict(im)
 cl = m1.predict(im)
 acum=np.zeros(FeatureMaps.shape[1:3])
+weights=m1.get_weights()[-1]
 for cont in range(FeatureMaps.shape[3]):
-    acum = acum + FeatureMaps[0,:,:,cont]*cl[0,cont]
+    acum = acum + FeatureMaps[0,:,:,cont]*weights[cont]
     
 plt.imshow(acum)
-c=probas_to_classes(cl)    
-plt.imshow(FeatureMaps[0,:,:,9]*cl[0,9])
 
 
 dosNums= np.zeros([1,n_x,n_y,1])
@@ -99,8 +98,12 @@ plt.imshow(dosNums[0,:,:,0])
 
 clasDosNums = m1.predict(dosNums)
 FeatDosNums = m2.predict(dosNums)
-#--------------------#--------------#-------------------------------
+acum=np.zeros(FeatureMaps.shape[1:3])
 
-for i in range(10):
-    plt.figure()
-    plt.imshow(FeatDosNums[0,:,:,i])
+weights=m1.get_weights()[-1]
+for cont in range(FeatDosNums.shape[3]):
+    acum = acum + FeatDosNums[0,:,:,cont]*weights[cont]
+
+plt.imshow(acum)
+##--------------------#--------------#-------------------------------
+#

@@ -50,9 +50,9 @@ for l in range(n_ims):
             
 X_train = im + np.random.randint(0,high=20,size=[len(im),n_x,n_y,1])
 
+#------------------------------------------------------------------------------
 # this returns a tensor
 inputs = Input(shape=(None,None,1))
-
 # a layer instance is callable on a tensor, and returns a tensor
 x = Convolution2D(10,5,5, border_mode='same')(inputs)
 x = Activation('relu')(x)
@@ -73,7 +73,7 @@ model2 = Model(input=inputs, output=x)
 model2.compile(optimizer='rmsprop',
               loss='categorical_crossentropy',
               metrics=['accuracy'])
-              
+#------------------------------------------------------------------------------              
 
 model.fit(X_train, y_tr,batch_size=15,nb_epoch=20)  # starts training
 #
