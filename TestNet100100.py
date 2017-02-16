@@ -28,8 +28,8 @@ y_train = y_train[:,:len(y_train.transpose())/2]
 
 
 #load Models
-m1 = load_model('ModeloCompletos.h5')
-m2 = load_model('ModeloSinsoft.h5')
+m1 = load_model('ModeloCompleto_2.h5')
+m2 = load_model('ModeloSinsoft_2.h5')
 
 ## create an image with a handmade number somewhere
  
@@ -80,30 +80,45 @@ print(M_conf.round(2))
 im= im_test[12,:,:,0].reshape([1,n_x,n_y,1])
 FeatureMaps = m2.predict(im)
 cl = m1.predict(im)
-acum=np.zeros(FeatureMaps.shape[1:3])
+
 weights=m1.get_weights()[-1]
-for cont in range(FeatureMaps.shape[3]):
-    acum = acum + FeatureMaps[0,:,:,cont]*weights[cont]
+
+
+acum=np.zeros(FeatureMaps.shape[1:])
+for clase in range(cl):
+    for feta in range(FeatureMaps.shape[3]):
+        acum[:,:,i] += (FeatureMaps[:,:,:,feta]*weights[feta,:])
     
-plt.imshow(acum)
+
+plt.imshow(acum[:,:,0])
 
 
-dosNums= np.zeros([1,n_x,n_y,1])
-for i in range(o_x):
-    for j in range(o_y):
-        dosNums[0,3+i,3+j,0]=X_test[13,i,j,0]
-        dosNums[0,50+i,60+j,0]=X_test[39,i,j,0]
-   
-plt.imshow(dosNums[0,:,:,0])
 
-clasDosNums = m1.predict(dosNums)
-FeatDosNums = m2.predict(dosNums)
-acum=np.zeros(FeatureMaps.shape[1:3])
-
-weights=m1.get_weights()[-1]
-for cont in range(FeatDosNums.shape[3]):
-    acum = acum + FeatDosNums[0,:,:,cont]*weights[cont]
-
-plt.imshow(acum)
+#dosNums= np.zeros([1,n_x,n_y,1])
+#for i in range(o_x):
+#    for j in range(o_y):
+#        dosNums[0,3+i,3+j,0]=X_test[13,i,j,0]
+#        dosNums[0,50+i,60+j,0]=X_test[39,i,j,0]
+#   
+#plt.imshow(dosNums[0,:,:,0])
+#
+#clasDosNums = m1.predict(dosNums)
+#FeatDosNums = m2.predict(dosNums)
+#acum=np.zeros(FeatureMaps.shape[1:3])
+#
+#weights=m1.get_weights()[]
+#
+#ultimasFetas = (FeatDosNums[0,:,:,:]*weights[:]).transpose(2,0,1)
+#
+#vmin = np.min(ultimasFetas)
+#vmax = np.max(ultimasFetas)
+#
+#for feta in ultimasFetas:
+#    plt.figure()
+#    plt.imshow(feta,vmin=vmin,vmax=vmax,cmap='inferno')
+##    acum = acum + FeatDosNums[0,:,:,cont]*weights[cont]
+#
+#acum
+#plt.imshow(acum)
 ##--------------------#--------------#-------------------------------
 #
