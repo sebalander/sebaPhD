@@ -42,24 +42,22 @@ m2 = load_model('ModeloSinsoft_2.h5')
 
 import cv2
 
-K=15
+tam_num= np.arange(8,52,2)
+acc = [] # np.zeros(len(K))
 
-acc = np.zeros([K])
-t = np.zeros([K])
-tam_num = np.zeros([K])
 
-[n_x,n_y] = [150,150] #new image size
+[n_x,n_y] = [100,100] #new image size
 
-for k in range(K):
+for k in tam_num:
     ## create an image with a handmade number somewhere
-    X=np.zeros([len(X_test),28+8*k,28+8*k,1])
+
+    X=np.zeros([len(X_test),k,k,1])
     for i in range(len(X_test)):
-        X[i,:,:,0]=cv2.resize(X_test[i,:,:,0],(28+8*k,28+8*k))
+        X[i,:,:,0]=cv2.resize(X_test[i,:,:,0],(k,k))
 
     [n_test,o_x,o_y] = X.shape[0:3] #old size 
     
     im_test=np.zeros([n_test,n_x,n_y,1]) #new image matrix, n° of images, size
-    tam_num[k]= 28+8*k
     #add number to image
     for l in range(n_test):
         r_x=np.random.randint(n_x-o_x)
@@ -91,10 +89,16 @@ for k in range(K):
 #        M_conf[k,:,l] /= M_conf[k,:,l].sum()
 #        
 #    #calculate Accuracy
-    acc[k] = Tclas.sum()/n_test*100
-    t[k]=e-s
+    acc.append(Tclas.sum()/n_test*100)
+    t=e-s
     
-    print("La precisión de prediccion es: %.1f%% " %acc[k])
-    print("El tiempo es: %f" %t[k] )
+    print("La precisión de prediccion es: %.1f%% " %acc[-1])
+    print("El tiempo es: %f" %t )
     
 #
+
+plt.plot(tam_num,acc,'+-')
+plt.savefig('/home/ulises/Code/visionUNQ extra/CNN extra/resultados preliminares/Acc_vs_tamNum.png')
+
+Vars=[tam_num,acc]
+np.save('/home/ulises/Code/visionUNQ extra/CNN extra/resultados preliminares/Acc_vs_tamNum',Vars)

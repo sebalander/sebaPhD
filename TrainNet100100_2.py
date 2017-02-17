@@ -26,8 +26,8 @@ y_test  = y_test.reshape( (1,10000))
 n_classes = 10
 
 #Recorto el set de train a la mitad
-X_train = X_train[:len(X_train)/2,:,:,:]
-y_train = y_train[:,:len(y_train.transpose())/2]
+X_train = X_train[:len(X_train),:,:,:]
+y_train = y_train[:,:len(y_train.transpose())]
 
 
 y_tr = to_categorical(y_train)
@@ -74,9 +74,9 @@ model2.compile(optimizer='rmsprop',
               metrics=['accuracy'])
               
                
-model.fit(X_train, y_tr,batch_size=15,nb_epoch=20)  # starts training
+model.fit(X_train, y_tr,batch_size=15,nb_epoch=10)  # starts training
 #
-model.save('ModeloCompleto_2.h5')
-model2.save('ModeloSinsoft_2.h5')
+#model.save('ModeloCompleto_2.h5')
+#model2.save('ModeloSinsoft_2.h5')
 #
 
