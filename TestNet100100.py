@@ -1,4 +1,4 @@
-# -*- coding: utf-8 -*-
+s1# -*- coding: utf-8 -*-
 """
 Created on Mon Feb 13 15:59:33 2017
 
@@ -122,3 +122,15 @@ plt.imshow(acum[:,:,0])
 #plt.imshow(acum)
 ##--------------------#--------------#-------------------------------
 #
+
+# %% Graficar Primera Capa de Kernels
+q=m1.get_weights()[0]
+q=q.transpose(2,3,0,1)[0]
+
+for feta in q:
+    plt.figure()
+    plt.imshow(feta,
+               cmap='gray',
+               interpolation='none')
+               
+# %%               

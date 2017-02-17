@@ -88,3 +88,10 @@ for k in range(K):
     print("El tiempo es: %f" %t[k] )
     
 
+
+
+plt.plot(tam,acc)
+plt.savefig('/home/ulises/Code/visionUNQ extra/CNN extra/resultados preliminares/Acc_vs_tamIMG.png')
+
+Vars=[tam,acc,t]
+np.save('/home/ulises/Code/visionUNQ extra/CNN extra/resultados preliminares/Acc_vs_tamIMG.png',Vars)
