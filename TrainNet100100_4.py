@@ -53,11 +53,11 @@ X_train = im + np.random.randint(0,high=20,size=[len(im),n_x,n_y,1])
 inputs = Input(shape=(None,None,1))
 
 # a layer instance is callable on a tensor, and returns a tensor
-x = Convolution2D(10,5,5, border_mode='same')(inputs)
+x = Convolution2D(15,7,7, border_mode='same')(inputs)
 x = Activation('relu')(x)
-x = Convolution2D(10,13,13, border_mode='same')(x)
-x = Activation('relu')(x)
-x = Convolution2D(10,11,11, border_mode='same')(x)
+x = Convolution2D(10,23,23, border_mode='same')(x)
+
+
 
 y = GlobalAveragePooling2D(dim_ordering='default')(x)
 
@@ -74,9 +74,9 @@ model2.compile(optimizer='rmsprop',
               metrics=['accuracy'])
               
                
-model.fit(X_train, y_tr,batch_size=15,nb_epoch=10)  # starts training
+model.fit(X_train, y_tr,batch_size=15,nb_epoch=3)  # starts training
 #
-model.save('ModeloCompleto_5_13_11.h5')
-model2.save('ModeloSinsoft_5_13_11.h5')
+model.save('ModeloCompleto_7_23.h5')
+model2.save('ModeloSinsoft_7_23.h5')
 #
 
