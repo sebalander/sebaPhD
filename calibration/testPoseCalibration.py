@@ -43,15 +43,17 @@ import poseCalibration as pc
 
 # %% FILES
 # input files
-imageFile = "./resources/PTZgrid/ptz_(0.850278, -0.014444, 0.0).jpg"
-cornersFile = "./resources/PTZgrid/ptzCorners.npy"
-patternFile = "./resources/PTZgrid/ptzGridPattern.npy"
-rvecInitialFile = "./resources/PTZgrid/PTZsheetRvecInitial.npy"
-tvecInitialFile = "./resources/PTZgrid/PTZsheetTvecInitial.npy"
+dataFolder = "/home/sebalander/Code/sebaPhD/resources/"
+
+imageFile = dataFolder + "PTZgrid/ptz_(0.850278, -0.014444, 0.0).jpg"
+cornersFile = dataFolder + "PTZgrid/ptzCorners.npy"
+patternFile = dataFolder + "PTZgrid/ptzGridPattern.npy"
+rvecInitialFile = dataFolder + "PTZgrid/PTZsheetRvecInitial.npy"
+tvecInitialFile = dataFolder + "PTZgrid/PTZsheetTvecInitial.npy"
 
 # intrinsic parameters (input)
-distCoeffsFile = "./resources/PTZchessboard/zoom 0.0/ptzDistCoeffs.npy"
-linearCoeffsFile = "./resources/PTZchessboard/zoom 0.0/ptzLinearCoeffs.npy"
+distCoeffsFile = dataFolder + "PTZchessboard/zoom 0.0/ptzDistCoeffs.npy"
+linearCoeffsFile = dataFolder + "PTZchessboard/zoom 0.0/ptzLinearCoeffs.npy"
 
 # %% LOAD DATA
 img = imread(imageFile)

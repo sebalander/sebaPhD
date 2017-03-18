@@ -112,6 +112,8 @@ def estimateInitialPose(fiducialPoints, corners, linearCoeffs):
     Recieves fiducial points and list of corners (one for each image), proposed
     focal distance 'f' and returns the estimated pose of the camera. asumes
     pinhole model.
+    
+    this function doesn't work very well, use at your own risk
     '''
     
     src = fiducialPoints[0]+[0,0,1]
