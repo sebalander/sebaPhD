@@ -92,3 +92,5 @@ ENV/
 *.png
 *.jpeg
 *.jpg
+*.txt
+dotsphere.py
