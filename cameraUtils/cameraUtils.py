@@ -2,9 +2,11 @@
 """
 Created on Sat Feb 20 16:47:28 2016
 
+
+
 @author: lilian, sebalander
 """
-    
+
 from onvif import ONVIFCamera
 #import PTZCamera
 
@@ -29,8 +31,8 @@ class IPCamera(ONVIFCamera):
         minute = response.LocalDateTime.Time.Minute
         second = response.LocalDateTime.Time.Second
         
-        print str(year) + "/" + self.formatTimePart(month) + "/" + self.formatTimePart(day)
-        print self.formatTimePart(hour) + ":" + self.formatTimePart(minute) + ":" + self.formatTimePart(second)
+        print(str(year) + "/" + self.formatTimePart(month) + "/" + self.formatTimePart(day))
+        print(self.formatTimePart(hour) + ":" + self.formatTimePart(minute) + ":" + self.formatTimePart(second))
         
     def setTimestamp(self):
         request = self.devicemgmt.create_type('SetSystemDateAndTime')
