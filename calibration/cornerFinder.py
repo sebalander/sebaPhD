@@ -11,12 +11,12 @@ as not to do it again for every calibration model)
 import cv2
 import glob
 import numpy as np
+import matplotlib.pyplot as plt
 
 # %%
 # input
 #imagesFolder = "/home/sebalander/code/sebaPhD/resources/fishChessboard/"
 imagesFolder = "./resources/PTZchessboard/zoom 0.0/"
-
 images = glob.glob(imagesFolder+'*.jpg')
 
 # output
@@ -53,15 +53,23 @@ for picture in images:
     img = cv2.imread(picture, cv2.IMREAD_GRAYSCALE);
     
     found, corners = cv2.findChessboardCorners(img, patternSize);
+    
     if found:
         cv2.cornerSubPix(img, corners, (11, 11), (1, 1), subpixCriteria);
         imgpoints.append(corners.reshape(1, -1, 2));
-        # cv2.drawChessboardCorners(img, patternSize, corners, found)
-        # cv2.imshow('Puntos detectados', cv2.pyrDown(img))
-        # cv2.waitKey(0)
+        
+        plt.figure()
+        plt.imshow(img)
+        plt.scatter(corners[:,0,0], corners[:,0,1])
+    
     else:
-        print 'No se encontraron esquinas en ' + picture
+        print('No se encontraron esquinas en ' + picture)
         noencuentra.append(picture)
+
+
+# %% PLOT TO SHOW FOUND CORNERS
+
+
 
 # %% SAVE DATA POINTS
 np.save(cornersFile, imgpoints)

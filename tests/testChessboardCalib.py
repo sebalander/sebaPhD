@@ -36,17 +36,17 @@ cameraMatrix = np.load(linearCoeffsFile)
 rvecs = np.load(rvecsFile)
 tvecs = np.load(tvecsFile)
 
-# %% TEST MAPPING (DISTORTION MODEL)
+    # %% TEST MAPPING (DISTORTION MODEL)
 
 # pruebo con la imagen j-esima
 imagePointsProjected = chessboardModel[0,:,0:2]
 for j in [2,5,7,10]:  # range(len(imgpoints)):
     
-    imagePntsX = imgpoints[j,0,:,0]
-    imagePntsY = imgpoints[j,0,:,1]
+    imagePntsX = imgpoints[j, 0, :, 0]
+    imagePntsY = imgpoints[j, 0, :, 1]
     
-    rvec = rvecs[j][:,0]
-    tvec = tvecs[j][:,0]
+    rvec = rvecs[j][:, 0]
+    tvec = tvecs[j][:, 0]
     
     # project points to image plane with distortion
     imagePointsProjected, _ = cv2.projectPoints(chessboardModel,
