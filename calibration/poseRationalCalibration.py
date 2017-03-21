@@ -112,13 +112,17 @@ def retrieveParameters(params):
     cameraMatrix[2,2] = 1
     
     distCoeffs = zeros((14,1))
-    distCoeffs[0] = params['numDist0'].value
-    distCoeffs[1] = params['numDist1'].value
-    distCoeffs[4] = params['numDist2'].value
+#    distCoeffs[0] = params['numDist0'].value
+#    distCoeffs[1] = params['numDist1'].value
+#    distCoeffs[4] = params['numDist2'].value
+#    
+#    distCoeffs[5] = params['denomDist0'].value
+#    distCoeffs[6] = params['denomDist1'].value
+#    distCoeffs[7] = params['denomDist2'].value
     
-    distCoeffs[5] = params['denomDist0'].value
-    distCoeffs[6] = params['denomDist1'].value
-    distCoeffs[7] = params['denomDist2'].value
+    # (k1,k2,p1,p2[,k3[,k4,k5,k6[,s1,s2,s3,s4[,τx,τy]]]])
+    for i in range(14):
+        distCoeffs[i,0] = params['distCoeffs%d'%i].value
     
     return rvec, tvec, cameraMatrix, distCoeffs
 
