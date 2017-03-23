@@ -28,8 +28,8 @@ imageFile = dataFolder + "vcaSnapShot.png"
 ptosCalibFile = dataFolder + 'puntosCalibracion.txt'
 
 # intrinsic parameters (input)
-distCoeffsFile = "/home/sebalander/Code/sebaPhD/resources/fishWideDistCoeffs.npy"
-linearCoeffsFile = "/home/sebalander/Code/sebaPhD/resources/fishWideLinearCoeffs.npy"
+distCoeffsFile = "resources/fishWideChessboard/fishWideDistCoeffs.npy"
+linearCoeffsFile = "resources/fishWideChessboard/fishWideLinearCoeffs.npy"
 
 model= 'rational'  # tiene que ser compatible con los parametros provistos
 # others: 'stereographic' 'fisheye', 'unified'

@@ -152,10 +152,10 @@ def estimateInitialPose(fiducialPoints, corners, linearCoeffs):
     return [array(rVecs), array(tVecs), array(Hs)]
 
 # %%
-import poseStereographicCalibration as stereographic
-import poseUnifiedCalibration as unified
-import poseRationalCalibration as rational
-import poseFisheyeCalibration as fisheye
+from calibration import poseStereographicCalibration as stereographic
+from calibration import poseUnifiedCalibration as unified
+from calibration import poseRationalCalibration as rational
+from calibration import poseFisheyeCalibration as fisheye
 
 # %% PARAMETER HANDLING
 def formatParameters(rVec, tVec, linearCoeffs, distCoeffs, model):

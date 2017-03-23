@@ -18,10 +18,10 @@ import glob
 # %% LOAD DATA
 imagesFolder = "./resources/fishChessboard/"
 cornersFile = "./resources/fishChessboard/fishCorners.npy"
-patternFile = "./resources/chessPattern.npy"
-imgShapeFile = "./resources/fishImgShape.npy"
-distCoeffsFile = "./resources/fishDistCoeffs.npy"
-linearCoeffsFile = "./resources/fishLinearCoeffs.npy"
+patternFile = "./resources/fishChessboard/chessPattern.npy"
+imgShapeFile = "./resources/fishChessboard/fishImgShape.npy"
+distCoeffsFile = "./resources/fishChessboard/fishDistCoeffs.npy"
+linearCoeffsFile = "./resources/fishChessboard/fishLinearCoeffs.npy"
 rvecsFile = "./resources/fishChessboard/fishRvecs.npy"
 tvecsFile = "./resources/fishChessboard/fishTvecs.npy"
 
@@ -40,7 +40,8 @@ tvecs = np.load(tvecsFile)
 
 # pruebo con la imagen j-esima
 imagePointsProjected = chessboardModel[0,:,0:2]
-for j in [2,5,7,10]:  # range(len(imgpoints)):
+
+for j in range(len(imgpoints)):
     
     imagePntsX = imgpoints[j, 0, :, 0]
     imagePntsY = imgpoints[j, 0, :, 1]
