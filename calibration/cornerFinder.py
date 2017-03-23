@@ -14,37 +14,40 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 # %% para la vca modo wide
-# input
-imagesFolder = "./resources/fishWideChessboard/"
+hayquegraficar = False
 
-# output
-cornersFile = "./resources/fishWideChessboard/vcaCorners.npy"
-patternFile = "./resources/fishWideChessboard/chessPattern.npy"
-imgShapeFile = "./resources/fishWideChessboard/vcaImgShape.npy"
-
-images = glob.glob(imagesFolder+'*.png')
+## input
+#imagesFolder = "./resources/fishWideChessboard/"
 #
+## output
+#cornersFile =  "./resources/fishWideChessboard/fishWideCorners.npy"
+#patternFile =  "./resources/fishWideChessboard/fishWidePattern.npy"
+#imgShapeFile = "./resources/fishWideChessboard/fishWideShape.npy"
+#
+#images = glob.glob(imagesFolder+'*.png')
+
 ## %% para la vca
 ## input
 #imagesFolder = "./resources/fishChessboard/"
 #
 ## output
-#cornersFile = "./resources/fishChessboard/vcaCorners.npy"
-#patternFile = "./resources/fishChessboard/chessPattern.npy"
-#imgShapeFile = "./resources/fishChessboard/vcaImgShape.npy"
+#cornersFile =  "./resources/fishChessboard/fishCorners.npy"
+#patternFile =  "./resources/fishChessboard/fishPattern.npy"
+#imgShapeFile = "./resources/fishChessboard/fishShape.npy"
 #
 #images = glob.glob(imagesFolder+'*.png')
-#
-## %% para la ptz
-## input
-#imagesFolder = "./resources/PTZchessboard/zoom 0.0/"
-#
-## output
-#cornersFile = "./resources/PTZchessboard/zoom 0.0/ptzCorners.npy"
-#patternFile = "./resources/chessPattern.npy"
-#imgShapeFile = "./resources/ptzImgShape.npy"
-#
-#images = glob.glob(imagesFolder+'*.jpg')
+
+
+# %% para la ptz
+# input
+imagesFolder = "./resources/PTZchessboard/zoom 0.0/"
+
+# output
+cornersFile = "./resources/PTZchessboard/ptzCorners.npy"
+patternFile = "./resources/PTZchessboard/ptzPattern.npy"
+imgShapeFile = "./resources/PTZchessboard/ptzImgShape.npy"
+
+images = glob.glob(imagesFolder+'*.jpg')
 
 
 # %%
@@ -78,16 +81,17 @@ for picture in images:
     found, corners = cv2.findChessboardCorners(img, patternSize);
     
     if found:
-        cv2.cornerSubPix(img, corners, (11, 11), (1, 1), subpixCriteria);
+        corners = cv2.cornerSubPix(img, corners, (11, 11), (1, 1), subpixCriteria);
         imgpoints.append(corners.reshape(1, -1, 2));
         
-        plt.figure()
-        plt.imshow(img)
-        plt.scatter(corners[:,0,0], corners[:,0,1])
+        if hayquegraficar:
+            plt.figure()
+            plt.imshow(img)
+            plt.scatter(corners[:,0,0], corners[:,0,1])
     
     else:
         print('No se encontraron esquinas en ' + picture)
-        noencuentra.append(picture)
+        noencuentra.append(picture);
 
 
 # %% SAVE DATA POINTS
