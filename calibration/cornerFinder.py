@@ -13,16 +13,39 @@ import glob
 import numpy as np
 import matplotlib.pyplot as plt
 
-# %%
+# %% para la vca modo wide
 # input
-#imagesFolder = "/home/sebalander/code/sebaPhD/resources/fishChessboard/"
-imagesFolder = "./resources/PTZchessboard/zoom 0.0/"
-images = glob.glob(imagesFolder+'*.jpg')
+imagesFolder = "./resources/fishWideChessboard/"
 
 # output
-cornersFile = "./resources/PTZchessboard/zoom 0.0/ptzCorners.npy"
-patternFile = "./resources/chessPattern.npy"
-imgShapeFile = "./resources/ptzImgShape.npy"
+cornersFile = "./resources/fishWideChessboard/vcaCorners.npy"
+patternFile = "./resources/fishWideChessboard/chessPattern.npy"
+imgShapeFile = "./resources/fishWideChessboard/vcaImgShape.npy"
+
+images = glob.glob(imagesFolder+'*.png')
+#
+## %% para la vca
+## input
+#imagesFolder = "./resources/fishChessboard/"
+#
+## output
+#cornersFile = "./resources/fishChessboard/vcaCorners.npy"
+#patternFile = "./resources/fishChessboard/chessPattern.npy"
+#imgShapeFile = "./resources/fishChessboard/vcaImgShape.npy"
+#
+#images = glob.glob(imagesFolder+'*.png')
+#
+## %% para la ptz
+## input
+#imagesFolder = "./resources/PTZchessboard/zoom 0.0/"
+#
+## output
+#cornersFile = "./resources/PTZchessboard/zoom 0.0/ptzCorners.npy"
+#patternFile = "./resources/chessPattern.npy"
+#imgShapeFile = "./resources/ptzImgShape.npy"
+#
+#images = glob.glob(imagesFolder+'*.jpg')
+
 
 # %%
 # cantidad esquinas internas del tablero:
@@ -65,10 +88,6 @@ for picture in images:
     else:
         print('No se encontraron esquinas en ' + picture)
         noencuentra.append(picture)
-
-
-# %% PLOT TO SHOW FOUND CORNERS
-
 
 
 # %% SAVE DATA POINTS
