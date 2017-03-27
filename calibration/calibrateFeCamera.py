@@ -13,11 +13,15 @@ import numpy as np
 import matplotlib.pyplot as plt
 import cv2.fisheye as fe
 import glob
+from calibration import poseCalibration as pc
+
 
 # %% LOAD DATA
 # input
 # cam puede ser ['fish', 'fishWide', 'ptz']
 cam = 'fish'
+# puede ser ['rational', fisheye]
+model = 'rational'
 
 if cam=='fish':
     imagesFolder = "./resources/fishChessboard/"
@@ -58,10 +62,14 @@ n = len(imgpoints)  # cantidad de imagenes
 # Parametros de entrada/salida de la calibracion
 objpoints = np.array([chessboardModel]*n)
 
-rvecs = np.zeros((n, 1, 1, 3))
-# [np.zeros((1, 1, 3), dtype=np.float64) for i in range(n)]
-tvecs = np.zeros((n, 1, 1, 3))
-# [np.zeros((1, 1, 3), dtype=np.float64) for i in range(n)]
+'''
+rVecs and tVecs is be a list of n elements each a vector of shape (3,1)
+'''
+
+#rVecs = [np.array([[np.pi], [0], [0]])] * n
+## [np.zeros((1, 1, 3), dtype=np.float64) for i in range(n)]
+#tVecs = [np.array([[0], [0], [1]])] * n
+## [np.zeros((1, 1, 3), dtype=np.float64) for i in range(n)]
 K0 = np.eye(3)
 D = np.zeros((1, 4))
 
@@ -92,38 +100,58 @@ K0[0, 0] = K0[1, 1] = 500.0
 flags = 1 + 8 + 512
 
 # terminaion criteria
-criteria = (cv2.TERM_CRITERIA_COUNT + cv2.TERM_CRITERIA_EPS, 10, 0.1)
-#
-# %% OPTIMIZAR
-rvecs = np.zeros((n, 1, 1, 3))
-tvecs = np.zeros((n, 1, 1, 3))
-K 
-rms, K, D, rvecs, tvecs = fe.calibrate(objpoints, imgpoints, imgSize, K0, D,
-                    rvecs, tvecs, flags=flags, criteria=criteria)
+criteria = (cv2.TERM_CRITERIA_COUNT + cv2.TERM_CRITERIA_EPS, int(1e4), 1e-4)
 
-# %% SAVE CALIBRATION
-np.save(distCoeffsFile, D)
-np.save(linearCoeffsFile, K)
+# %% OPTIMIZAR
+
+switcher = {
+'rational' : cv2.calibrateCamera,
+'fisheye' : fe.calibrate
+}
+
+#rms, K, D, rVecs, tVecs = switcher[model](objpoints, imgpoints, imgSize, K0, D,
+#                    rVecs, tVecs, flags=flags, criteria=criteria)
+
+rms, K, D, rVecs, tVecs = switcher[model](objpoints, imgpoints,
+                                  imgSize, K0, D,
+                                  flags=flags, criteria=criteria)
+
+
+# %% plot fiducial points and corners to ensure the calibration data is ok
+
+for i in range(3):
+    rVec = rVecs[i]
+    tVec = tVecs[i]
+    fiducial1 = chessboardModel
+    
+    pc.fiducialComparison3D(rVec, tVec, fiducial1)
 
 # %% TEST MAPPING (DISTORTION MODEL)
 # pruebo con la imagen j-esima
-for j in range(2):  # range(len(imgpoints)):
+
+switcher = {
+'rational' : cv2.projectPoints,
+'fisheye' : fe.projectPoints
+}
+
+
+for j in range(5):  # range(len(imgpoints)):
 
     imagePntsX = imgpoints[j, 0, :, 0]
     imagePntsY = imgpoints[j, 0, :, 1]
 
-    rvec = rvecs[j]
-    tvec = tvecs[j]
+    rvec = rVecs[j]
+    tvec = tVecs[j]
 
     imagePointsProjected = []
-    imagePointsProjected = fe.projectPoints(chessboardModel,
+    imagePointsProjected = switcher[model](chessboardModel,
                                             rvec,
                                             tvec,
                                             K,
                                             D)
 
-    xPos = np.array(imagePointsProjected[0][0, :, 0])
-    yPos = np.array(imagePointsProjected[0][0, :, 1])
+    xPos = np.array(imagePointsProjected[0][:, 0, 0])
+    yPos = np.array(imagePointsProjected[0][:, 0, 1])
 
     plt.figure(j)
     im = plt.imread(images[j])
@@ -132,7 +160,7 @@ for j in range(2):  # range(len(imgpoints)):
     plt.plot(xPos, yPos, '+b', markersize=10)
     #fig.savefig("distortedPoints3.png")
 
-# %% to try and solve the inverse problem
-coeffs = [D[3,0], 0, D[2,0], 0, D[1,0], 0, D[0,0], 0, 1, -100]
-theta = np.roots(coeffs)
-theta = np.real(theta[np.isreal(theta)])  # extraigo el que no es complejo
+
+# %% SAVE CALIBRATION
+np.save(distCoeffsFile, D)
+np.save(linearCoeffsFile, K)

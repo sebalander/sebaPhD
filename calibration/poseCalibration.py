@@ -152,10 +152,10 @@ def estimateInitialPose(fiducialPoints, corners, linearCoeffs):
     return [array(rVecs), array(tVecs), array(Hs)]
 
 # %%
-from calibration import poseStereographicCalibration as stereographic
-from calibration import poseUnifiedCalibration as unified
-from calibration import poseRationalCalibration as rational
-from calibration import poseFisheyeCalibration as fisheye
+from calibration import StereographicCalibration as stereographic
+from calibration import UnifiedCalibration as unified
+from calibration import RationalCalibration as rational
+from calibration import FisheyeCalibration as fisheye
 
 # %% PARAMETER HANDLING
 def formatParameters(rVec, tVec, linearCoeffs, distCoeffs, model):
@@ -264,6 +264,10 @@ def calibrateInverse(fiducialPoints, imageCorners, rVec, tVec, linearCoeffs, dis
 
 # plot corners and their projection
 def cornerComparison(img, corners1, corners2, label1='Corners', label2='Proyectados'):
+    '''
+    draw on top of image two sets of corners, ideally calibration and direct
+    projected
+    '''
     X1 = corners1[:,0,0]
     Y1 = corners1[:,0,1]
     X2 = corners2[:,0,0]
@@ -280,6 +284,10 @@ def cornerComparison(img, corners1, corners2, label1='Corners', label2='Proyecta
 
 # compare fiducial points
 def fiducialComparison(fiducial1, fiducial2, label1='Calibration points', label2='Projected points'):
+    '''
+    Draw on aplane two sets of fiducial points for comparison, ideally
+    calibration and direct projected
+    '''
     X1 = fiducial1[0,:,0]
     Y1 = fiducial1[0,:,1]
     X2 = fiducial2[0,:,0]
@@ -303,8 +311,12 @@ class Arrow3D(FancyArrowPatch):
         FancyArrowPatch.draw(self, renderer)
 
 def fiducialComparison3D(rVec, tVec, fiducial1, fiducial2 = False, label1 = 'Fiducial points', label2 = 'Projected points'):
-    
-    t = tVec[:,0]
+    '''
+    draw in 3D the position of the camera and the fiducial points, also can
+    draw an extras et of fiducial points (projected). indicates orienteation
+    of camera
+    '''
+    t = tVec.reshape((3))
     
     # calcular las puntas de los versores
     if rVec.shape == (3,3):
@@ -363,7 +375,8 @@ def fiducialComparison3D(rVec, tVec, fiducial1, fiducial2 = False, label1 = 'Fid
     origen = Arrow3D([0, t[0]],
                      [0, t[1]],
                      [0, t[2]],
-                     mutation_scale=20, lw=1, arrowstyle="-", color="k", linestyle="dashed")
+                     mutation_scale=20, lw=1, arrowstyle="-", color="k",
+                     linestyle="dashed")
     
     ejeXc = Arrow3D([t[0], x[0]],
                    [t[1], x[1]],
