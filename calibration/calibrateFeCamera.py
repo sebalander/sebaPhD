@@ -139,12 +139,14 @@ rms, K, D, rVecs, tVecs = switcherOpt[model](objpoints, imgpoints,
 
 # %% plot fiducial points and corners to ensure the calibration data is ok
 
-for i in  [9,15]:
+for i in range(n): # [9,15]:
     rVec = rVecs[i]
     tVec = tVecs[i]
     fiducial1 = chessboardModel
     
     pc.fiducialComparison3D(rVec, tVec, fiducial1)
+
+
 
 # %% TEST MAPPING (DISTORTION MODEL)
 # pruebo con la imagen j-esima
@@ -155,7 +157,7 @@ switcherProj = {
     }
 
 
-for j in [9,10,11,15]: # range(n):  # range(len(imgpoints)):
+for j in range(n):  # range(len(imgpoints)):
 
     imagePntsX = imgpoints[j, 0, :, 0]
     imagePntsY = imgpoints[j, 0, :, 1]
