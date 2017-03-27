@@ -94,3 +94,5 @@ ENV/
 *.jpg
 *.txt
 dotsphere.py
+X_train_varTam.npy
+y_train_varTam.npy

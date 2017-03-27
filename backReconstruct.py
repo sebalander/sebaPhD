@@ -17,7 +17,7 @@ from keras.layers.pooling import  GlobalAveragePooling2D
 import numpy as np
 
 # %%
-model = load_model('../ModeloCompleto_7_5x5_pooling.h5')
+model = load_model('ModeloCompleto_7_7x5.h5')
 #kernels = np.load('kernels.npy')
 kernels = model.get_weights()
 # imprimo los tamaños
@@ -54,17 +54,18 @@ for i in range(len(tamanios)):
 
 
 #
-def bakDraw(c,w,k,b,relu=False,transpose=False):
+#def bakDraw(c,w,k,b,relu=False,transpose=False):
+def bakDraw(c,w,k,b,relu=False):
     
     n_el = len(k)+len(w)
     s=[None] * n_el
     
     
     
-    if transpose:
-        s[-1] = w[0][:,c]
-    else:
-        s[-1] = w[0][c]
+#    if transpose:
+    s[-1] = w[0][:,c]
+#    else:
+#        s[-1] = w[0][c]
     s[-2] = np.tensordot(k[-1],s[-1],axes=((3),(0)))
     
     #s[-2]=s[-2]-b[-1][c]
@@ -110,7 +111,7 @@ plt.figure()
 plt.suptitle("sin 'invertir' relu y con trasposision de W");
 for c in range(9):
     plt.subplot('33'+str(c+1))
-    im = bakDraw(c,w,k,b,relu=True,transpose=True)
+    im = bakDraw(c,w,k,b,relu=True)
     plt.imshow(im,cmap='gray',interpolation='none')
     plt.title('numero '+str(c))
     plt.axis('off')

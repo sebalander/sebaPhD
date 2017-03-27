@@ -12,7 +12,7 @@ from keras.models import Model
 from keras.layers import Input, Dense, Activation
 from keras.layers.convolutional import Convolution2D
 from keras.utils.np_utils import to_categorical
-from keras.layers.pooling import  GlobalAveragePooling2D, MaxPooling2D
+from keras.layers.pooling import  GlobalAveragePooling2D
 import numpy as np
 
 
@@ -55,21 +55,9 @@ inputs = Input(shape=(None,None,1))
 # a layer instance is callable on a tensor, and returns a tensor
 x = Convolution2D(15,7,7, border_mode='same')(inputs)
 x = Activation('relu')(x)
-x = MaxPooling2D(pool_size=(2,2),strides=(1,1))(x)
 x = Convolution2D(12,5,5, border_mode='same')(x)
 x = Activation('relu')(x)
-x = MaxPooling2D(pool_size=(2,2),strides=(1,1))(x)
-x = Convolution2D(10,5,5, border_mode='same')(x)
-x = Activation('relu')(x)
-x = MaxPooling2D(pool_size=(2,2),strides=(1,1))(x)
-x = Convolution2D(10,5,5, border_mode='same')(x)
-x = Activation('relu')(x)
-x = MaxPooling2D(pool_size=(2,2),strides=(1,1))(x)
-x = Convolution2D(10,5,5, border_mode='same')(x)
-x = Activation('relu')(x)
-x = MaxPooling2D(pool_size=(2,2),strides=(1,1))(x)
-x = Convolution2D(10,5,5, border_mode='same')(x)
-
+x = Convolution2D(15,5,5, border_mode='same')(x)
 
 y = GlobalAveragePooling2D(dim_ordering='default')(x)
 
@@ -88,7 +76,7 @@ model2.compile(optimizer='rmsprop',
                
 model.fit(X_train, y_tr,batch_size=15,nb_epoch=5)  # starts training
 #
-model.save('ModeloCompleto_7_5x5_pooling.h5')
-model2.save('ModeloSinsoft_7_5x5_pooling.h5')
+model.save('ModeloCompleto_7_5_5.h5')
+model2.save('ModeloSinsoft_7_5_5.h5')
 #
 
