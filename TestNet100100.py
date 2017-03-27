@@ -1,4 +1,4 @@
-s1# -*- coding: utf-8 -*-
+# -*- coding: utf-8 -*-
 """
 Created on Mon Feb 13 15:59:33 2017
 
@@ -12,7 +12,7 @@ from keras.utils.np_utils import probas_to_classes
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.image as mpimg
-
+import cv2
 
 #import matplotlib.pyplot as plt
 (X_train, y_train), (X_test, y_test) = mnist.load_data()
@@ -23,13 +23,13 @@ y_test  = y_test.reshape( (1,10000))
 n_classes = 10
 
 #cut the train set to half
-X_train = X_train[:len(X_train)/2,:,:,:]
-y_train = y_train[:,:len(y_train.transpose())/2]
+#X_train = X_train[:len(X_train)/2,:,:,:]
+#y_train = y_train[:,:len(y_train.transpose())/2]
 
 
 #load Models
-m1 = load_model('ModeloCompleto_7_5x5.h5')
-m2 = load_model('ModeloSinsoft_7_5x5.h5')
+m1 = load_model('ModeloCompleto_6de7x7_varTam_2pool.h5')
+m2 = load_model('ModeloSinsoft_6de7x7_varTam_2pool.h5')
 
 ## create an image with a handmade number somewhere
  
@@ -49,6 +49,8 @@ for l in range(n_test):
 #add noise intensity 20 (~8% noise)
 im_test= im_test + np.random.randint(0,high=20,size=[1,n_x,n_y,1])
 
+
+#%%
 #get classification
 classif      = m1.predict(im_test) 
 #probas_to_classes vuelve de la predicción a las clases como números de 0 a 9
@@ -76,7 +78,7 @@ print("La matriz de confunsión es:")
 print(M_conf.round(2))
 
 
-#------------------------------------------------------------------
+#%%------------------------------------------------------------------
 im= im_test[12,:,:,0].reshape([1,n_x,n_y,1])
 FeatureMaps = m2.predict(im)
 cl = m1.predict(im)
@@ -90,15 +92,15 @@ for clase in range(cl.shape[1]):
         acum[:,:,clase] += (FeatureMaps[0,:,:,feta]*weights[feta,clase])
     
 
-plt.imshow(acum[:,:,0])
+#plt.imshow(acum[:,:,0])
 
 
 
 dosNums= np.zeros([1,n_x,n_y,1])
 for i in range(o_x):
     for j in range(o_y):
-        dosNums[0,3+i,3+j,0]=X_test[13,i,j,0]
-        dosNums[0,50+i,60+j,0]=X_test[39,i,j,0]
+        dosNums[0,22+i,60+j,0]=X_test[7,i,j,0]
+        dosNums[0,50+i,60+j,0]=X_test[7,i,j,0]
    
 plt.imshow(dosNums[0,:,:,0])
 
@@ -120,11 +122,23 @@ for clase in range(clasDosNums.shape[1]):
 vmin = np.min(ultimasFetas)
 vmax = np.max(ultimasFetas)
 
+negro = np.zeros([100,100])
+
+
+# %%
 for feta in ultimasFetas:
     plt.figure()
+    minimo = np.min(feta)
+    maximo = np.max(feta)
+    normalizada = (feta-minimo) / (maximo - minimo)
     plt.imshow(feta,vmin=vmin,vmax=vmax,cmap='inferno')
     #acum +=  FeatDosNums[0,:,:,cont]*weights[cont]
+    
+#
+#cmparada = ultimasFetas[0]<ultimasFetas[1]
+#plt.imshow(cmparada,cmap='gray')
 
+# %%
 acum
 plt.figure()
 plt.imshow(acum)
