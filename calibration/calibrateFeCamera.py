@@ -21,7 +21,7 @@ from calibration import poseCalibration as pc
 # cam puede ser ['fish', 'fishWide', 'ptz']
 cam = 'fish'
 # puede ser ['rational', fisheye]
-model = 'fisheye'
+model = 'rational'
 
 if cam=='fish':
     imagesFolder = "./resources/fishChessboard/"
@@ -81,7 +81,7 @@ D = de[model]
 
 K0[0, 2] = imgSize[1]/2
 K0[1, 2] = imgSize[0]/2
-K0[0, 0] = K0[1, 1] = 500.0
+K0[0, 0] = K0[1, 1] = 600.0
 
 # CALIB_USE_INTRINSIC_GUESS cameraMatrix contains valid initial values of fx,
 # fy, cx, cy that are optimized further. Otherwise, (cx, cy) is initially set to
@@ -102,15 +102,20 @@ K0[0, 0] = K0[1, 1] = 500.0
 # optimization. It stays at the center or at a different location specified when
 # CALIB_USE_INTRINSIC_GUESS is set too.
 #
-#.CALIB_FIX_SKEW CALIB_USE_INTRINSIC_GUESS CALIB_FIX_PRINCIPAL_POINT
-flags = 1 + 8 + 512
+
+#.CALIB_FIX_SKEW CALIB_USE_INTRINSIC_GUESS 
+# CALIB_RECOMPUTE_EXTRINSIC CALIB_FIX_PRINCIPAL_POINT 
+flags = 1 + 2 + 8 + 512
+
+#.CALIB_FIX_SKEW CALIB_FIX_PRINCIPAL_POINT 
+flags = 1 + 512
 
 # terminaion criteria
-criteria = (cv2.TERM_CRITERIA_COUNT + cv2.TERM_CRITERIA_EPS, int(1e4), 1e-4)
+criteria = (cv2.TERM_CRITERIA_COUNT + cv2.TERM_CRITERIA_EPS, int(1e6), 1e-4)
 
 # %% OPTIMIZAR
 
-switcher = {
+switcherOpt = {
 'rational' : cv2.calibrateCamera,
 'fisheye' : fe.calibrate
 }
@@ -118,14 +123,23 @@ switcher = {
 #rms, K, D, rVecs, tVecs = switcher[model](objpoints, imgpoints, imgSize, K0, D,
 #                    rVecs, tVecs, flags=flags, criteria=criteria)
 
-rms, K, D, rVecs, tVecs = switcher[model](objpoints, imgpoints,
+rms, K, D, rVecs, tVecs = switcherOpt[model](objpoints, imgpoints,
                                   imgSize, K0, D,
-                                  flags=flags, criteria=criteria)
-
+                                  flags=flags) #, criteria=criteria)
+#
+##.CALIB_FIX_SKEW CALIB_USE_INTRINSIC_GUESS 
+## CALIB_RECOMPUTE_EXTRINSIC CALIB_FIX_PRINCIPAL_POINT 
+#flags = 1 + 2 + 8 + 512
+#
+#rms, K, D, rVecs, tVecs = switcherOpt[model](objpoints, imgpoints,
+#                                  imgSize, K0, D,
+#                                  np.array(rVecs).reshape((3,n)),
+#                                  np.array(tVecs).reshape((3,n)),
+#                                  flags=flags, criteria=criteria)
 
 # %% plot fiducial points and corners to ensure the calibration data is ok
 
-for i in range(3):
+for i in  [9,15]:
     rVec = rVecs[i]
     tVec = tVecs[i]
     fiducial1 = chessboardModel
@@ -135,13 +149,13 @@ for i in range(3):
 # %% TEST MAPPING (DISTORTION MODEL)
 # pruebo con la imagen j-esima
 
-switcher = {
+switcherProj = {
     'rational' : cv2.projectPoints,
     'fisheye' : fe.projectPoints
     }
 
 
-for j in range(n):  # range(len(imgpoints)):
+for j in [9,10,11,15]: # range(n):  # range(len(imgpoints)):
 
     imagePntsX = imgpoints[j, 0, :, 0]
     imagePntsY = imgpoints[j, 0, :, 1]
@@ -150,7 +164,7 @@ for j in range(n):  # range(len(imgpoints)):
     tvec = tVecs[j]
 
     imagePointsProjected = []
-    imagePointsProjected = switcher[model](chessboardModel,
+    imagePointsProjected = switcherProj[model](chessboardModel,
                                             rvec,
                                             tvec,
                                             K,
@@ -163,13 +177,13 @@ for j in range(n):  # range(len(imgpoints)):
         xPos = np.array(imagePointsProjected[0][0, :, 0])
         yPos = np.array(imagePointsProjected[0][0, :, 1])
 
-    plt.figure(j)
+    plt.figure()
     im = plt.imread(images[j])
     plt.imshow(im)
     plt.plot(imagePntsX, imagePntsY, 'xr', markersize=10)
     plt.plot(xPos, yPos, '+b', markersize=10)
     #fig.savefig("distortedPoints3.png")
 
-# %% SAVE CALIBRATION
-np.save(distCoeffsFile, D)
-np.save(linearCoeffsFile, K)
+## %% SAVE CALIBRATION
+#np.save(distCoeffsFile, D)
+#np.save(linearCoeffsFile, K)
