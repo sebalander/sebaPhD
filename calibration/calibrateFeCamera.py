@@ -21,7 +21,7 @@ from calibration import poseCalibration as pc
 # cam puede ser ['fish', 'fishWide', 'ptz']
 cam = 'fish'
 # puede ser ['rational', fisheye]
-model = 'rational'
+model = 'fisheye'
 
 if cam=='fish':
     imagesFolder = "./resources/fishChessboard/"
@@ -71,7 +71,13 @@ rVecs and tVecs is be a list of n elements each a vector of shape (3,1)
 #tVecs = [np.array([[0], [0], [1]])] * n
 ## [np.zeros((1, 1, 3), dtype=np.float64) for i in range(n)]
 K0 = np.eye(3)
-D = np.zeros((1, 4))
+
+de = {
+    'rational' : np.zeros((1, 5)),
+    'fisheye' : np.zeros((4))
+    }
+
+D = de[model]
 
 K0[0, 2] = imgSize[1]/2
 K0[1, 2] = imgSize[0]/2
@@ -130,12 +136,12 @@ for i in range(3):
 # pruebo con la imagen j-esima
 
 switcher = {
-'rational' : cv2.projectPoints,
-'fisheye' : fe.projectPoints
-}
+    'rational' : cv2.projectPoints,
+    'fisheye' : fe.projectPoints
+    }
 
 
-for j in range(5):  # range(len(imgpoints)):
+for j in range(n):  # range(len(imgpoints)):
 
     imagePntsX = imgpoints[j, 0, :, 0]
     imagePntsY = imgpoints[j, 0, :, 1]
@@ -150,8 +156,12 @@ for j in range(5):  # range(len(imgpoints)):
                                             K,
                                             D)
 
-    xPos = np.array(imagePointsProjected[0][:, 0, 0])
-    yPos = np.array(imagePointsProjected[0][:, 0, 1])
+    if model == 'rational':
+        xPos = np.array(imagePointsProjected[0][:, 0, 0])
+        yPos = np.array(imagePointsProjected[0][:, 0, 1])
+    if model == 'fisheye':
+        xPos = np.array(imagePointsProjected[0][0, :, 0])
+        yPos = np.array(imagePointsProjected[0][0, :, 1])
 
     plt.figure(j)
     im = plt.imread(images[j])
@@ -159,7 +169,6 @@ for j in range(5):  # range(len(imgpoints)):
     plt.plot(imagePntsX, imagePntsY, 'xr', markersize=10)
     plt.plot(xPos, yPos, '+b', markersize=10)
     #fig.savefig("distortedPoints3.png")
-
 
 # %% SAVE CALIBRATION
 np.save(distCoeffsFile, D)
