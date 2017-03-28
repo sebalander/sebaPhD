@@ -4,7 +4,7 @@ Created on Tue Sep 13 19:01:57 2016
 
 @author: sebalander
 """
-from numpy import zeros, sqrt, roots, array, isreal
+from numpy import zeros, sqrt, roots, array, isreal, shape
 from cv2 import projectPoints, Rodrigues
 from lmfit import minimize, Parameters
 #from poseCalibration import xypToZplane
@@ -375,7 +375,36 @@ def directRationalOwn(objectPoints, rotMatrix, tVec, cameraMatrix, distCoeffs,
         ax4.scatter(corners[:,0,0],corners[:,0,1])
         ax4.scatter(uv.T[0],uv.T[1])
     
-    distortedProyection = uv.reshape([np.shape(uv)[0],1,2])
+    distortedProyection = uv.reshape([shape(uv)[0],1,2])
     
     return distortedProyection
+
+
+# %% INTRINSIC CALIBRATION CHESSBOARD METHOD
+from cv2 import calibrateCamera as cali
+
+def calibrateIntrinsic(objpoints, imgpoints, imgSize, K, D,
+                       flags, criteria):
+    '''
+    calibrates using opencvs implemented algorithm using chessboard method.
+    if K, D, flags and criteria are not given it uses the default defined by
+    me:
+        
+        D = zeros((1, 5))
+
+    return rms, K, D, rVecs, tVecs
+    '''
+    if D is None:
+        D = zeros((1, 5))
+    
+    rms, K, D, rVecs, tVecs = cali(objpoints, imgpoints,
+                                      imgSize, K, D,
+                                      flags=flags, criteria=criteria)
+    
+    return rms, K, D, rVecs, tVecs
+
+
+
+
+
 

@@ -11,7 +11,7 @@ from matplotlib.pyplot import xlabel, ylabel
 from cv2 import Rodrigues, findHomography
 from numpy import min, max, ndarray, zeros, array, reshape, sqrt, roots
 from numpy import sin, cos, cross, ones, concatenate, flipud, dot, isreal
-from numpy import linspace, polyval
+from numpy import linspace, polyval, eye
 from scipy.linalg import sqrtm, norm, inv
 from matplotlib.patches import FancyArrowPatch
 from mpl_toolkits.mplot3d import proj3d
@@ -519,4 +519,48 @@ def plotRationalDist(distCoeffs,imgSize, linearCoeffs):
     ylabel("radio distorsionado")
     
 
+# %% INRINSIC CALIBRATION
+
+def calibrateIntrinsic(objpoints, imgpoints, imgSize, model, K=None, D=None,
+                       flags=None, criteria=None):
+    '''
+    only available for rational and fisheye, we use opencv's functions
+    exclusively here
+    
+    parameters defined by me for default use:
+        K = [[600.0, 0.0,   imgSize[1]/2],
+             0.0,    600.0, imgSize[0]/2],
+             0.0,    0.0,        1]]
+        
+        flags = 1 + 512 # no skew and fixed ppal point, seems more apropiate
+                          to our camera model
+        criteria = (3, int(1e5), 1e-15)
+    
+    return rms, K, D, rVecs, tVecs
+    '''
+    
+    if K is None:
+        K = eye(3)
+        K[0, 2] = imgSize[1]/2
+        K[1, 2] = imgSize[0]/2
+        K[0, 0] = K[1, 1] = 600.0
+    
+    if flags is None:
+        #.CALIB_FIX_SKEW CALIB_FIX_PRINCIPAL_POINT
+        flags = 1 + 512
+    
+    if criteria is None:
+        # terminaion criteria
+        # cv2.TERM_CRITERIA_COUNT + cv2.TERM_CRITERIA_EPS, int(1e5), 1e-16)
+        # estimated DBL_EPSILON as 4.440892098500626e-16 using the algortihm
+        # in https://en.wikipedia.org/wiki/Machine_epsilon#Approximation
+        criteria = (3, int(1e5), 1e-15)
+    
+    switcher = {
+    'rational' : rational.calibrateIntrinsic,
+    'fisheye' : fisheye.calibrateIntrinsic
+    }
+    
+    return switcher[model](objpoints, imgpoints, imgSize, K, D,
+                           flags=flags, criteria=criteria)
 

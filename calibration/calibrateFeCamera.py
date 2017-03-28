@@ -9,10 +9,11 @@ calibrates using fisheye distortion model (polynomial in theta)
 
 # %%
 import cv2
+import glob
 import numpy as np
+# %%
 import matplotlib.pyplot as plt
 import cv2.fisheye as fe
-import glob
 from calibration import poseCalibration as pc
 
 
@@ -21,7 +22,7 @@ from calibration import poseCalibration as pc
 # cam puede ser ['fish', 'fishWide', 'ptz']
 cam = 'fish'
 # puede ser ['rational', fisheye]
-model = 'rational'
+model = 'fisheye'
 
 if cam=='fish':
     imagesFolder = "./resources/fishChessboard/"
@@ -62,6 +63,7 @@ n = len(imgpoints)  # cantidad de imagenes
 # Parametros de entrada/salida de la calibracion
 objpoints = np.array([chessboardModel]*n)
 
+# %%
 '''
 rVecs and tVecs is be a list of n elements each a vector of shape (3,1)
 '''
@@ -72,16 +74,16 @@ rVecs and tVecs is be a list of n elements each a vector of shape (3,1)
 ## [np.zeros((1, 1, 3), dtype=np.float64) for i in range(n)]
 K0 = np.eye(3)
 
+K0[0, 2] = imgSize[1]/2
+K0[1, 2] = imgSize[0]/2
+K0[0, 0] = K0[1, 1] = 600.0
+
 de = {
     'rational' : np.zeros((1, 5)),
     'fisheye' : np.zeros((4))
     }
 
 D = de[model]
-
-K0[0, 2] = imgSize[1]/2
-K0[1, 2] = imgSize[0]/2
-K0[0, 0] = K0[1, 1] = 600.0
 
 # CALIB_USE_INTRINSIC_GUESS cameraMatrix contains valid initial values of fx,
 # fy, cx, cy that are optimized further. Otherwise, (cx, cy) is initially set to
@@ -111,7 +113,7 @@ flags = 1 + 2 + 8 + 512
 flags = 1 + 512
 
 # terminaion criteria
-criteria = (cv2.TERM_CRITERIA_COUNT + cv2.TERM_CRITERIA_EPS, int(1e6), 1e-4)
+criteria = (cv2.TERM_CRITERIA_COUNT + cv2.TERM_CRITERIA_EPS, int(1e6), DBL_EPSILON)
 
 # %% OPTIMIZAR
 
@@ -123,21 +125,29 @@ switcherOpt = {
 #rms, K, D, rVecs, tVecs = switcher[model](objpoints, imgpoints, imgSize, K0, D,
 #                    rVecs, tVecs, flags=flags, criteria=criteria)
 
+
 rms, K, D, rVecs, tVecs = switcherOpt[model](objpoints, imgpoints,
-                                  imgSize, K0, D,
-                                  flags=flags) #, criteria=criteria)
-#
-##.CALIB_FIX_SKEW CALIB_USE_INTRINSIC_GUESS 
-## CALIB_RECOMPUTE_EXTRINSIC CALIB_FIX_PRINCIPAL_POINT 
-#flags = 1 + 2 + 8 + 512
-#
+                                  imgSize, flags=flags) #, flags=flags) #, criteria=criteria)
+
 #rms, K, D, rVecs, tVecs = switcherOpt[model](objpoints, imgpoints,
 #                                  imgSize, K0, D,
-#                                  np.array(rVecs).reshape((3,n)),
-#                                  np.array(tVecs).reshape((3,n)),
-#                                  flags=flags, criteria=criteria)
+#                                  flags=flags) #, criteria=criteria)
 
-# %% plot fiducial points and corners to ensure the calibration data is ok
+# %%
+from calibration import FisheyeCalibration as fecalib
+
+fecalib.calibrateIntrinsic(objpoints, imgpoints, imgSize)
+
+# %%
+from calibration import RationalCalibration as calib
+
+calib.calibrateIntrinsic(objpoints, imgpoints, imgSize)
+
+
+
+
+# %% plot fiducial 
+points and corners to ensure the calibration data is ok
 
 for i in range(n): # [9,15]:
     rVec = rVecs[i]

@@ -154,3 +154,41 @@ def calibrateInverse(fiducialPoints, imageCorners, rVec, tVec, linearCoeffs, dis
     rvecOpt, tvecOpt, _, _ = retrieveParameters(out.params)
     
     return rvecOpt, tvecOpt, out.params
+
+
+# %% INTRINSIC CALIBRATION CHESSBOARD METHOD
+from cv2.fisheye import calibrate as feCal
+
+
+def calibrateIntrinsic(objpoints, imgpoints, imgSize, K, D,
+                       flags, criteria):
+    '''
+    calibrates using opencvs implemented algorithm using chessboard method.
+    if K, D, flags and criteria are not given it uses the default defined by
+    me:
+        D = zeros((4))
+    
+    return rms, K, D, rVecs, tVecs
+    '''
+    if D is None:
+        D = zeros((4))
+    
+    rms, K, D, rVecs, tVecs = feCal(objpoints, imgpoints,
+                                      imgSize, K, D,
+                                      flags=flags, criteria=criteria)
+    
+    return rms, K, D, rVecs, tVecs
+
+
+
+
+
+
+
+
+
+
+
+
+
+
