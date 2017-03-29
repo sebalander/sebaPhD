@@ -7,9 +7,8 @@ Created on Tue Sep 13 19:01:57 2016
 from numpy import zeros, sqrt, roots, array, isreal, shape
 from cv2 import projectPoints, Rodrigues
 from lmfit import minimize, Parameters
-#from poseCalibration import xypToZplane
-from calibration import poseCalibration
-xypToZplane = poseCalibration.xypToZplane
+from calibration import calibrator
+xypToZplane = calibrator.xypToZplane
 
 # %% ========== ========== RATIONAL PARAMETER HANDLING ========== ==========
 def formatParameters(rVec, tVec, linearCoeffs, distCoeffs):

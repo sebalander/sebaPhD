@@ -8,9 +8,8 @@ from numpy import zeros, sqrt, roots, array, isreal, tan
 from cv2 import Rodrigues
 from cv2.fisheye import projectPoints
 from lmfit import minimize, Parameters
-#from poseCalibration import xypToZplane
-from calibration import poseCalibration
-xypToZplane = poseCalibration.xypToZplane
+from calibration import calibrator
+xypToZplane = calibrator.xypToZplane
 
 # %% ========== ========== Fisheye PARAMETER HANDLING ========== ==========
 def formatParameters(rVec, tVec, linearCoeffs, distCoeffs):

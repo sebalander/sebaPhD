@@ -554,7 +554,7 @@ def calibrateIntrinsic(objpoints, imgpoints, imgSize, model, K=None, D=None,
         # cv2.TERM_CRITERIA_COUNT + cv2.TERM_CRITERIA_EPS, int(1e5), 1e-16)
         # estimated DBL_EPSILON as 4.440892098500626e-16 using the algortihm
         # in https://en.wikipedia.org/wiki/Machine_epsilon#Approximation
-        criteria = (3, int(1e5), 1e-15)
+        criteria = (3, 50, 1e-15)
     
     switcher = {
     'rational' : rational.calibrateIntrinsic,
