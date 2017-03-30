@@ -64,7 +64,7 @@ tVecIni = load(tvecInitialFile)
 linearCoeffs = load(linearCoeffsFile) # coef intrinsecos
 distCoeffs = load(distCoeffsFile)
 
-# this example works fine with theintrinsic parameters available
+# this example works fine with the intrinsic parameters available
 # others: 'stereographic' 'fisheye', 'unified'
 model= 'rational'
 

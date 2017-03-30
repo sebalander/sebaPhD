@@ -13,41 +13,21 @@ import glob
 import numpy as np
 import matplotlib.pyplot as plt
 
-# %% para la vca modo wide
-hayquegraficar = False
+# %%
+hayquegraficar = True
 
-## input
-#imagesFolder = "./resources/fishWideChessboard/"
-#
-## output
-#cornersFile =  "./resources/fishWideChessboard/fishWideCorners.npy"
-#patternFile =  "./resources/fishWideChessboard/fishWidePattern.npy"
-#imgShapeFile = "./resources/fishWideChessboard/fishWideShape.npy"
-#
-#images = glob.glob(imagesFolder+'*.png')
+# cam puede ser ['vca', 'vcaWide', 'ptz'] son los datos que se tienen
+camera = 'ptz'
 
-## %% para la vca
-## input
-#imagesFolder = "./resources/fishChessboard/"
-#
-## output
-#cornersFile =  "./resources/fishChessboard/fishCorners.npy"
-#patternFile =  "./resources/fishChessboard/fishPattern.npy"
-#imgShapeFile = "./resources/fishChessboard/fishShape.npy"
-#
-#images = glob.glob(imagesFolder+'*.png')
-
-
-# %% para la ptz
 # input
-imagesFolder = "./resources/PTZchessboard/zoom 0.0/"
+imagesFolder = "./resources/intrinsicCalib/" + camera + "/"
 
 # output
-cornersFile = "./resources/PTZchessboard/ptzCorners.npy"
-patternFile = "./resources/PTZchessboard/ptzPattern.npy"
-imgShapeFile = "./resources/PTZchessboard/ptzImgShape.npy"
+cornersFile =      imagesFolder + camera + "Corners.npy"
+patternFile =      imagesFolder + camera + "ChessPattern.npy"
+imgShapeFile =     imagesFolder + camera + "Shape.npy"
 
-images = glob.glob(imagesFolder+'*.jpg')
+images = glob.glob(imagesFolder+'*.png')
 
 
 # %%
