@@ -8,7 +8,6 @@ calibrates using fisheye distortion model (polynomial in theta)
 """
 
 # %%
-import cv2
 import glob
 import numpy as np
 from calibration import calibrator as cl

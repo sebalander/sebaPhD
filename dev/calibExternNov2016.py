@@ -11,11 +11,8 @@ hacer la calibracion de los datos tomados en nov 2016
 
 # %%
 from cv2 import imread
-from numpy import load, sum
-import sys
-sys.path.insert(0, './calibration/')
 
-import poseCalibration as pc
+from alibration import calibrator as pc
 import numpy as np
 import matplotlib.pyplot as plt
 
