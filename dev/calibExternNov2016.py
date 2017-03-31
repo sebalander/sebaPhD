@@ -10,45 +10,84 @@ hacer la calibracion de los datos tomados en nov 2016
 
 
 # %%
-from cv2 import imread
-
-from alibration import calibrator as pc
+import cv2
+from copy import deepcopy as dc
+from calibration import calibrator as cl
 import numpy as np
 import matplotlib.pyplot as plt
-
-# %% FILES
-# input files
-dataFolder = "/home/sebalander/Code/VisionUNQextra/"
-dataFolder += "Videos y Mediciones/2016-11-13 medicion/calibrExtr/"
-
-imageFile = dataFolder + "vcaSnapShot.png"
-ptosCalibFile = dataFolder + 'puntosCalibracion.txt'
-
-# intrinsic parameters (input)
-distCoeffsFile = "resources/fishWideChessboard/fishWideDistCoeffs.npy"
-linearCoeffsFile = "resources/fishWideChessboard/fishWideLinearCoeffs.npy"
-
-model= 'rational'  # tiene que ser compatible con los parametros provistos
-# others: 'stereographic' 'fisheye', 'unified'
+from importlib import reload
 
 
-linearCoeffs = load(linearCoeffsFile) # coef intrinsecos
-distCoeffs = load(distCoeffsFile)
 
-# %% leer los puntos de calibracion
-ptsCalib = np.loadtxt(ptosCalibFile)
-img = plt.imread(imageFile)
+# %% LOAD DATA
+# cam puede ser ['vca', 'vcaWide', 'ptz'] son los datos que se tienen
+camera = 'vcaWide'
+# puede ser ['rational', fisheye]
+model = 'rational'
+
+# model files
+modelFile = "./resources/intrinsicCalib/" + camera + "/"
+distCoeffsFile =   modelFile + camera + model + "DistCoeffs.npy"
+cameraMatrixFile = modelFile + camera + model + "LinearCoeffs.npy"
+
+# load data
+cameraMatrix = np.load(cameraMatrixFile) # coef intrinsecos
+distCoeffs = np.load(distCoeffsFile)
 
 
-imageCorners = ptsCalib[:, :2].reshape((-1,1,2))
+# %%
+# data files
+rawDataFile = '/home/sebalander/Code/VisionUNQextra/Videos y Mediciones/2016-11-13 medicion/calibrExtr/'
+imgFile = rawDataFile + 'vcaSnapShot.png'
+dawCalibTxt = rawDataFile + 'puntosCalibracion.txt'
 
+ptsCalib = np.loadtxt(dawCalibTxt)
+img = cv2.imread(imgFile)
+
+# corners in image must have shape (N,1,2)
+imagePoints = ptsCalib[:, :2].reshape((-1,2))
 # pongo longitud como X y latitud como Y
-fiducialPoints = np.concatenate((ptsCalib[:, 3:1:-1],
-                           np.zeros((len(ptsCalib),1)) ), axis=1)
-fiducialPoints = fiducialPoints.reshape((1,-1,3))
+# points in 3D wolrd must have shape
+objectPoints = np.concatenate((ptsCalib[:, 3:1:-1],
+                               np.zeros((len(ptsCalib),1)) ),
+                               axis=1).reshape((-1,3))
+
+# hago deepcopy para que no chille solvePnP
+# http://answers.opencv.org/question/1073/what-format-does-cv2solvepnp-use-for-points-in-python/
+imagePoints = dc(imagePoints)
+objectPoints = dc(objectPoints)
 
 # chequear que caigan donde deben
-pc.cornerComparison(img, imageCorners, imageCorners)
+cl.cornerComparison(img, imagePoints, imagePoints)
+
+# %% uso la funcion dada por opencv
+
+retval, rVec, tVec = cv2.solvePnP(objectPoints, imagePoints, cameraMatrix, distCoeffs)
+
+# %%
+reload(cl)
+objectPointsProjected = cl.inverse(imagePoints, rVec, tVec, cameraMatrix,
+                                   distCoeffs, model)
+
+# %%
+fiducialComparison3D(rVec, tVec, objectPoints, objectPointsProjected,)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 # %% POSE INICIAL
 # height calculated from picture

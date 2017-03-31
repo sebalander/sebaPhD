@@ -4,7 +4,7 @@ Created on Tue Sep 13 19:01:57 2016
 
 @author: sebalander
 """
-from numpy import zeros, sqrt, roots, array, isreal, shape, bitwise_and
+from numpy import zeros, sqrt, roots, array, isreal, shape
 from cv2 import projectPoints, Rodrigues
 from lmfit import minimize, Parameters
 from calibration import calibrator
@@ -18,7 +18,7 @@ def formatParameters(rVec, tVec, linearCoeffs, distCoeffs):
     
     Inputs
     rVec, tVec : arrays of shape (n,3,1) or (3,1)
-    distCoeffs must have be reshapable to (8)
+    distCoeffs must have be reshapable to (5)
     '''
     
     params = Parameters()
@@ -48,8 +48,8 @@ def formatParameters(rVec, tVec, linearCoeffs, distCoeffs):
                value=linearCoeffs[1,2], vary=False)
     
     # (k1,k2,p1,p2[,k3[,k4,k5,k6[,s1,s2,s3,s4[,τx,τy]]]])
-    distCoeffs = distCoeffs.reshape(8)
-    for i in range(8):
+    distCoeffs = distCoeffs.reshape(5)
+    for i in range(5):
         params.add('distCoeffs%d'%i,
                    value=distCoeffs[i], vary=False)
     
@@ -63,7 +63,6 @@ def setParametersVary(params, flag):
     4 : intrinsic focal distance
     8 : intrinsic image center
     16 : intrinsic distortion numerator
-    32 : intrinsic distortion denominator
     
     example:
     flag=35 means that extrinsic traslation, extrinsic rotation and instrinsic
@@ -78,14 +77,11 @@ def setParametersVary(params, flag):
     inFo = flag&4
     inCe = flag&8
     inNu = flag&16
-    inDe = flag&32
-    # exTr, exRo, inFo, inCe, inNu, inDe
+    # exTr, exRo, inFo, inCe, inNu
     
     for k in params.iterkeys():
         {
         }.get(k[0])
-    
-    
     
     params['fX'].vary=inFo
     params['fY'].vary=inFo
@@ -95,10 +91,7 @@ def setParametersVary(params, flag):
     # (k1,k2,p1,p2[,k3[,k4,k5,k6[,s1,s2,s3,s4[,τx,τy]]]])
     for i in [0,1,4]:
         params['distCoeffs%d'%i].vary=inNu
-    
-    for i in [5,6,7]:
-        params['distCoeffs%d'%i].vary=inDe
-    
+
 
 
 def retrieveParameters(params):
@@ -116,8 +109,8 @@ def retrieveParameters(params):
     cameraMatrix[2,2] = 1
     
     # (k1,k2,p1,p2[,k3[,k4,k5,k6[,s1,s2,s3,s4[,τx,τy]]]])
-    distCoeffs = zeros(8)
-    for i in range(8):
+    distCoeffs = zeros(5)
+    for i in range(5):
         distCoeffs[i] = params['distCoeffs%d'%i].value
     
     return rvec, tvec, cameraMatrix, distCoeffs
@@ -139,10 +132,10 @@ def residualDirect(params, fiducialPoints, imageCorners):
     rVec, tVec, linearCoeffs, distCoeffs = retrieveParameters(params)
     
     projectedCorners = direct(fiducialPoints,
-                               rVec,
-                               tVec,
-                               linearCoeffs,
-                               distCoeffs)
+                              rVec,
+                              tVec,
+                              linearCoeffs,
+                              distCoeffs)
     
     return imageCorners[:,0,:] - projectedCorners[:,0,:]
 
@@ -177,11 +170,11 @@ def inverse(imageCorners, rVec, tVec, linearCoeffs, distCoeffs):
     # polynomial coeffs, grade 7
     # # (k1,k2,p1,p2[,k3[,k4,k5,k6[,s1,s2,s3,s4[,τx,τy]]]])
     poly = [[distCoeffs[4], # k3
-             -r*distCoeffs[7], # k6
+             0,
              distCoeffs[1], # k2
-             -r*distCoeffs[6], # k5
+             0,
              distCoeffs[0], # k1
-             -r*distCoeffs[5], # k4
+             0,
              1,
              -r] for r in rpp]
     
@@ -393,10 +386,6 @@ def calibrateIntrinsic(objpoints, imgpoints, imgSize, K, D,
     '''
     if D is None:
         D = zeros((1, 5))
-    
-    # cv2.CALIB_RATIONAL_MODEL = 16384 = 2**14 flag to enable rational numerator
-    if not bitwise_and(flags, 16384):
-        flags += 16384
     
     rms, K, D, rVecs, tVecs = cali(objpoints, imgpoints,
                                       imgSize, K, D,

@@ -156,6 +156,8 @@ from calibration import StereographicCalibration as stereographic
 from calibration import UnifiedCalibration as unified
 from calibration import RationalCalibration as rational
 from calibration import FisheyeCalibration as fisheye
+from calibration import PolyCalibration as poly
+
 
 # %% PARAMETER HANDLING
 def formatParameters(rVec, tVec, linearCoeffs, distCoeffs, model):
@@ -164,6 +166,7 @@ def formatParameters(rVec, tVec, linearCoeffs, distCoeffs, model):
     'stereographic' : stereographic.formatParameters,
     'unified' : unified.formatParameters,
     'rational' : rational.formatParameters,
+    'poly' : poly.formatParameters,
     'fisheye' : fisheye.formatParameters
     }
     
@@ -175,6 +178,7 @@ def retrieveParameters(params, model):
     'stereographic' : stereographic.retrieveParameters,
     'unified' : unified.retrieveParameters,
     'rational' : rational.retrieveParameters,
+    'poly' : poly.retrieveParameters,
     'fisheye' : fisheye.retrieveParameters
     }
     
@@ -188,6 +192,7 @@ def direct(fiducialPoints, rVec, tVec, linearCoeffs, distCoeffs, model):
     'stereographic' : stereographic.direct,
     'unified' : unified.direct,
     'rational' : rational.direct,
+    'poly' : poly.direct,
     'fisheye' : fisheye.direct
     }
     
@@ -199,6 +204,7 @@ def residualDirect(params, fiducialPoints, imageCorners, model):
     'stereographic' : stereographic.residualDirect,
     'unified' : unified.residualDirect,
     'rational' : rational.residualDirect,
+    'poly' : poly.residualDirect,
     'fisheye' : fisheye.residualDirect
     }
     
@@ -211,6 +217,7 @@ def calibrateDirect(fiducialPoints, imageCorners, rVec, tVec, linearCoeffs, dist
     'stereographic' : stereographic.calibrateDirect,
     'unified' : unified.calibrateDirect,
     'rational' : rational.calibrateDirect,
+    'poly' : poly.calibrateDirect,
     'fisheye' : fisheye.calibrateDirect
     }
     
@@ -232,6 +239,7 @@ def inverse(imageCorners, rVec, tVec, linearCoeffs, distCoeffs, model):
     'stereographic' : stereographic.inverse,
     'unified' : unified.inverse,
     'rational' : rational.inverse,
+    'poly' : poly.inverse,
     'fisheye' : fisheye.inverse
     }
     
@@ -243,6 +251,7 @@ def residualInverse(params, fiducialPoints, imageCorners, model):
     'stereographic' : stereographic.residualInverse,
     'unified' : unified.residualInverse,
     'rational' : rational.residualInverse,
+    'poly' : poly.residualInverse,
     'fisheye' : fisheye.residualInverse
     }
     
@@ -255,6 +264,7 @@ def calibrateInverse(fiducialPoints, imageCorners, rVec, tVec, linearCoeffs, dis
     'stereographic' : stereographic.calibrateInverse,
     'unified' : unified.calibrateInverse,
     'rational' : rational.calibrateInverse,
+    'poly' : poly.calibrateInverse,
     'fisheye' : fisheye.calibrateInverse
     }
     
@@ -263,39 +273,59 @@ def calibrateInverse(fiducialPoints, imageCorners, rVec, tVec, linearCoeffs, dis
 # %% PLOTTING
 
 # plot corners and their projection
-def cornerComparison(img, corners1, corners2, label1='Corners', label2='Proyectados'):
+def cornerComparison(img, corners1, corners2=None,
+                     label1='Corners', label2='Proyectados'):
     '''
     draw on top of image two sets of corners, ideally calibration and direct
     projected
     '''
-    X1 = corners1[:,0,0]
-    Y1 = corners1[:,0,1]
-    X2 = corners2[:,0,0]
-    Y2 = corners2[:,0,1]
+    # get in more usefull shape
+    corners1 = corners1.reshape((-1,2))
+    X1 = corners1[:,0]
+    Y1 = corners1[:,1]
     
     figure()
     imshow(img)
     plot(X1, Y1, 'xr', markersize=10, label=label1)
-    plot(X2, Y2, '+b', markersize=10, label=label2)
-    for i in range(len(X1)):
-        plot([X1[i],X2[i]],[Y1[i],Y2[i]],'k-')
+    
+    if corners2 is not None:
+        corners2 = corners2.reshape((-1,2))
+        X2 = corners2[:,0]
+        Y2 = corners2[:,1]
+        
+        plot(X2, Y2, '+b', markersize=10, label=label2)
+        
+        for i in range(len(X1)):  # unir correpsondencias
+            plot([X1[i],X2[i]],[Y1[i],Y2[i]],'k-')
+    
     legend()
     show()
 
 # compare fiducial points
-def fiducialComparison(fiducial1, fiducial2, label1='Calibration points', label2='Projected points'):
+def fiducialComparison(fiducial1, fiducial2=None,
+                       label1='Calibration points', label2='Projected points'):
     '''
     Draw on aplane two sets of fiducial points for comparison, ideally
     calibration and direct projected
     '''
-    X1 = fiducial1[0,:,0]
-    Y1 = fiducial1[0,:,1]
-    X2 = fiducial2[0,:,0]
-    Y2 = fiducial2[0,:,1]
+    
+    
+    fiducial1 = fiducial1.reshape(-1,3)
+    X1, Y1, _ = fiducial1.T  #[:,0]
+    # Y1 = fiducial1[:,1]
     
     figure()
     plot(X1, Y1, 'xr', markersize=10, label=label1)
-    plot(X2, Y2, '+b', markersize=10, label=label2)
+    
+    if fiducial2 is not None:
+        fiducial2 = fiducial2.reshape(-1,3)
+        X2, Y2, _ = fiducial2.T  # [:,0]
+        # Y2 = fiducial2[:,1]
+        plot(X2, Y2, '+b', markersize=10, label=label2)
+        
+        for i in range(len(X1)):  # unir correpsondencias
+            plot([X1[i],X2[i]],[Y1[i],Y2[i]],'k-')
+    
     legend()
     show()
 
@@ -310,7 +340,8 @@ class Arrow3D(FancyArrowPatch):
         self.set_positions((xs[0],ys[0]),(xs[1],ys[1]))
         FancyArrowPatch.draw(self, renderer)
 
-def fiducialComparison3D(rVec, tVec, fiducial1, fiducial2 = False, label1 = 'Fiducial points', label2 = 'Projected points'):
+def fiducialComparison3D(rVec, tVec, fiducial1, fiducial2=None,
+                         label1 = 'Fiducial points', label2 = 'Projected points'):
     '''
     draw in 3D the position of the camera and the fiducial points, also can
     draw an extras et of fiducial points (projected). indicates orienteation
@@ -327,19 +358,22 @@ def fiducialComparison3D(rVec, tVec, fiducial1, fiducial2 = False, label1 = 'Fid
     print(array([x,y,z]))
     [x,y,z] = [x,y,z] + t
     print(t)
-    X1 = fiducial1[0,:,0]
-    Y1 = fiducial1[0,:,1]
-    Z1 = fiducial1[0,:,2]
+    
+    fiducial1 = fiducial1.reshape(-1,3)
+    X1, Y1 ,Z1 = fiducial1.T  # [:,0]
+    # Y1 = fiducial1[:,1]
+    # Z1 = fiducial1[:,2]
     
     fig = figure()
     ax = fig.gca(projection='3d')
     
     ax.plot(X1,Y1,Z1,'xr', markersize=10, label=label1)
     
-    if type(fiducial2) is ndarray:
-        X2 = fiducial2[0,:,0]
-        Y2 = fiducial2[0,:,1]
-        Z2 = fiducial2[0,:,2]
+    if fiducial2 is not None:
+        fiducial2 = fiducial2.reshape(-1,3)
+        X2, Y2, Z2 = fiducial2.T
+        # Y2 = fiducial2[:,1]
+        # Z2 = fiducial2[:,2]
         ax.plot(X2,Y2,Z2,'+b', markersize=10, label=label2)
         xmin = min([0, min(X1), min(X2), min([t[0],x[0],y[0],z[0]])])
         ymin = min([0, min(Y1), min(Y2), min([t[1],x[1],y[1],z[1]])])
@@ -546,8 +580,10 @@ def calibrateIntrinsic(objpoints, imgpoints, imgSize, model, K=None, D=None,
         K[0, 0] = K[1, 1] = 600.0
     
     if flags is None:
-        #.CALIB_FIX_SKEW CALIB_FIX_PRINCIPAL_POINT
-        flags = 1 + 512
+        #.CALIB_FIX_SKEW = 1
+        # CALIB_FIX_PRINCIPAL_POINT = 512
+        # CALIB_ZERO_TANGENT_DIST = 8
+        flags = 1 + 8 + 512
     
     if criteria is None:
         # terminaion criteria
@@ -558,6 +594,7 @@ def calibrateIntrinsic(objpoints, imgpoints, imgSize, model, K=None, D=None,
     
     switcher = {
     'rational' : rational.calibrateIntrinsic,
+    'poly' : poly.calibrateIntrinsic,
     'fisheye' : fisheye.calibrateIntrinsic
     }
     

@@ -18,7 +18,7 @@ import matplotlib.pyplot as plt
 # input
 # cam puede ser ['vca', 'vcaWide', 'ptz'] son los datos que se tienen
 camera = 'ptz'
-# puede ser ['rational', fisheye]
+# puede ser ['rational', fisheye, 'poly']
 model = 'rational'
 
 imagesFolder = "./resources/intrinsicCalib/" + camera + "/"
@@ -44,6 +44,7 @@ objpoints = np.array([chessboardModel]*n)
 
 
 # %% OPTIMIZAR
+
 rms, K, D, rVecs, tVecs = cl.calibrateIntrinsic(objpoints, imgpoints, imgSize, model)
 
 
@@ -57,7 +58,7 @@ for i in range(n): # [9,15]:
     
     cl.fiducialComparison3D(rVec, tVec, fiducial1)
 
-0
+0  # si no pongo este cero spyder no sale solo del bucle
 
 # %% TEST MAPPING (DISTORTION MODEL)
 # pruebo con la imagen j-esima
@@ -66,20 +67,16 @@ for i in range(n): # [9,15]:
 for j in range(n):  # range(len(imgpoints)):
     imagePntsX = imgpoints[j, 0, :, 0]
     imagePntsY = imgpoints[j, 0, :, 1]
-    
+
     rvec = rVecs[j]
     tvec = tVecs[j]
-    
+
     imagePointsProjected = cl.direct(chessboardModel, rvec, tvec, K, D, model)
-    
-    if model == 'rational':
-        xPos = np.array(imagePointsProjected[:, 0, 0])
-        yPos = np.array(imagePointsProjected[:, 0, 1])
-    
-    if model == 'fisheye':
-        xPos = np.array(imagePointsProjected[0, :, 0])
-        yPos = np.array(imagePointsProjected[0, :, 1])
-        
+    imagePointsProjected = imagePointsProjected.reshape((-1,2))
+
+    xPos = imagePointsProjected[:, 0]
+    yPos = imagePointsProjected[:, 1]
+
     plt.figure()
     im = plt.imread(images[j])
     plt.imshow(im)
@@ -87,7 +84,7 @@ for j in range(n):  # range(len(imgpoints)):
     plt.plot(xPos, yPos, '+b', markersize=10)
     #fig.savefig("distortedPoints3.png")
 
-0
+0  # si no pongo este cero spyder no sale solo del bucle en la consola
 
 # %% SAVE CALIBRATION
 np.save(distCoeffsFile, D)
