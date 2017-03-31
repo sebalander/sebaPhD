@@ -166,7 +166,7 @@ def inverse(imageCorners, rVec, tVec, linearCoeffs, distCoeffs):
         rVec, _ = Rodrigues(rVec)
     
     imageCorners = imageCorners.reshape((-1,2))
-    distCoeffs = distCoeffs.reshape((5))
+    distCoeffs = distCoeffs.reshape(14)
     
     xpp = ((imageCorners[:,0]-linearCoeffs[0,2]) /
             linearCoeffs[0,0])

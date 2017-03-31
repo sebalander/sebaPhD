@@ -22,7 +22,7 @@ from importlib import reload
 # %% LOAD DATA
 # cam puede ser ['vca', 'vcaWide', 'ptz'] son los datos que se tienen
 camera = 'vcaWide'
-# puede ser ['rational', fisheye]
+# puede ser ['rational', 'fisheye', 'poly']
 model = 'rational'
 
 # model files
