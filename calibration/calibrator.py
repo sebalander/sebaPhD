@@ -346,69 +346,83 @@ def fiducialComparison3D(rVec, tVec, fiducial1, fiducial2=None,
     draw in 3D the position of the camera and the fiducial points, also can
     draw an extras et of fiducial points (projected). indicates orienteation
     of camera
+
     '''
-    t = tVec.reshape((3))
+    
+    fiducial1 = fiducial1.reshape(-1,3)
+    X1, Y1 ,Z1 = fiducial1.T
+    
+    # set origin of MAP reference frame
+    xM0 = min(X1)
+    xM1 = max(X1)
+    yM0 = min(Y1)
+    yM1 = max(Y1)
+    zM0 = min(Z1)
+    zM1 = max(Z1)
+    
+    # get a characteristic scale of the graph
+    s = max([xM1 - xM0, yM1 - yM0, zM1 - zM0]) / 10
+    
+    t = array(tVec).reshape(3)
     
     # calcular las puntas de los versores
     if rVec.shape == (3,3):
-        [x,y,z] = rVec.T
+        [x,y,z] = s * rVec.T
     else:
-        [x,y,z] = Rodrigues(rVec)[0].T
+        [x,y,z] = s * Rodrigues(rVec)[0].T
     
-    print(array([x,y,z]))
+    #print(array([x,y,z]))
     [x,y,z] = [x,y,z] + t
-    print(t)
+    #print(t)
     
-    fiducial1 = fiducial1.reshape(-1,3)
-    X1, Y1 ,Z1 = fiducial1.T  # [:,0]
-    # Y1 = fiducial1[:,1]
-    # Z1 = fiducial1[:,2]
     
     fig = figure()
     ax = fig.gca(projection='3d')
     
     ax.plot(X1,Y1,Z1,'xr', markersize=10, label=label1)
     
+
+    # get plot range
     if fiducial2 is not None:
         fiducial2 = fiducial2.reshape(-1,3)
         X2, Y2, Z2 = fiducial2.T
-        # Y2 = fiducial2[:,1]
-        # Z2 = fiducial2[:,2]
+        
         ax.plot(X2,Y2,Z2,'+b', markersize=10, label=label2)
-        xmin = min([0, min(X1), min(X2), min([t[0],x[0],y[0],z[0]])])
-        ymin = min([0, min(Y1), min(Y2), min([t[1],x[1],y[1],z[1]])])
-        zmin = min([0, min(Z1), min(Z2), min([t[2],x[2],y[2],z[2]])])
-        xmax = max([0, max(X1), max(X2), max([t[0],x[0],y[0],z[0]])])
-        ymax = max([0, max(Y1), max(Y2), max([t[1],x[1],y[1],z[1]])])
-        zmax = max([0, max(Z1), max(Z2), max([t[2],x[2],y[2],z[2]])])
+        
+        xmin = min([xM0, min(X2), t[0], x[0], y[0], z[0]])
+        ymin = min([yM0, min(Y2), t[1], x[1], y[1], z[1]])
+        zmin = min([zM0, min(Z2), t[2], x[2], y[2], z[2]])
+        xmax = max([xM1, max(X2), t[0], x[0], y[0], z[0]])
+        ymax = max([yM1, max(Y2), t[1], x[1], y[1], z[1]])
+        zmax = max([zM1, max(Z2), t[2], x[2], y[2], z[2]])
     else:
-        xmin = min([0, min(X1), min([t[0],x[0],y[0],z[0]])])
-        ymin = min([0, min(Y1), min([t[1],x[1],y[1],z[1]])])
-        zmin = min([0, min(Z1), min([t[2],x[2],y[2],z[2]])])
-        xmax = max([0, max(X1), max([t[0],x[0],y[0],z[0]])])
-        ymax = max([0, max(Y1), max([t[1],x[1],y[1],z[1]])])
-        zmax = max([0, max(Z1), max([t[2],x[2],y[2],z[2]])])
+        xmin = min([xM0, t[0], x[0], y[0], z[0]])
+        ymin = min([yM0, t[1], x[1], y[1], z[1]])
+        zmin = min([zM0, t[2], x[2], y[2], z[2]])
+        xmax = max([xM1, t[0], x[0], y[0], z[0]])
+        ymax = max([yM1, t[1], x[1], y[1], z[1]])
+        zmax = max([zM1, t[2], x[2], y[2], z[2]])
     
     ax.set_xbound(xmin, xmax)
     ax.set_ybound(ymin, ymax)
     ax.set_zbound(zmin, zmax)
     
-    ejeX = Arrow3D([0, 1],
-                   [0, 0],
-                   [0, 0],
+    ejeX = Arrow3D([xM0, xM1],
+                   [yM0, yM0],
+                   [zM0, zM0],
                    mutation_scale=20, lw=1, arrowstyle="-|>", color="k")
-    ejeY = Arrow3D([0, 0],
-                   [0, 1],
-                   [0, 0],
+    ejeY = Arrow3D([xM0, xM0],
+                   [yM0, yM1],
+                   [zM0, zM0],
                    mutation_scale=20, lw=1, arrowstyle="-|>", color="k")
-    ejeZ = Arrow3D([0, 0],
-                   [0, 0],
-                   [0, 1],
+    ejeZ = Arrow3D([xM0, xM0],
+                   [yM0, yM0],
+                   [zM0, zM1],
                    mutation_scale=20, lw=1, arrowstyle="-|>", color="k")
     
-    origen = Arrow3D([0, t[0]],
-                     [0, t[1]],
-                     [0, t[2]],
+    origen = Arrow3D([xM0, t[0]],
+                     [yM0, t[1]],
+                     [zM0, t[2]],
                      mutation_scale=20, lw=1, arrowstyle="-", color="k",
                      linestyle="dashed")
     

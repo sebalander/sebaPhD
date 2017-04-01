@@ -62,31 +62,15 @@ cl.cornerComparison(img, imagePoints, imagePoints)
 
 # %% uso la funcion dada por opencv
 
-retval, rVec, tVec = cv2.solvePnP(objectPoints, imagePoints, cameraMatrix, distCoeffs)
+retval, rVec, tVec = cv2.solvePnP(objectPoints, imagePoints,
+                                  cameraMatrix, distCoeffs)
 
 # %%
-reload(cl)
 objectPointsProjected = cl.inverse(imagePoints, rVec, tVec, cameraMatrix,
                                    distCoeffs, model)
 
-# %%
-fiducialComparison3D(rVec, tVec, objectPoints, objectPointsProjected,)
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+cl.fiducialComparison3D(rVec, tVec, objectPoints, objectPointsProjected)
+cl.fiducialComparison(objectPoints, objectPointsProjected)
 
 
 # %% POSE INICIAL
@@ -115,7 +99,7 @@ z0 = 15.7 # metros, as measured by oliva
 z0 = z0 * 180.0 / np.pi / 6400000.0 # now in degrees
 
 
-tVecIni = [x0, y0, z0]
+tVecIni = np.array([x0, y0, z0])
 
 # direccion X de la imagen como se ve en el mapa
 # desde aca -34.629489, -58.370598
@@ -130,12 +114,56 @@ Yc = np.array([-58.372363 - (-58.370463), -34.627959 - (-34.629360), 0])
 
 Xc /= np.linalg.norm(Xc)
 Yc /= np.linalg.norm(Yc)
+Zc = np.cross(Xc, Yc)
 
-H = np.array([[Xc[0], Yc[0], 0, 0],
-              [Xc[1], Yc[1], 0, 0],
-              [Xc[2], Yc[2], 1, 0]])
+R = np.array([Xc, Yc, Zc])
 
-rVecIni, tVecIni = pc.homogr2pose(H)
+rVecIni = cv2.Rodrigues(R)[0].T
+
+# condiciones iniciales, veamos de plotear con esto
+tVecIni, rVecIni
+
+# %%
+reload(cl)
+
+cl.fiducialComparison(objectPoints)
+
+cl.fiducialComparison3D(rVecIni, tVecIni, objectPoints)
+
+# %% USAR OPENCV PERO CON COND INICIALES CONOCIDAS
+
+retval, rVec, tVec = cv2.solvePnP(objectPoints, imagePoints,
+                                  cameraMatrix, distCoeffs,
+                                  rVecIni, tVecIni, useExtrinsicGuess = True)
+# NOT WORKING. TRY ANOTHER ALGORITHM
+
+# %%
+#cv2.SOLVEPNP_EPNP
+#cv2.SOLVEPNP_DLS
+#cv2.SOLVEPNP_UPNP
+retval, rVec, tVec = cv2.solvePnP(objectPoints, imagePoints,
+                                  cameraMatrix, distCoeffs,
+                                  flags=cv2.SOLVEPNP_EPNP)
+
+retval, rVec, tVec = cv2.solvePnP(objectPoints, imagePoints,
+                                  cameraMatrix, distCoeffs,
+                                  flags=cv2.SOLVEPNP_DLS)
+
+retval, rVec, tVec = cv2.solvePnP(objectPoints, imagePoints,
+                                  cameraMatrix, distCoeffs,
+                                  flags=cv2.SOLVEPNP_UPNP)
+
+
+
+# %%
+objectPointsProjected = cl.inverse(imagePoints, rVec, tVec, cameraMatrix,
+                                   distCoeffs, model)
+
+cl.fiducialComparison3D(rVec, tVec, objectPoints, objectPointsProjected)
+cl.fiducialComparison(objectPoints, objectPointsProjected)
+
+
+
 
 
 # %% PARAMTER HANDLING
