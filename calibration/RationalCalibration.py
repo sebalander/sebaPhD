@@ -162,8 +162,8 @@ def calibrateDirect(fiducialPoints, imageCorners, rVec, tVec, linearCoeffs, dist
 
 # %% ========== ========== INVERSE RATIONAL ========== ==========
 def inverse(imageCorners, rVec, tVec, linearCoeffs, distCoeffs):
-    if rVec.shape != (3,3):
-        rVec, _ = Rodrigues(rVec)
+    if rVec.shape is not (3,3):
+        rVec = Rodrigues(rVec)[0]
     
     imageCorners = imageCorners.reshape((-1,2))
     distCoeffs = distCoeffs.reshape(14)
@@ -393,10 +393,6 @@ def calibrateIntrinsic(objpoints, imgpoints, imgSize, K, D,
     '''
     if D is None:
         D = zeros((1, 5))
-    
-    # cv2.CALIB_RATIONAL_MODEL = 16384 = 2**14 flag to enable rational numerator
-    if not bitwise_and(flags, 16384):
-        flags += 16384
     
     rms, K, D, rVecs, tVecs = cali(objpoints, imgpoints,
                                       imgSize, K, D,

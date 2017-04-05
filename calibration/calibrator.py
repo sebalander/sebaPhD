@@ -7,7 +7,7 @@ Created on Thu Aug 18 11:47:18 2016
 """
 # %% IMPORTS
 from matplotlib.pyplot import plot, imshow, legend, show, figure, gcf, imread
-from matplotlib.pyplot import xlabel, ylabel
+from matplotlib.pyplot import xlabel, ylabel, arrow
 from cv2 import Rodrigues, findHomography
 from numpy import min, max, ndarray, zeros, array, reshape, sqrt, roots
 from numpy import sin, cos, cross, ones, concatenate, flipud, dot, isreal
@@ -19,17 +19,23 @@ from mpl_toolkits.mplot3d import proj3d
 # %% Z=0 PROJECTION
 
 def xypToZplane(xp, yp, rVec, tVec, z=0):
+    '''
+    projects a poitn
+    '''
+    
+    tVec = tVec.reshape(3)
+    rVec.shape
     # auxiliar calculations
     a = rVec[0,0] - rVec[2,0] * xp
     b = rVec[0,1] - rVec[2,1] * xp
-    c = tVec[0,0] - tVec[2,0] * xp
+    c = tVec[0] - tVec[2] * xp
     d = rVec[1,0] - rVec[2,0] * yp
     e = rVec[1,1] - rVec[2,1] * yp
-    f = tVec[1,0] - tVec[2,0] * yp
+    f = tVec[1] - tVec[2] * yp
     q = a*e-d*b
     
-    X = -(c*e - f*b)/q # check why wrong sign, why must put '-' in front?
-    Y = -(f*a - c*d)/q
+    X = (c*e - f*b)/q # check why wrong sign, why must put '-' in front?
+    Y = (f*a - c*d)/q
     
     shape = (1,X.shape[0],3)
     XYZ = array([X, Y, zeros(shape[1])]).T
@@ -302,7 +308,7 @@ def cornerComparison(img, corners1, corners2=None,
     show()
 
 # compare fiducial points
-def fiducialComparison(fiducial1, fiducial2=None,
+def fiducialComparison(rVec, tVec, fiducial1, fiducial2=None,
                        label1='Calibration points', label2='Projected points'):
     '''
     Draw on aplane two sets of fiducial points for comparison, ideally
@@ -316,6 +322,28 @@ def fiducialComparison(fiducial1, fiducial2=None,
     
     figure()
     plot(X1, Y1, 'xr', markersize=10, label=label1)
+    
+    
+    # set origin of MAP reference frame
+    xM0 = min(X1)
+    xM1 = max(X1)
+    yM0 = min(Y1)
+    yM1 = max(Y1)
+    
+    # get a characteristic scale of the graph
+    s = max([xM1 - xM0, yM1 - yM0]) / 10
+    
+    t = array(tVec).reshape(3)
+    
+    # calcular las puntas de los versores
+    if rVec.shape is (3,3):
+        [x,y,z] = s * rVec.T
+    else:
+        [x,y,z] = s * Rodrigues(rVec)[0].T
+
+    plot([t[0], t[0] + x[0]], [t[1], t[1] + x[1]], '-r', label='cam X')
+    plot([t[0], t[0] + y[0]], [t[1], t[1] + y[1]], '-b', label='cam Y')
+
     
     if fiducial2 is not None:
         fiducial2 = fiducial2.reshape(-1,3)
@@ -366,7 +394,7 @@ def fiducialComparison3D(rVec, tVec, fiducial1, fiducial2=None,
     t = array(tVec).reshape(3)
     
     # calcular las puntas de los versores
-    if rVec.shape == (3,3):
+    if rVec.shape is (3,3):
         [x,y,z] = s * rVec.T
     else:
         [x,y,z] = s * Rodrigues(rVec)[0].T
@@ -580,7 +608,7 @@ def calibrateIntrinsic(objpoints, imgpoints, imgSize, model, K=None, D=None,
              0.0,    600.0, imgSize[0]/2],
              0.0,    0.0,        1]]
         
-        flags = 1 + 512 # no skew and fixed ppal point, seems more apropiate
+        flags =  no skew and fixed ppal point, seems more apropiate
                           to our camera model
         criteria = (3, int(1e5), 1e-15)
     
@@ -592,12 +620,58 @@ def calibrateIntrinsic(objpoints, imgpoints, imgSize, model, K=None, D=None,
         K[0, 2] = imgSize[1]/2
         K[1, 2] = imgSize[0]/2
         K[0, 0] = K[1, 1] = 600.0
-    
+        
+#     calibrateCamera flags =========================
+#     enum  	{
+#      cv::CALIB_USE_INTRINSIC_GUESS = 0x00001, 2**0
+#      cv::CALIB_FIX_ASPECT_RATIO = 0x00002,    2**1
+#      cv::CALIB_FIX_PRINCIPAL_POINT = 0x00004, 2**2
+#      cv::CALIB_ZERO_TANGENT_DIST = 0x00008,   2**3
+#      cv::CALIB_FIX_FOCAL_LENGTH = 0x00010,    2**4
+#      cv::CALIB_FIX_K1 = 0x00020,              2**5
+#      cv::CALIB_FIX_K2 = 0x00040,              2**6
+#      cv::CALIB_FIX_K3 = 0x00080,              2**7
+#      cv::CALIB_FIX_K4 = 0x00800,              2**11
+#      cv::CALIB_FIX_K5 = 0x01000,              2**12
+#      cv::CALIB_FIX_K6 = 0x02000,              2**13
+#      cv::CALIB_RATIONAL_MODEL = 0x04000,      2**14
+#      cv::CALIB_THIN_PRISM_MODEL = 0x08000,    2**15
+#      cv::CALIB_FIX_S1_S2_S3_S4 = 0x10000,     2**16
+#      cv::CALIB_TILTED_MODEL = 0x40000,        2**18
+#      cv::CALIB_FIX_TAUX_TAUY = 0x80000,       2**19
+#      cv::CALIB_USE_QR = 0x100000,             2**20
+#      cv::CALIB_FIX_INTRINSIC = 0x00100,       2**8
+#      cv::CALIB_SAME_FOCAL_LENGTH = 0x00200,   2**9
+#      cv::CALIB_ZERO_DISPARITY = 0x00400,      2**10
+#      cv::CALIB_USE_LU = (1 << 17)             2**17
+#    }
+
+#     fisheye calibrate flags =========================
+#    enum{
+#      cv::fisheye::CALIB_USE_INTRINSIC_GUESS = 1 << 0,
+#      cv::fisheye::CALIB_RECOMPUTE_EXTRINSIC = 1 << 1,
+#      cv::fisheye::CALIB_CHECK_COND = 1 << 2,
+#      cv::fisheye::CALIB_FIX_SKEW = 1 << 3,
+#      cv::fisheye::CALIB_FIX_K1 = 1 << 4,
+#      cv::fisheye::CALIB_FIX_K2 = 1 << 5,
+#      cv::fisheye::CALIB_FIX_K3 = 1 << 6,
+#      cv::fisheye::CALIB_FIX_K4 = 1 << 7,
+#      cv::fisheye::CALIB_FIX_INTRINSIC = 1 << 8,
+#      cv::fisheye::CALIB_FIX_PRINCIPAL_POINT = 1 << 9
+#    }
+
     if flags is None:
-        #.CALIB_FIX_SKEW = 1
-        # CALIB_FIX_PRINCIPAL_POINT = 512
-        # CALIB_ZERO_TANGENT_DIST = 8
-        flags = 1 + 8 + 512
+        # CALIB_FIX_ASPECT_RATIO, CALIB_FIX_PRINCIPAL_POINT,
+        # CALIB_ZERO_TANGENT_DIST,
+        if model is 'poly':
+            flags = 1 << 1 + 1 << 2 + 1 << 3
+        if model is 'rational':
+            # add CALIB_RATIONAL_MODEL
+            flags = 1 << 1 + 1 << 2 + 1 << 3 + 1 << 14
+        if model is 'fisheye':
+            # CALIB_FIX_SKEW CALIB_FIX_PRINCIPAL_POINT
+            flags = 1 << 3 + 1 << 9
+
     
     if criteria is None:
         # terminaion criteria

@@ -2,7 +2,7 @@
 """
 Created on Tue Jul  5 16:30:53 2016
 
-calibrates using fisheye distortion model (polynomial in theta)
+calibrates intrinsic with diff distortion model
 
 @author: sebalander
 """
@@ -17,9 +17,9 @@ import matplotlib.pyplot as plt
 # %% LOAD DATA
 # input
 # cam puede ser ['vca', 'vcaWide', 'ptz'] son los datos que se tienen
-camera = 'ptz'
-# puede ser ['rational', fisheye, 'poly']
-model = 'rational'
+camera = 'vcaWide'
+# puede ser ['rational', 'fisheye', 'poly']
+model = ['poly', 'rational', 'fisheye'][2]
 
 imagesFolder = "./resources/intrinsicCalib/" + camera + "/"
 cornersFile =      imagesFolder + camera + "Corners.npy"
@@ -42,8 +42,17 @@ n = len(imgpoints)  # cantidad de imagenes
 # Parametros de entrada/salida de la calibracion
 objpoints = np.array([chessboardModel]*n)
 
+## %% para que calibrar ocmo fisheye no de error
+##    flags=flags, criteria=criteria)
+##cv2.error: /build/opencv/src/opencv-3.2.0/modules/calib3d/src/fisheye.cpp:1427: error: (-215) svd.w.at<double>(0) / svd.w.at<double>((int)svd.w.total() - 1) < thresh_cond in function CalibrateExtrinsics
+##http://answers.opencv.org/question/102750/fisheye-calibration-assertion-error/
+## saco algunas captiras de calibracion
+#indSelect = np.arange(n)
+#np.random.shuffle(indSelect)
+#indSelect = indSelect<10
 
 # %% OPTIMIZAR
+#rms, K, D, rVecs, tVecs = cl.calibrateIntrinsic(objpoints[indSelect], imgpoints[indSelect], imgSize, model)
 
 rms, K, D, rVecs, tVecs = cl.calibrateIntrinsic(objpoints, imgpoints, imgSize, model)
 

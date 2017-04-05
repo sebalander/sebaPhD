@@ -17,7 +17,7 @@ import matplotlib.pyplot as plt
 hayquegraficar = True
 
 # cam puede ser ['vca', 'vcaWide', 'ptz'] son los datos que se tienen
-camera = 'ptz'
+camera = 'vcaWide'
 
 # input
 imagesFolder = "./resources/intrinsicCalib/" + camera + "/"
@@ -73,8 +73,10 @@ for picture in images:
         print('No se encontraron esquinas en ' + picture)
         noencuentra.append(picture);
 
+0 #
 
 # %% SAVE DATA POINTS
 np.save(cornersFile, imgpoints)
 np.save(patternFile, chessboardModel)
-np.save(imgShapeFile, img.shape)
+# hay que pasar img shape al reves porque requiere width height en ese orden
+np.save(imgShapeFile, img.shape[::-1])

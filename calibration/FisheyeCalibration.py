@@ -169,6 +169,7 @@ def calibrateIntrinsic(objpoints, imgpoints, imgSize, K, D,
     
     return rms, K, D, rVecs, tVecs
     '''
+    
     if D is None:
         D = zeros((4))
     
