@@ -4,7 +4,7 @@ Created on Tue Sep 13 19:01:57 2016
 
 @author: sebalander
 """
-from numpy import zeros, sqrt, roots, array, isreal, shape
+from numpy import zeros, sqrt, roots, array, isreal, shape, prod
 from cv2 import projectPoints, Rodrigues
 from lmfit import minimize, Parameters
 from calibration import calibrator
@@ -23,12 +23,16 @@ def formatParameters(rVec, tVec, linearCoeffs, distCoeffs):
     
     params = Parameters()
     
-    if len(rVec.shape)==2:
-        for i in range(3):
-            params.add('rvec%d'%i,
-                       value=rVec[i,0], vary=False)
-            params.add('tvec%d'%i,
-                       value=tVec[i,0], vary=False)
+    if prod(rVec.shape) == 9:
+        rVec = Rodrigues(rVec)[0]
+    
+    rVec = rVec.reshape(3)
+    
+    for i in range(3):
+        params.add('rvec%d'%i,
+                   value=rVec[i], vary=False)
+        params.add('tvec%d'%i,
+                   value=tVec[i], vary=False)
     
     if len(rVec.shape)==3:
         for j in range(len(rVec)):
@@ -155,8 +159,6 @@ def calibrateDirect(fiducialPoints, imageCorners, rVec, tVec, linearCoeffs, dist
 
 # %% ========== ========== INVERSE RATIONAL ========== ==========
 def inverse(imageCorners, rVec, tVec, linearCoeffs, distCoeffs):
-    if rVec.shape != (3,3):
-        rVec, _ = Rodrigues(rVec)
     
     imageCorners = imageCorners.reshape((-1,2))
     distCoeffs = distCoeffs.reshape((5))

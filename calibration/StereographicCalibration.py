@@ -4,7 +4,7 @@ Created on Tue Sep 13 19:00:40 2016
 
 @author: sebalander
 """
-from numpy import zeros, sqrt, array, tan, arctan
+from numpy import zeros, sqrt, array, tan, arctan, prod
 from cv2 import  Rodrigues
 from lmfit import minimize, Parameters
 from calibration import calibrator
@@ -13,11 +13,17 @@ xypToZplane = calibrator.xypToZplane
 # %% ========== ==========  PARAMETER HANDLING ========== ==========
 def formatParameters(rVec, tVec, linearCoeffs, distCoeffs):
     params = Parameters()
+    
+    if prod(rVec.shape) == 9:
+        rVec = Rodrigues(rVec)[0]
+    
+    rVec = rVec.reshape(3)
+    
     for i in range(3):
         params.add('rvec%d'%i,
-                   value=rVec[i,0], vary=True)
+                   value=rVec[i], vary=True)
         params.add('tvec%d'%i,
-                   value=tVec[i,0], vary=True)
+                   value=tVec[i], vary=True)
     
     # image center
     params.add('cameraMatrix0',
@@ -54,8 +60,11 @@ def retrieveParameters(params):
 # we asume that intrinsic distortion paramters is just a scalar: distCoeffs=k
 def direct(fiducialPoints, rVec, tVec, linearCoeffs, distCoeffs):
     # format as matrix
-    if rVec.shape != (3,3):
-        rVec, _ = Rodrigues(rVec)
+    try:
+        rVec.reshape(3)
+        rVec = Rodrigues(rVec)[0]
+    except:
+        pass
     
     xyz = rVec.dot(fiducialPoints[0].T)+tVec
     
@@ -103,9 +112,6 @@ def calibrateDirect(fiducialPoints, imageCorners, rVec, tVec, linearCoeffs, dist
 
 # %% ========== ========== INVERSE  ========== ==========
 def inverse(imageCorners, rVec, tVec, linearCoeffs, distCoeffs):
-    # format as matrix
-    if rVec.shape != (3,3):
-        rVec, _ = Rodrigues(rVec)
     
     xpp = imageCorners[:,0,0]-linearCoeffs[0]
     ypp = imageCorners[:,0,1]-linearCoeffs[1]

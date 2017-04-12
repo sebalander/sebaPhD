@@ -4,7 +4,7 @@ Created on Tue Sep 13 19:01:57 2016
 
 @author: sebalander
 """
-from numpy import zeros, sqrt, roots, array, isreal, shape, bitwise_and
+from numpy import zeros, sqrt, roots, array, isreal, shape, bitwise_and, prod
 from cv2 import projectPoints, Rodrigues
 from lmfit import minimize, Parameters
 from calibration import calibrator
@@ -23,12 +23,16 @@ def formatParameters(rVec, tVec, linearCoeffs, distCoeffs):
     
     params = Parameters()
     
-    if len(rVec.shape)==2:
-        for i in range(3):
-            params.add('rvec%d'%i,
-                       value=rVec[i,0], vary=False)
-            params.add('tvec%d'%i,
-                       value=tVec[i,0], vary=False)
+    if prod(rVec.shape) == 9:
+        rVec = Rodrigues(rVec)[0]
+    
+    rVec = rVec.reshape(3)
+    
+    for i in range(3):
+        params.add('rvec%d'%i,
+                   value=rVec[i], vary=True)
+        params.add('tvec%d'%i,
+                   value=tVec[i], vary=False)
     
     if len(rVec.shape)==3:
         for j in range(len(rVec)):
@@ -48,7 +52,7 @@ def formatParameters(rVec, tVec, linearCoeffs, distCoeffs):
                value=linearCoeffs[1,2], vary=False)
     
     # (k1,k2,p1,p2[,k3[,k4,k5,k6[,s1,s2,s3,s4[,τx,τy]]]])
-    distCoeffs = distCoeffs.reshape(8)
+    distCoeffs = distCoeffs.reshape(-1)
     for i in range(8):
         params.add('distCoeffs%d'%i,
                    value=distCoeffs[i], vary=False)
@@ -98,7 +102,7 @@ def setParametersVary(params, flag):
     
     for i in [5,6,7]:
         params['distCoeffs%d'%i].vary=inDe
-    
+
 
 
 def retrieveParameters(params):
@@ -144,7 +148,7 @@ def residualDirect(params, fiducialPoints, imageCorners):
                                linearCoeffs,
                                distCoeffs)
     
-    return imageCorners[:,0,:] - projectedCorners[:,0,:]
+    return imageCorners - projectedCorners
 
 
 def calibrateDirect(fiducialPoints, imageCorners, rVec, tVec, linearCoeffs, distCoeffs):
@@ -162,8 +166,6 @@ def calibrateDirect(fiducialPoints, imageCorners, rVec, tVec, linearCoeffs, dist
 
 # %% ========== ========== INVERSE RATIONAL ========== ==========
 def inverse(imageCorners, rVec, tVec, linearCoeffs, distCoeffs):
-    if rVec.shape is not (3,3):
-        rVec = Rodrigues(rVec)[0]
     
     imageCorners = imageCorners.reshape((-1,2))
     distCoeffs = distCoeffs.reshape(14)

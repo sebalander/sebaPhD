@@ -11,20 +11,23 @@ from matplotlib.pyplot import xlabel, ylabel, arrow
 from cv2 import Rodrigues, findHomography
 from numpy import min, max, ndarray, zeros, array, reshape, sqrt, roots
 from numpy import sin, cos, cross, ones, concatenate, flipud, dot, isreal
-from numpy import linspace, polyval, eye
+from numpy import linspace, polyval, eye, linalg, mean, prod
 from scipy.linalg import sqrtm, norm, inv
 from matplotlib.patches import FancyArrowPatch
 from mpl_toolkits.mplot3d import proj3d
+
+from importlib import reload
 
 # %% Z=0 PROJECTION
 
 def xypToZplane(xp, yp, rVec, tVec, z=0):
     '''
-    projects a poitn
+    projects a point from homogenous undistorted to 3D asuming z=0
     '''
     
-    tVec = tVec.reshape(3)
-    rVec.shape
+    if rVec.shape != (3, 3):
+        rVec = Rodrigues(rVec)[0]
+    
     # auxiliar calculations
     a = rVec[0,0] - rVec[2,0] * xp
     b = rVec[0,1] - rVec[2,1] * xp
@@ -34,10 +37,10 @@ def xypToZplane(xp, yp, rVec, tVec, z=0):
     f = tVec[1] - tVec[2] * yp
     q = a*e-d*b
     
-    X = (c*e - f*b)/q # check why wrong sign, why must put '-' in front?
-    Y = (f*a - c*d)/q
+    X = (f*b - c*e)/q  # check why wrong sign, why must put '-' in front?
+    Y = (c*d - f*a)/q
     
-    shape = (1,X.shape[0],3)
+    shape = (1, X.shape[0], 3)
     XYZ = array([X, Y, zeros(shape[1])]).T
     XYZ = reshape(XYZ, shape)
     
@@ -164,6 +167,11 @@ from calibration import RationalCalibration as rational
 from calibration import FisheyeCalibration as fisheye
 from calibration import PolyCalibration as poly
 
+reload(stereographic)
+reload(unified)
+reload(rational)
+reload(fisheye)
+reload(poly)
 
 # %% PARAMETER HANDLING
 def formatParameters(rVec, tVec, linearCoeffs, distCoeffs, model):
@@ -323,26 +331,26 @@ def fiducialComparison(rVec, tVec, fiducial1, fiducial2=None,
     figure()
     plot(X1, Y1, 'xr', markersize=10, label=label1)
     
-    
-    # set origin of MAP reference frame
-    xM0 = min(X1)
-    xM1 = max(X1)
-    yM0 = min(Y1)
-    yM1 = max(Y1)
-    
-    # get a characteristic scale of the graph
-    s = max([xM1 - xM0, yM1 - yM0]) / 10
-    
-    t = array(tVec).reshape(3)
-    
-    # calcular las puntas de los versores
-    if rVec.shape is (3,3):
-        [x,y,z] = s * rVec.T
-    else:
-        [x,y,z] = s * Rodrigues(rVec)[0].T
-
-    plot([t[0], t[0] + x[0]], [t[1], t[1] + x[1]], '-r', label='cam X')
-    plot([t[0], t[0] + y[0]], [t[1], t[1] + y[1]], '-b', label='cam Y')
+#    
+#    # set origin of MAP reference frame
+#    xM0 = min(X1)
+#    xM1 = max(X1)
+#    yM0 = min(Y1)
+#    yM1 = max(Y1)
+#    
+#    # get a characteristic scale of the graph
+#    s = max([xM1 - xM0, yM1 - yM0]) / 10
+#    
+#    t = array(tVec).reshape(3)
+#    
+#    # calcular las puntas de los versores
+#    if rVec.shape == (3,3):
+#        [x,y,z] = s * rVec.T
+#    else:
+#        [x,y,z] = s * Rodrigues(rVec)[0].T
+#
+#    plot([t[0], t[0] + x[0]], [t[1], t[1] + x[1]], '-r', label='cam X')
+#    plot([t[0], t[0] + y[0]], [t[1], t[1] + y[1]], '-b', label='cam Y')
 
     
     if fiducial2 is not None:
@@ -374,107 +382,117 @@ def fiducialComparison3D(rVec, tVec, fiducial1, fiducial2=None,
     draw in 3D the position of the camera and the fiducial points, also can
     draw an extras et of fiducial points (projected). indicates orienteation
     of camera
-
+    
     '''
     
     fiducial1 = fiducial1.reshape(-1,3)
-    X1, Y1 ,Z1 = fiducial1.T
     
-    # set origin of MAP reference frame
-    xM0 = min(X1)
-    xM1 = max(X1)
-    yM0 = min(Y1)
-    yM1 = max(Y1)
-    zM0 = min(Z1)
-    zM1 = max(Z1)
+    if prod(rVec.shape) == 3:
+        rVec = Rodrigues(rVec)[0]
+    
+    # convert to camera coords by roto traslation
+    fiducialCam = dot(rVec, fiducial1.T)
+    fiducialCam += tVec.reshape((3,1))
     
     # get a characteristic scale of the graph
-    s = max([xM1 - xM0, yM1 - yM0, zM1 - zM0]) / 10
+    s = mean(linalg.norm(fiducialCam, axis=0)) / 3
     
-    t = array(tVec).reshape(3)
     
-    # calcular las puntas de los versores
-    if rVec.shape is (3,3):
-        [x,y,z] = s * rVec.T
-    else:
-        [x,y,z] = s * Rodrigues(rVec)[0].T
-    
-    #print(array([x,y,z]))
-    [x,y,z] = [x,y,z] + t
-    #print(t)
+    # set origin of MAP reference frame
+#    xM0 = min(X1)
+#    xM1 = max(X1)
+#    yM0 = min(Y1)
+#    yM1 = max(Y1)
+#    zM0 = min(Z1)
+#    zM1 = max(Z1)
+#    
+#    
+#    t = array(tVec).reshape(3)
+#    
+#    # calcular las puntas de los versores
+#    if rVec.shape is (3,3):
+#        [x,y,z] = s * rVec
+#    else:
+#        [x,y,z] = s * Rodrigues(rVec)[0]
+#    # get versors of map in cam coords
+#    [x,y,z] = s * rVec.T
+#
+##print(array([x,y,z]))
+#    [x,y,z] = [x,y,z] + t
+#    #print(t)
     
     
     fig = figure()
     ax = fig.gca(projection='3d')
     
-    ax.plot(X1,Y1,Z1,'xr', markersize=10, label=label1)
+    ax.plot(fiducialCam[0], fiducialCam[1], fiducialCam[2],
+            'xr', markersize=10, label=label1)
     
-
-    # get plot range
-    if fiducial2 is not None:
-        fiducial2 = fiducial2.reshape(-1,3)
-        X2, Y2, Z2 = fiducial2.T
-        
-        ax.plot(X2,Y2,Z2,'+b', markersize=10, label=label2)
-        
-        xmin = min([xM0, min(X2), t[0], x[0], y[0], z[0]])
-        ymin = min([yM0, min(Y2), t[1], x[1], y[1], z[1]])
-        zmin = min([zM0, min(Z2), t[2], x[2], y[2], z[2]])
-        xmax = max([xM1, max(X2), t[0], x[0], y[0], z[0]])
-        ymax = max([yM1, max(Y2), t[1], x[1], y[1], z[1]])
-        zmax = max([zM1, max(Z2), t[2], x[2], y[2], z[2]])
-    else:
-        xmin = min([xM0, t[0], x[0], y[0], z[0]])
-        ymin = min([yM0, t[1], x[1], y[1], z[1]])
-        zmin = min([zM0, t[2], x[2], y[2], z[2]])
-        xmax = max([xM1, t[0], x[0], y[0], z[0]])
-        ymax = max([yM1, t[1], x[1], y[1], z[1]])
-        zmax = max([zM1, t[2], x[2], y[2], z[2]])
     
-    ax.set_xbound(xmin, xmax)
-    ax.set_ybound(ymin, ymax)
-    ax.set_zbound(zmin, zmax)
+#    # get plot range
+#    if fiducial2 is not None:
+#        fiducial2 = fiducial2.reshape(-1,3)
+#        X2, Y2, Z2 = fiducial2.T
+#        
+#        ax.plot(X2,Y2,Z2,'+b', markersize=10, label=label2)
+#        
+#        xmin = min([xM0, min(X2), t[0], x[0], y[0], z[0]])
+#        ymin = min([yM0, min(Y2), t[1], x[1], y[1], z[1]])
+#        zmin = min([zM0, min(Z2), t[2], x[2], y[2], z[2]])
+#        xmax = max([xM1, max(X2), t[0], x[0], y[0], z[0]])
+#        ymax = max([yM1, max(Y2), t[1], x[1], y[1], z[1]])
+#        zmax = max([zM1, max(Z2), t[2], x[2], y[2], z[2]])
+#    else:
+#        xmin = min([xM0, t[0], x[0], y[0], z[0]])
+#        ymin = min([yM0, t[1], x[1], y[1], z[1]])
+#        zmin = min([zM0, t[2], x[2], y[2], z[2]])
+#        xmax = max([xM1, t[0], x[0], y[0], z[0]])
+#        ymax = max([yM1, t[1], x[1], y[1], z[1]])
+#        zmax = max([zM1, t[2], x[2], y[2], z[2]])
     
-    ejeX = Arrow3D([xM0, xM1],
-                   [yM0, yM0],
-                   [zM0, zM0],
-                   mutation_scale=20, lw=1, arrowstyle="-|>", color="k")
-    ejeY = Arrow3D([xM0, xM0],
-                   [yM0, yM1],
-                   [zM0, zM0],
-                   mutation_scale=20, lw=1, arrowstyle="-|>", color="k")
-    ejeZ = Arrow3D([xM0, xM0],
-                   [yM0, yM0],
-                   [zM0, zM1],
-                   mutation_scale=20, lw=1, arrowstyle="-|>", color="k")
+#    ax.set_xbound(xmin, xmax)
+#    ax.set_ybound(ymin, ymax)
+#    ax.set_zbound(zmin, zmax)
+#    
+#    ejeX = Arrow3D([xM0, xM1],
+#                   [yM0, yM0],
+#                   [zM0, zM0],
+#                   mutation_scale=20, lw=1, arrowstyle="-|>", color="k")
+#    ejeY = Arrow3D([xM0, xM0],
+#                   [yM0, yM1],
+#                   [zM0, zM0],
+#                   mutation_scale=20, lw=1, arrowstyle="-|>", color="k")
+#    ejeZ = Arrow3D([xM0, xM0],
+#                   [yM0, yM0],
+#                   [zM0, zM1],
+#                   mutation_scale=20, lw=1, arrowstyle="-|>", color="k")
+#    
+#    origen = Arrow3D([xM0, t[0]],
+#                     [yM0, t[1]],
+#                     [zM0, t[2]],
+#                     mutation_scale=20, lw=1, arrowstyle="-", color="k",
+#                     linestyle="dashed")
     
-    origen = Arrow3D([xM0, t[0]],
-                     [yM0, t[1]],
-                     [zM0, t[2]],
-                     mutation_scale=20, lw=1, arrowstyle="-", color="k",
-                     linestyle="dashed")
+    ax.plot([0, s], [0, 0], [0, 0], "-r")
+    ax.plot([0, 0], [0, s], [0, 0], "-b")
+    ax.plot([0, 0], [0, 0], [0, s], "-k")
+#    ejeYc = Arrow3D([t[0], y[0]],
+#                   [t[1], y[1]],
+#                   [t[2], y[2]],
+#                   mutation_scale=20, lw=1, arrowstyle="-|>", color="b")
+#    ejeZc = Arrow3D([t[0], z[0]],
+#                   [t[1], z[1]],
+#                   [t[2], z[2]],
+#                   mutation_scale=20, lw=3, arrowstyle="-|>", color="b")
     
-    ejeXc = Arrow3D([t[0], x[0]],
-                   [t[1], x[1]],
-                   [t[2], x[2]],
-                   mutation_scale=20, lw=1, arrowstyle="-|>", color="b")
-    ejeYc = Arrow3D([t[0], y[0]],
-                   [t[1], y[1]],
-                   [t[2], y[2]],
-                   mutation_scale=20, lw=1, arrowstyle="-|>", color="b")
-    ejeZc = Arrow3D([t[0], z[0]],
-                   [t[1], z[1]],
-                   [t[2], z[2]],
-                   mutation_scale=20, lw=3, arrowstyle="-|>", color="b")
-    
-    ax.add_artist(ejeX)
-    ax.add_artist(ejeY)
-    ax.add_artist(ejeZ)
-    ax.add_artist(origen)
-    ax.add_artist(ejeXc)
-    ax.add_artist(ejeYc)
-    ax.add_artist(ejeZc)
-    
+#    ax.add_artist(ejeX)
+#    ax.add_artist(ejeY)
+#    ax.add_artist(ejeZ)
+#    ax.add_artist(origen)
+#    ax.add_artist(ejeXc)
+#    ax.add_artist(ejeYc)
+#    ax.add_artist(ejeZc)
+#    
     ax.legend()
     
     show()
