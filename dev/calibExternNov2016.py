@@ -13,10 +13,17 @@ hacer la calibracion de los datos tomados en nov 2016
 import cv2
 from copy import deepcopy as dc
 from calibration import calibrator as cl
+from calibration import RationalCalibration as rational
+
 import numpy as np
 import matplotlib.pyplot as plt
 from importlib import reload
+from numpy import sqrt, array, isreal, roots
+xypToZplane = cl.xypToZplane
+formatParameters = rational.formatParameters
+retrieveParameters = rational.retrieveParameters
 
+from lmfit import minimize, Parameters
 
 
 # %% LOAD DATA
@@ -36,12 +43,16 @@ cameraMatrix = np.load(cameraMatrixFile) # coef intrinsecos
 distCoeffs = np.load(distCoeffsFile)
 imgShape = np.load(imgShapeFile)
 
-# %%
 # data files
-rawDataFile = '/home/sebalander/Code/VisionUNQextra/Videos y Mediciones/2016-11-13 medicion/calibrExtr/'
-imgFile = rawDataFile + 'vcaSnapShot.png'
-dawCalibTxt = rawDataFile + 'puntosCalibracion.txt'
+dataFile = './resources/nov16/'
+imgFile = dataFile + 'vcaSnapShot.png'
+dawCalibTxt = dataFile + 'puntosCalibracion.txt'
 
+# initil pose
+tVecIniFile = dataFile + 'tVecIni.npy'
+rVecIniFile = dataFile + 'rVecIni.npy'
+
+# %% load data
 ptsCalib = np.loadtxt(dawCalibTxt)
 img = cv2.imread(imgFile)
 
@@ -53,81 +64,159 @@ objectPoints = np.concatenate((ptsCalib[:, 3:1:-1],
                                np.zeros((len(ptsCalib),1)) ),
                                axis=1).reshape((-1,3))
 
-# hago deepcopy para que no chille solvePnP
-# http://answers.opencv.org/question/1073/what-format-does-cv2solvepnp-use-for-points-in-python/
-imagePoints = dc(imagePoints)
-objectPoints = dc(objectPoints)
-N = imagePoints.shape[0]  # cantidad de puntos
+tVecIni = np.load(tVecIniFile)
+rVecIni = np.load(rVecIniFile)
+rVecIni = cv2.Rodrigues(rVecIni)[0]
 
-## %% uso la funcion dada por opencv
-#
-#retval, rVec, tVec = cv2.solvePnP(objectPoints, imagePoints,
-#                                  cameraMatrix, distCoeffs)
-#
-## %%
-#objectPointsProjected = cl.inverse(imagePoints, rVec, tVec, cameraMatrix,
-#                                   distCoeffs, model)
-#
-#cl.fiducialComparison3D(rVec, tVec, objectPoints, objectPointsProjected)
-#cl.fiducialComparison(objectPoints, objectPointsProjected)
-#
-#
-#
-#
-## %% USAR OPENCV PERO CON COND INICIALES CONOCIDAS
-#
-#retval, rVec, tVec = cv2.solvePnP(objectPoints, imagePoints,
-#                                  cameraMatrix, distCoeffs,
-#                                  rVecIni, tVecIni, useExtrinsicGuess = True)
-## NOT WORKING. TRY ANOTHER ALGORITHM
-#
-## %%
-##cv2.SOLVEPNP_EPNP
-##cv2.SOLVEPNP_DLS
-##cv2.SOLVEPNP_UPNP
-#retval, rVec, tVec = cv2.solvePnP(objectPoints, imagePoints,
-#                                  cameraMatrix, distCoeffs,
-#                                  flags=cv2.SOLVEPNP_EPNP)
-#
-#retval, rVec, tVec = cv2.solvePnP(objectPoints, imagePoints,
-#                                  cameraMatrix, distCoeffs,
-#                                  flags=cv2.SOLVEPNP_DLS)
-#
-#retval, rVec, tVec = cv2.solvePnP(objectPoints, imagePoints,
-#                                  cameraMatrix, distCoeffs,
-#                                  flags=cv2.SOLVEPNP_UPNP)
+imagePointsProjected = cl.direct(objectPoints, rVecIni, tVecIni,
+                                 cameraMatrix, distCoeffs, model)
+
+# chequear que caigan donde deben
+cl.cornerComparison(img, imagePoints, imagePointsProjected)
+
+objectPointsProj = cl.inverse(imagePoints, rVecIni, tVecIni, cameraMatrix, distCoeffs, model)
+
+cl.fiducialComparison(rVecIni, tVecIni, objectPoints, objectPointsProj)
 
 
 
-## %%
-#objectPointsProjected = cl.inverse(imagePoints, rVec, tVec, cameraMatrix,
-#                                   distCoeffs, model)
-#
-#cl.fiducialComparison3D(rVec, tVec, objectPoints, objectPointsProjected)
-#cl.fiducialComparison(objectPoints, objectPointsProjected)
+# %% calculo el error cuadratico
+
+def Esq(imagePoints, objectPoints, rVec, tVec, cameraMatrix, distCoeffs, model):
+    objectPointsProj = cl.inverse(imagePoints, rVec, tVec, cameraMatrix,
+                                  distCoeffs, model)
+    
+    e = objectPoints - objectPointsProj
+    
+    return np.sum(e**2)
+
+
+# %% plotear la superficie a optimizar
+rVec = dc(rVecIni).reshape(-1)
+tVec = dc(tVecIni).reshape(-1)
+
+# ancho de intervalos donde me interesa generar datos
+a = np.pi / 20
+h = tVecIni[2] / 50
+
+N = 10**4  # cantidad de puntos
+rNoise = (np.random.rand(N,3) - 0.5) * a  # ruidos
+tNoise = (np.random.rand(N,3) - 0.5) * h
+RVecs = rVec + rNoise  # coordenadas
+TVecs = tVec + tNoise
+EE = np.empty(N)
+
+
+# calculo errores
+for i in range(N):
+    EE[i] = Esq(imagePoints, objectPoints, RVecs[i], TVecs[i], cameraMatrix, distCoeffs, model)
+
+# all dat toghether
+samples = np.concatenate((RVecs, TVecs, EE.reshape((-1,1))),axis=1)
+
+import corner
+
+# figure = corner.corner(samples, labels=['r1', 'r2', 'r3', 't1', 't2', 't3', 'E'])
+
+we = np.exp(-samples[:,-1])
+#we /= np.sum(we)
+
+figure = corner.corner(samples[:,:-1], weights=we,
+                       labels=['r1', 'r2', 'r3', 't1', 't2', 't3'])
 
 
 
+# %% 
+def gradE2(imagePoints, objectPoints, rVec, tVec, cameraMatrix, distCoeffs, model):
+    
+    E0 = Esq(imagePoints, objectPoints, rVec, tVec, cameraMatrix, distCoeffs, model)
+    
+    u = 1e-6
+    DrVec = rVec*u # incrementos
+    DtVec = tVec*u
+    
+    rV = [rVec]*3 + np.diag(DrVec) # aplico incrementos
+    tV = [tVec]*3 + np.diag(DtVec)
+    
+    E1r = np.empty(3)
+    E1t = np.empty(3)
+    
+    # calculo el error con cada uno de los incrementos
+    for i in range(3):
+        E1r[i] = Esq(imagePoints, objectPoints, rV[i], tVec,
+                 cameraMatrix, distCoeffs, model)
+        E1t[i] = Esq(imagePoints, objectPoints, rVec, tV[i],
+                 cameraMatrix, distCoeffs, model)
+    
+    # retorno el gradiente numerico
+    return (E1r - E0) / DrVec, (E1t - E0) / DtVec, E0
 
 
-## %% PARAMTER HANDLING
-## tweaking linear params so we get correct units
-#linearCoeffs = load(linearCoeffsFile) # coef intrinsecos
-#distCoeffs = load(distCoeffsFile)
-#
-#
-## giving paramters the appropiate format for the optimisation function
-#paramsIni = pc.formatParameters(rVecIni, tVecIni,
-#                                linearCoeffs, distCoeffs, model)
-## also, retrieving the numerical values
-#pc.retrieveParameters(paramsIni, model)
-#
-## %% CASE 1: use direct mapping to test initial parameters
-## project
-#cornersCase1 = pc.direct(fiducialPoints, rVecIni, tVecIni,
-#                         linearCoeffs, distCoeffs, model)
-## plot to compare
-#pc.cornerComparison(img, imageCorners, cornersCase1)
-## calculate residual
-#sum(pc.residualDirect(paramsIni, fiducialPoints, imageCorners, model)**2)
+gradE2(imagePoints, objectPoints, rVecIni, tVecIni, cameraMatrix, distCoeffs, model)
+
+# %% implementacion de gradiente descedente amano
+rVec = dc(rVecIni)
+tVec = dc(tVecIni)
+N = 3 # cantidad de iteraciones
+EE = []
+
+
+# pongo limites para cuánto corregir cada vez
+a = np.pi / 200
+h = tVecIni[2] / 30
+eta = 1e-5
+
+for i in range(N):
+    
+    
+    cl.fiducialComparison3D(rVec, tVec, objectPoints)
+    
+    imagePointsProjected = cl.direct(objectPoints, rVec, tVec,
+                                     cameraMatrix, distCoeffs, model)
+    # chequear que caigan donde deben
+    cl.cornerComparison(img, imagePoints, imagePointsProjected)
+    
+    
+    # calculo los gradientes de rotacion y traslacion
+    gR, gT, E = gradE2(imagePoints, objectPoints, rVec, tVec, cameraMatrix, distCoeffs, model)
+    EE.append(E)
+    
+    print(gR, gT, E)
+    
+    # los pongo dentro del limite de lo razonable
+    if np.any(a < gR):
+        gR *= a / np.max(gR)
+    if np.any(h < gT):
+        gT *= h / np.max(gT)
+    
+    
+    
+    
+    
+    print(gR, gT, E)
+    # aplico la corrección
+    rVec -= eta * gR
+    tVec -= eta * gT
+
+
+plt.plot(EE,'-+')
+
+#cl.fiducialComparison3D(rVec, tVec, objectPoints)
+
+imagePointsProjected = cl.direct(objectPoints, rVec, tVec,
+                                 cameraMatrix, distCoeffs, model)
+# chequear que caigan donde deben
+cl.cornerComparison(img, imagePoints, imagePointsProjected)
+
+
+# %%
+rVecOpt, tVecOpt, params = cl.calibrateInverse(objectPoints, imagePoints, rVecIni, tVecIni, cameraMatrix, distCoeffs, model)
+
+rVecOpt = cv2.Rodrigues(rVecOpt)[0]
+
+
+# %%
+objectPointsProj = cl.inverse(imagePoints, rVecOpt, tVecOpt, cameraMatrix, distCoeffs, model)
+
+cl.fiducialComparison(rVecOpt, tVecOpt, objectPoints, objectPointsProj)
 

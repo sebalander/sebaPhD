@@ -17,7 +17,7 @@ def formatParameters(rVec, tVec, linearCoeffs, distCoeffs):
     if there are several extrinsica paramters they are correctly 
     
     Inputs
-    rVec, tVec : arrays of shape (n,3,1) or (3,1)
+    rVec, tVec : arrays of shape (n,3) and (3) or reshapeable to this
     distCoeffs must have be reshapable to (8)
     '''
     
@@ -27,29 +27,24 @@ def formatParameters(rVec, tVec, linearCoeffs, distCoeffs):
         rVec = Rodrigues(rVec)[0]
     
     rVec = rVec.reshape(3)
+    tVec = tVec.reshape(3)
     
     for i in range(3):
-        params.add('rvec%d'%i,
-                   value=rVec[i], vary=True)
-        params.add('tvec%d'%i,
-                   value=tVec[i], vary=False)
+        params.add('rvec%d'%i, value=rVec[i], vary=True)
+        params.add('tvec%d'%i, value=tVec[i], vary=True)
     
-    if len(rVec.shape)==3:
-        for j in range(len(rVec)):
-            for i in range(3):
-                params.add('rvec%d%d'%(j,i),
-                           value=rVec[j,i,0], vary=False)
-                params.add('tvec%d%d'%(j,i),
-                           value=tVec[j,i,0], vary=False)
+    #if len(rVec.shape)==3:
+    #    for j in range(len(rVec)):
+    #        for i in range(3):
+    #            params.add('rvec%d%d'%(j,i),
+    #                       value=rVec[j,i,0], vary=True)
+    #            params.add('tvec%d%d'%(j,i),
+    #                       value=tVec[j,i,0], vary=True)
     
-    params.add('fX',
-               value=linearCoeffs[0,0], vary=False)
-    params.add('fY',
-               value=linearCoeffs[1,1], vary=False)
-    params.add('cX',
-               value=linearCoeffs[0,2], vary=False)
-    params.add('cY',
-               value=linearCoeffs[1,2], vary=False)
+    params.add('fX', value=linearCoeffs[0,0], vary=False)
+    params.add('fY', value=linearCoeffs[1,1], vary=False)
+    params.add('cX', value=linearCoeffs[0,2], vary=False)
+    params.add('cY', value=linearCoeffs[1,2], vary=False)
     
     # (k1,k2,p1,p2[,k3[,k4,k5,k6[,s1,s2,s3,s4[,τx,τy]]]])
     distCoeffs = distCoeffs.reshape(-1)
@@ -168,7 +163,7 @@ def calibrateDirect(fiducialPoints, imageCorners, rVec, tVec, linearCoeffs, dist
 def inverse(imageCorners, rVec, tVec, linearCoeffs, distCoeffs):
     
     imageCorners = imageCorners.reshape((-1,2))
-    distCoeffs = distCoeffs.reshape(14)
+    distCoeffs = distCoeffs.reshape(-1)
     
     xpp = ((imageCorners[:,0]-linearCoeffs[0,2]) /
             linearCoeffs[0,0])
@@ -210,7 +205,7 @@ def residualInverse(params, fiducialPoints, imageCorners):
                                               linearCoeffs,
                                               distCoeffs)
     
-    return fiducialPoints[0,:,:2] - projectedFiducialPoints[0,:,:2]
+    return fiducialPoints[:,:2] - projectedFiducialPoints[:,:2]
 
 def calibrateInverse(fiducialPoints, imageCorners, rVec, tVec, linearCoeffs, distCoeffs):
     initialParams = formatParameters(rVec, tVec, linearCoeffs, distCoeffs) # generate Parameters obj

@@ -25,7 +25,7 @@ def xypToZplane(xp, yp, rVec, tVec, z=0):
     projects a point from homogenous undistorted to 3D asuming z=0
     '''
     
-    if rVec.shape != (3, 3):
+    if prod(rVec.shape) == 3:
         rVec = Rodrigues(rVec)[0]
     
     # auxiliar calculations
@@ -40,9 +40,9 @@ def xypToZplane(xp, yp, rVec, tVec, z=0):
     X = (f*b - c*e)/q  # check why wrong sign, why must put '-' in front?
     Y = (c*d - f*a)/q
     
-    shape = (1, X.shape[0], 3)
-    XYZ = array([X, Y, zeros(shape[1])]).T
-    XYZ = reshape(XYZ, shape)
+    #shape = (X.shape[0], 3)
+    XYZ = array([X, Y, zeros(len(X))]).T
+    XYZ = XYZ.reshape(-1, 3)
     
     return XYZ
 
