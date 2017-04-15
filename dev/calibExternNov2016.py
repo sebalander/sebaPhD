@@ -69,7 +69,7 @@ objectPoints = np.concatenate((ptsCalib[:, 3:1:-1],
 
 tVecIni = np.load(tVecIniFile)
 rVecIni = np.load(rVecIniFile)
-rVecIni = cv2.Rodrigues(rVecIni)[0]
+rVecIni = cv2.Rodrigues(rVecIni)[0].reshape(-1)
 
 imagePointsProjected = cl.direct(objectPoints, rVecIni, tVecIni,
                                  cameraMatrix, distCoeffs, model)
@@ -88,9 +88,9 @@ cl.fiducialComparison(rVecIni, tVecIni, objectPoints, objectPointsProj)
 def Esq(imagePoints, objectPoints, rVec, tVec, cameraMatrix, distCoeffs, model):
     objectPointsProj = cl.inverse(imagePoints, rVec, tVec, cameraMatrix,
                                   distCoeffs, model)
-    
+
     e = objectPoints - objectPointsProj
-    
+
     return np.sum(e**2)
 
 
@@ -100,27 +100,27 @@ def eulerAnglesToRotationMatrix(theta):
     '''
     https://www.learnopencv.com/rotation-matrix-to-euler-angles/
     '''
-     
+
     R_x = np.array([[1,         0,                  0                   ],
                     [0,         np.cos(theta[0]), -np.sin(theta[0]) ],
                     [0,         np.sin(theta[0]), np.cos(theta[0])  ]
                     ])
-         
-         
-                     
+
+
+
     R_y = np.array([[np.cos(theta[1]),    0,      np.sin(theta[1])  ],
                     [0,                     1,      0                   ],
                     [-np.sin(theta[1]),   0,      np.cos(theta[1])  ]
                     ])
-                 
+
     R_z = np.array([[np.cos(theta[2]),    -np.sin(theta[2]),    0],
                     [np.sin(theta[2]),    np.cos(theta[2]),     0],
                     [0,                     0,                      1]
                     ])
-                     
-                     
+
+
     R = np.dot(R_z, np.dot( R_y, R_x ))
- 
+
     return R
 
 
@@ -132,11 +132,11 @@ def rot2euler(R):
     '''
     if np.prod(R.shape)==3:
         R = cv2.Rodrigues(R)[0]
-    
+
     sy = np.sqrt(R[0,0] * R[0,0] +  R[1,0] * R[1,0])
-     
+
     singular = sy < 1e-6
- 
+
     if  not singular :
         x = np.arctan2(R[2,1] , R[2,2])
         y = np.arctan2(-R[2,0], sy)
@@ -145,8 +145,34 @@ def rot2euler(R):
         x = np.arctan2(-R[1,2], R[1,1])
         y = np.arctan2(-R[2,0], sy)
         z = 0
- 
+
     return np.array([x, y, z])
+
+
+def anglePeriodPi(angs, axis):
+    '''
+    taken an axis of the lists of vectors of anglñes and takes it to a different
+    interval
+    '''
+
+def rodrigues2euler(rV):
+    '''
+    converts a list of rodrigues vectors to euler angles
+    '''
+
+    euV = []
+
+    for r in rV:
+        mat = cv2.Rodrigues(r)[0]
+        euV.append(rot2euler(mat))
+
+    euV = np.array(euV)
+
+    np.max(euV, axis=0) - np.min(euV, axis=0)
+
+    return
+
+
 
 # %% pl4otear la superficie a optimizar
 rVec = dc(rVecIni).reshape(-1)
@@ -161,7 +187,7 @@ tM = - np.dot(cv2.Rodrigues(rVec)[0].T, tVec)
 a = np.pi / 10
 h = tM[2] / 5
 
-N = 10**5  # cantidad de puntos
+N = 10**3  # cantidad de puntos
 rNoise = (np.random.rand(N, 3) - 0.5) * a  # ruidos
 tNoise = (np.random.rand(N, 3) - 0.5) * h
 RVecsM = rM + rNoise  # coordenadas respecto al mapa, angulos de euler
@@ -198,87 +224,142 @@ figure = corner.corner(samples, weights=we, labels=labls)
 #    plt.figure()
 #    plt.scatter(samples[:,i],EE)
 
-# %% 
+# %%
 def gradE2(imagePoints, objectPoints, rVec, tVec, cameraMatrix, distCoeffs, model):
-    
+
     E0 = Esq(imagePoints, objectPoints, rVec, tVec, cameraMatrix, distCoeffs, model)
-    
-    u = 1e-6
+
+    u = 1e-4
     DrVec = rVec*u # incrementos
     DtVec = tVec*u
-    
+
     rV = [rVec]*3 + np.diag(DrVec) # aplico incrementos
     tV = [tVec]*3 + np.diag(DtVec)
-    
+
     E1r = np.empty(3)
     E1t = np.empty(3)
-    
+
     # calculo el error con cada uno de los incrementos
     for i in range(3):
         E1r[i] = Esq(imagePoints, objectPoints, rV[i], tVec,
                  cameraMatrix, distCoeffs, model)
         E1t[i] = Esq(imagePoints, objectPoints, rVec, tV[i],
                  cameraMatrix, distCoeffs, model)
-    
+
+    # calculo los gradientes
+    gR = (E1r - E0) / DrVec
+    gT = (E1t - E0) / DtVec
+
     # retorno el gradiente numerico
-    return (E1r - E0) / DrVec, (E1t - E0) / DtVec, E0
+    return gR, gT, E0
 
 
-gradE2(imagePoints, objectPoints, rVecIni, tVecIni, cameraMatrix, distCoeffs, model)
+gR, gT, E = gradE2(imagePoints, objectPoints, rVecIni, tVecIni, cameraMatrix, distCoeffs, model)
+gR, gT
+
+# %% pongo el cero de coords mapa cenrca de los puntos de calibracion
+rVecIniMap = -rVecIni
+tVecIniMap = - np.dot(cv2.Rodrigues(rVecIniMap)[0], tVecIni)
+
+# tomo el primero de los puntos como referencia, arbitrariamente
+tMapOrig = objectPoints[0]
+# me centro ahí
+tVecIniMap -= tMapOrig
+objectPointsOrig = objectPoints - tMapOrig
+
+# vond iniciales con el cero corrido (la rotacion es la misma)
+tVecIniOrig = - np.dot(cv2.Rodrigues(rVecIni)[0], tVecIniMap)
 
 # %% implementacion de gradiente descedente amano
 rVec = dc(rVecIni)
-tVec = dc(tVecIni)
-N = 3 # cantidad de iteraciones
-EE = []
+tVec = dc(tVecIniOrig)
 
+alfa = 0.01
+beta = 0.9
+gamma = 1 - beta
+N = 500 # cantidad de iteraciones
 
-# pongo limites para cuánto corregir cada vez
-a = np.pi / 200
-h = tVecIni[2] / 30
-eta = 1e-5
+## pongo limites para cuánto corregir cada vez
+#a = np.pi / 200
+#h = tVecIni[2] / 30
+
+gradRot, gradTra, Err2 = gradE2(imagePoints, objectPointsOrig, rVec, tVec,
+                                cameraMatrix, distCoeffs, model)
+# para ir guardando los valores intermedios
+rV = [rVec]
+tV = [tVec]
+
+gR = [gR]
+gT = [gT]
+E = [Err2]
+zR = [np.zeros_like(rVec)]
+zT = [np.zeros_like(tVec)]
+
 
 for i in range(N):
-    
-    
-    cl.fiducialComparison3D(rVec, tVec, objectPoints)
-    
-    imagePointsProjected = cl.direct(objectPoints, rVec, tVec,
-                                     cameraMatrix, distCoeffs, model)
+    #cl.fiducialComparison3D(rV[i], tV[i], objectPoints)
+    #imagePointsProjected = cl.direct(objectPoints, rV[i], tV[i],
+    #                                 cameraMatrix, distCoeffs, model)
     # chequear que caigan donde deben
-    cl.cornerComparison(img, imagePoints, imagePointsProjected)
-    
-    
+    #cl.cornerComparison(img, imagePoints, imagePointsProjected)
+
+
     # calculo los gradientes de rotacion y traslacion
-    gR, gT, E = gradE2(imagePoints, objectPoints, rVec, tVec, cameraMatrix, distCoeffs, model)
-    EE.append(E)
-    
-    print(gR, gT, E)
-    
-    # los pongo dentro del limite de lo razonable
-    if np.any(a < gR):
-        gR *= a / np.max(gR)
-    if np.any(h < gT):
-        gT *= h / np.max(gT)
-    
-    
-    
-    
-    
-    print(gR, gT, E)
+    gradRot, gradTra, Err2 = gradE2(imagePoints, objectPointsOrig, rV[i], tV[i],
+                                    cameraMatrix, distCoeffs, model)
+    gR.append(gradRot)
+    gT.append(gradTra)
+    E.append(Err2)
+
+    # inercia
+    zR.append(beta * zR[i] + gamma * gR[i+1] * 10**6)
+    zT.append(beta * zT[i] + gamma * gT[i+1])
     # aplico la corrección
-    rVec -= eta * gR
-    tVec -= eta * gT
+    rV.append(rV[i] - alfa * zR[i+1])
+    tV.append(tV[i] - alfa * zT[i+1])
+
+    # los pongo dentro del limite de lo razonable
+    #if np.any(a < gR):
+    #    gR *= a / np.max(gR)
+    #if np.any(h < gT):
+    #    gT *= h / np.max(gT)
 
 
-plt.plot(EE,'-+')
+rV = np.array(rV)
+tV = np.array(tV)
 
-#cl.fiducialComparison3D(rVec, tVec, objectPoints)
+plt.figure()
+plt.plot(E,'-+')
 
-imagePointsProjected = cl.direct(objectPoints, rVec, tVec,
+#cl.fiducialComparison3D(rV[-1], tV[-1], objectPointsOrig)
+imagePointsProjected = cl.direct(objectPointsOrig, rV[-1], tV[-1],
                                  cameraMatrix, distCoeffs, model)
 # chequear que caigan donde deben
 cl.cornerComparison(img, imagePoints, imagePointsProjected)
+
+
+
+tVMap = - np.dot(cv2.Rodrigues(rVecIniMap)[0], tV.T)
+
+fig = plt.figure()
+ax = fig.gca(projection='3d')
+ax.plot(tV[:,0], tV[:,1], tV[:,2])
+ax.scatter(objectPointsOrig[:,0], objectPointsOrig[:,1], objectPointsOrig[:,2])
+
+
+fig = plt.figure()
+ax = fig.gca(projection='3d')
+ax.plot(tV[:,0], tV[:,1], tV[:,2])
+ax.scatter(tV[0,0], tV[0,1], tV[0,2], 'ok')
+ax.scatter(tV[-1,0], tV[-1,1], tV[-1,2], 'or')
+
+
+#euV = rodrigues2euler(rV)
+fig = plt.figure()
+ax = fig.gca(projection='3d')
+ax.plot(rV[:,0], rV[:,1], rV[:,2])
+ax.scatter(rV[0,0], rV[0,1], rV[0,2], 'ok')
+ax.scatter(rV[-1,0], rV[-1,1], rV[-1,2], 'or')
 
 
 # %%
