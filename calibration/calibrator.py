@@ -35,10 +35,10 @@ def xypToZplane(xp, yp, rVec, tVec, z=0):
     d = rVec[1,0] - rVec[2,0] * yp
     e = rVec[1,1] - rVec[2,1] * yp
     f = tVec[1] - tVec[2] * yp
-    q = a*e-d*b
+    q = a*e - d*b
     
-    X = (f*b - c*e)/q  # check why wrong sign, why must put '-' in front?
-    Y = (c*d - f*a)/q
+    X = (f*b - c*e) / q
+    Y = (c*d - f*a) / q
     
     #shape = (X.shape[0], 3)
     XYZ = array([X, Y, zeros(len(X))]).T
