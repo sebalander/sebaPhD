@@ -123,6 +123,24 @@ def retrieveParameters(params):
 
 
 # %% ========== ========== DIRECT RATIONAL ========== ==========
+def radialDistort(rp, k, quot=False):
+    '''
+    returns distorted radius using distortion coefficients k
+    optionally it returns the distortion quotioent rpp = rp * q
+    '''
+    rp2 = rp**2
+    rp4 = rp2**2
+    rp6 = rp2*rp4
+    
+    k.shape = -1
+    q = 1 + k[0]*rp2 + k[1]*rp4 + k[4]*rp6
+    q /= 1 + k[5]*rp2 + k[6]*rp4 + k[7]*rp6
+    
+    if quot:
+        return q
+    
+    return rp * q
+
 def direct(fiducialPoints, rVec, tVec, linearCoeffs, distCoeffs):
     projected, _ = projectPoints(fiducialPoints,
                                  rVec,
@@ -160,17 +178,10 @@ def calibrateDirect(fiducialPoints, imageCorners, rVec, tVec, linearCoeffs, dist
 
 
 # %% ========== ========== INVERSE RATIONAL ========== ==========
-def inverse(imageCorners, rVec, tVec, linearCoeffs, distCoeffs):
-    
-    imageCorners = imageCorners.reshape((-1,2))
-    distCoeffs = distCoeffs.reshape(-1)
-    
-    xpp = ((imageCorners[:,0]-linearCoeffs[0,2]) /
-            linearCoeffs[0,0])
-    ypp = ((imageCorners[:,1]-linearCoeffs[1,2]) /
-            linearCoeffs[1,1])
-    rpp = sqrt(xpp**2 + ypp**2)
-    
+def radialUndistort(rpp, distCoeffs):
+    '''
+    takes distorted radius and returns the radius undistorted
+    '''
     # polynomial coeffs, grade 7
     # # (k1,k2,p1,p2[,k3[,k4,k5,k6[,s1,s2,s3,s4[,τx,τy]]]])
     poly = [[distCoeffs[4], # k3
@@ -184,7 +195,24 @@ def inverse(imageCorners, rVec, tVec, linearCoeffs, distCoeffs):
     
     # choose the maximum of the real roots, hopefully it will be positive
     rootsPoly = [roots(p) for p in poly]
-    rp_rpp = array([max(roo[isreal(roo)].real) for roo in rootsPoly]) / rpp
+    
+    rp = array([max(roo[isreal(roo)].real) for roo in rootsPoly])
+    
+    return rp
+
+
+def inverse(imageCorners, rVec, tVec, linearCoeffs, distCoeffs):
+    
+    imageCorners = imageCorners.reshape((-1,2))
+    distCoeffs = distCoeffs.reshape(-1)
+    
+    xpp = ((imageCorners[:,0]-linearCoeffs[0,2]) /
+            linearCoeffs[0,0])
+    ypp = ((imageCorners[:,1]-linearCoeffs[1,2]) /
+            linearCoeffs[1,1])
+    rpp = sqrt(xpp**2 + ypp**2)
+    
+    rp_rpp = radialUndistort(rpp, linearCoeffs, distCoeffs) / rpp
     
     xp = xpp * rp_rpp
     yp = ypp * rp_rpp

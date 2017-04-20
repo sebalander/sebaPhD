@@ -121,6 +121,24 @@ def retrieveParameters(params):
 
 
 # %% ========== ========== DIRECT RATIONAL ========== ==========
+def radialDistort(rp, k, quot=False):
+    '''
+    returns distorted radius using distortion coefficients k
+    optionally it returns the distortion quotioent rpp = rp * q
+    '''
+    rp2 = rp**2
+    rp4 = rp2**2
+    rp6 = rp2*rp4
+    
+    k.shape = -1
+    q = 1 + k[0]*rp2 + k[1]*rp4 + k[4]*rp6
+    
+    if quot:
+        return q
+    
+    return rp * q
+
+
 def direct(fiducialPoints, rVec, tVec, linearCoeffs, distCoeffs):
     projected, _ = projectPoints(fiducialPoints,
                                  rVec,

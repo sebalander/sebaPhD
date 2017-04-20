@@ -4,7 +4,7 @@ Created on Tue Sep 13 19:01:57 2016
 
 @author: sebalander
 """
-from numpy import zeros, sqrt, roots, array, isreal, tan, prod
+from numpy import zeros, sqrt, roots, array, isreal, tan, prod, arctan
 from cv2 import Rodrigues
 from cv2.fisheye import projectPoints
 from lmfit import minimize, Parameters
@@ -63,6 +63,27 @@ def retrieveParameters(params):
 
 
 # %% ========== ========== DIRECT Fisheye ========== ==========
+def radialDistort(rp, k, quot=False):
+    '''
+    returns distorted radius using distortion coefficients k
+    optionally it returns the distortion quotioent rpp = rp * q
+    '''
+    th = arctan(rp)
+    th2 = th*th
+    th4 = th2*th2
+    th6 = th2*th4
+    th8 = th4*th4
+    
+    k.shape = -1
+    rpp = (1 + k[0]*th2 +k[1]*th4 + k[2]*th6 + k[3]*th8) * th
+    
+    if quot:
+        return rpp/rp
+    
+    return rpp
+
+
+
 def direct(fiducialPoints, rVec, tVec, linearCoeffs, distCoeffs):
     projected, _ = projectPoints(fiducialPoints,
                                         rVec,

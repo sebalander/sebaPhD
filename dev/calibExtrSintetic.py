@@ -21,78 +21,6 @@ from importlib import reload
 from numpy import sqrt, array, isreal, roots
 
 
-# %% LOAD DATA
-# cam puede ser ['vca', 'vcaWide', 'ptz'] son los datos que se tienen
-camera = 'vcaWide'
-# puede ser ['rational', 'fisheye', 'poly']
-model = 'rational'
-
-# model files
-modelFile = "./resources/intrinsicCalib/" + camera + "/"
-distCoeffsFile =   modelFile + camera + model + "DistCoeffs.npy"
-cameraMatrixFile = modelFile + camera + model + "LinearCoeffs.npy"
-imgShapeFile =     modelFile + camera + "Shape.npy"
-
-# load data
-cameraMatrix = np.load(cameraMatrixFile) # coef intrinsecos
-distCoeffs = np.load(distCoeffsFile)
-imgShape = np.load(imgShapeFile)
-
-# data files
-dataFile = './resources/nov16/'
-
-# initil pose
-#tVecIniFile = dataFile + 'tVecIni.npy'
-#rVecIniFile = dataFile + 'rVecIni.npy'
-#
-## load data
-#tVecIni = np.array([0, 0, 15.0])
-#Rini = np.load(rVecIniFile)
-#rVecIni = cv2.Rodrigues(Rini)[0].reshape(-1)
-tVecIni = np.array([0, 0, 15.0])
-Rini = np.array([[1,0,0],[0,-1,0],[0,0,-1]],dtype=float)
-rVecIni = cv2.Rodrigues(Rini)[0]
-
-
-# %% genero puntos en el plano y los proyecto a la imagen
-gridAx = np.linspace(-100,100,40)
-objectPoints = np.meshgrid(gridAx, gridAx)
-objectPoints = np.array(objectPoints).reshape(2,-1).T
-# agrego ceros coord z
-objectPoints = np.concatenate((objectPoints, np.zeros([len(objectPoints),1])), axis=1)
-
-# proyecto a la imagen
-imagePoints = cl.direct(objectPoints, rVecIni, tVecIni, cameraMatrix, distCoeffs, model)
-imagePoints.shape = (-1,2)
-
-#objectPointsProj = cl.inverse(imagePoints, rVecIni, tVecIni, cameraMatrix, distCoeffs, model)
-
-# grafico desde el marco de referencia de la camara:
-objectPointsC = np.dot(Rini, objectPoints.T) + tVecIni.reshape(3,1)
-l = np.linalg.norm(objectPointsC, axis=0)
-s = np.mean(l)/4
-
-# saco lo puntos que estan demasiado cerca del horizonte
-# tomo ~15 grados de margen
-fi = np.arccos(objectPointsC[2] / l)
-dejar = fi < np.pi * (0.47)
-
-objectPoints = objectPoints[dejar]
-imagePoints = imagePoints[dejar]
-objectPointsC = objectPointsC.T[dejar]
-
-fig = plt.figure()
-ax = fig.gca(projection='3d')
-ax.axis('equal')
-ax.scatter(objectPointsC[:,0], objectPointsC[:,1], objectPointsC[:,2])
-ax.plot([0, s], [0, 0], [0, 0], "-r")
-ax.plot([0, 0], [0, s], [0, 0], "-b")
-ax.plot([0, 0], [0, 0], [0, s], "-k")
-
-plfig = plt.figure()
-plt.scatter(imagePoints[:,0], imagePoints[:,1])
-
-
 # %% calculo el error cuadratico
 
 def Esq(imagePoints, objectPoints, rVec, tVec, cameraMatrix, distCoeffs, model):
@@ -104,7 +32,7 @@ def Esq(imagePoints, objectPoints, rVec, tVec, cameraMatrix, distCoeffs, model):
 
     return np.sum(e**2)
 
-Esq(imagePoints, objectPoints, rVecIni, tVecIni, cameraMatrix, distCoeffs, model)
+0 # Esq(imagePoints, objectPoints, rVecIni, tVecIni, cameraMatrix, distCoeffs, model)
 
 # %%
 def gradE2(imagePoints, objectPoints, rVec, tVec, cameraMatrix, distCoeffs, model):
@@ -135,9 +63,9 @@ def gradE2(imagePoints, objectPoints, rVec, tVec, cameraMatrix, distCoeffs, mode
     # retorno el gradiente numerico
     return gR, gT, E0
 
-gradE2(imagePoints, objectPoints, rVecIni, tVecIni, cameraMatrix, distCoeffs, model)
+0 # gradE2(imagePoints, objectPoints, rVecIni, tVecIni, cameraMatrix, distCoeffs, model)
 
-rVec, tVec = rVecIni, tVecIni
+#rVec, tVec = rVecIni, tVecIni
 
 
 # %% 
@@ -243,9 +171,84 @@ def ploteoCositasOptimizacion(rV, tV, Elis, data):
 
 0
 
+
+# %% LOAD DATA
+# cam puede ser ['vca', 'vcaWide', 'ptz'] son los datos que se tienen
+camera = 'vcaWide'
+# puede ser ['rational', 'fisheye', 'poly']
+model = 'rational'
+
+# model files
+modelFile = "./resources/intrinsicCalib/" + camera + "/"
+distCoeffsFile =   modelFile + camera + model + "DistCoeffs.npy"
+cameraMatrixFile = modelFile + camera + model + "LinearCoeffs.npy"
+imgShapeFile =     modelFile + camera + "Shape.npy"
+
+# load data
+cameraMatrix = np.load(cameraMatrixFile) # coef intrinsecos
+distCoeffs = np.load(distCoeffsFile)
+imgShape = np.load(imgShapeFile)
+
+# data files
+dataFile = './resources/nov16/'
+
+# initil pose
+#tVecIniFile = dataFile + 'tVecIni.npy'
+#rVecIniFile = dataFile + 'rVecIni.npy'
+#
+## load data
+#tVecIni = np.array([0, 0, 15.0])
+#Rini = np.load(rVecIniFile)
+#rVecIni = cv2.Rodrigues(Rini)[0].reshape(-1)
+tVecIni = np.array([0, 0, 15.0])
+Rini = np.array([[1,0,0],[0,-1,0],[0,0,-1]],dtype=float)
+rVecIni = cv2.Rodrigues(Rini)[0]
+
+
+# %% genero puntos en el plano y los proyecto a la imagen
+gridAx = np.linspace(-100,100,40)
+objectPoints = np.meshgrid(gridAx, gridAx)
+objectPoints = np.array(objectPoints).reshape(2,-1).T
+# agrego ceros coord z
+objectPoints = np.concatenate((objectPoints, np.zeros([len(objectPoints),1])), axis=1)
+
+# proyecto a la imagen
+imagePoints = cl.direct(objectPoints, rVecIni, tVecIni, cameraMatrix, distCoeffs, model)
+imagePoints.shape = (-1,2)
+
+#objectPointsProj = cl.inverse(imagePoints, rVecIni, tVecIni, cameraMatrix, distCoeffs, model)
+
+# grafico desde el marco de referencia de la camara:
+objectPointsC = np.dot(Rini, objectPoints.T) + tVecIni.reshape(3,1)
+l = np.linalg.norm(objectPointsC, axis=0)
+s = np.mean(l)/4
+
+# saco lo puntos que estan demasiado cerca del horizonte
+# tomo ~15 grados de margen
+fi = np.arccos(objectPointsC[2] / l)
+dejar = fi < np.pi * (0.49)
+
+objectPoints = objectPoints[dejar]
+imagePoints = imagePoints[dejar]
+objectPointsC = objectPointsC.T[dejar]
+
+fig = plt.figure()
+ax = fig.gca(projection='3d')
+ax.axis('equal')
+ax.scatter(objectPointsC[:,0], objectPointsC[:,1], objectPointsC[:,2])
+ax.plot([0, s], [0, 0], [0, 0], "-r")
+ax.plot([0, 0], [0, s], [0, 0], "-b")
+ax.plot([0, 0], [0, 0], [0, s], "-k")
+
+plt.figure()
+plt.axes(aspect='equal')
+plt.scatter(imagePoints[:,0], imagePoints[:,1])
+plt.xlim([0, cameraMatrix[0,2]*2])
+plt.ylim([0, cameraMatrix[1,2]*2])
+
 # %% implementacion de gradiente descedente con momentum
 rVec = np.array([3, 0, 0], dtype=float)  # dc(rVecIni)
-tVec = np.array([0, 0, 15], dtype=float)  # dc(tVecIni)
+tVec = np.array([0, 3, 15], dtype=float)  # dc(tVecIni)
 
 data = [imagePoints, objectPoints, cameraMatrix, model]
 
@@ -266,7 +269,7 @@ data = [imagePoints, objectPoints, cameraMatrix, model]
 #cl.fiducialComparison(rVec, tVec, objectPointsOrig, objectPointsProj)
 
 # alfas, inercia t cant de iteracioens
-alfaR, alfaT, beta, N = 1e-7, 1e-4, 0.8, 20
+alfaR, alfaT, beta, N = 1e-7, 1e-4, 0.5, 100
 rV, tV, Elis, _, _ = graDescMome(alfaR, alfaT, beta, N, data, rVec, tVec, data)
 
 ## alfas, inercia t cant de iteracioens
@@ -287,31 +290,50 @@ rV, tV, Elis, _, _ = graDescMome(alfaR, alfaT, beta, N, data, rVec, tVec, data)
 
 ploteoCositasOptimizacion(rV, tV, Elis, data)
 
+# %%
+E = np.array(Elis)
+dE = E[1:] - E[:-1]
 
-# %% testeo con muchas condiciones iniciales
-rVec = dc(rVecIniOrig)
-tVec = dc(tVecIniOrig)
+plt.plot(dE/E[1:])
 
-n = 10  # cantidad de subdivisiones por dimension
-deltaR = np.pi / 20  # medio ancho del intervalo de angulos
-deltaT = 5  # medio ancho del intervalo de posiciones (en metros en este caso)
+plt.subplot(311)
+plt.plot(E)
+plt.semilogy()
 
-dR = deltaR / n
-dT = deltaT / n
+plt.subplot(312)
+for t in tV.T:
+    plt.plot(t - t[-1])
 
-undostres = np.arange(n).reshape(-1,1)
+plt.subplot(313)
+for r in rV.T:
+    plt.plot(r - r[-1])
 
-angles = ((rVec - deltaR) + dR * undostres).reshape(-1,1,3)
-posici = ((tVec - deltaT) + dT * undostres).reshape(-1,1,3)
+plt.tight_layout()
 
-condIni = np.concatenate((angles, posici), axis=1)
-
-for cond in condIni:
-    rVec, tVec = cond
-    
-    print(rVec, tVec)
-
-0
+## %% testeo con muchas condiciones iniciales
+#rVec = dc(rVecIniOrig)
+#tVec = dc(tVecIniOrig)
+#
+#n = 10  # cantidad de subdivisiones por dimension
+#deltaR = np.pi / 20  # medio ancho del intervalo de angulos
+#deltaT = 5  # medio ancho del intervalo de posiciones (en metros en este caso)
+#
+#dR = deltaR / n
+#dT = deltaT / n
+#
+#undostres = np.arange(n).reshape(-1,1)
+#
+#angles = ((rVec - deltaR) + dR * undostres).reshape(-1,1,3)
+#posici = ((tVec - deltaT) + dT * undostres).reshape(-1,1,3)
+#
+#condIni = np.concatenate((angles, posici), axis=1)
+#
+#for cond in condIni:
+#    rVec, tVec = cond
+#    
+#    print(rVec, tVec)
+#
+#0
 
 
 

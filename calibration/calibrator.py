@@ -114,9 +114,9 @@ def homogr2pose(H):
 
 
 
-def estimateInitialPose(fiducialPoints, corners, linearCoeffs):
+def estimateInitialPose(objectPoints, corners, cameraMatrix):
     '''
-    estimateInitialPose(fiducialPoints, corners, f, imgSize) -> [rVecs, tVecs, Hs]
+    estimateInitialPose(objectPoints, corners, f, imgSize) -> [rVecs, tVecs, Hs]
     
     Recieves fiducial points and list of corners (one for each image), proposed
     focal distance 'f' and returns the estimated pose of the camera. asumes
@@ -128,7 +128,7 @@ def estimateInitialPose(fiducialPoints, corners, linearCoeffs):
 >>>>>>> 6d680e7d79797264e8842d99b669d04af01ee6e0:calibration/poseCalibration.py
     '''
     
-    src = fiducialPoints[0]+[0,0,1]
+    src = objectPoints[0]+[0,0,1]
     unos = ones((src.shape[0],1))
     
     rVecs = list()
@@ -147,8 +147,8 @@ def estimateInitialPose(fiducialPoints, corners, linearCoeffs):
         # le saque el -1 y el corrimiento y parece que da mejor??
         
         # take to homogenous plane asuming intrinsic pinhole
-        dst = concatenate(((x-linearCoeffs[0,2])/linearCoeffs[0,0],
-                           (y-linearCoeffs[1,2])/linearCoeffs[1,1],
+        dst = concatenate(((x-cameraMatrix[0,2])/cameraMatrix[0,0],
+                           (y-cameraMatrix[1,2])/cameraMatrix[1,1],
                            unos), axis=1)
         # fit homography
         H = findHomography(src[:,:2], dst[:,:2], method=0)[0]
@@ -159,6 +159,53 @@ def estimateInitialPose(fiducialPoints, corners, linearCoeffs):
         tVecs.append(tVec)
     
     return [array(rVecs), array(tVecs), array(Hs)]
+
+# %% BASIC ROTOTRASLATION
+def rotateRodrigues(x, r):
+    '''
+    rotates given vector x or list x of vectors as per rodrigues vector r
+    https://en.wikipedia.org/wiki/Rodrigues%27_rotation_formula
+    '''
+    r.shape = 3
+    th = norm(r)
+    r /= th
+    ct = cos(th)
+    st = sin(th)
+    
+    
+    try:
+        # if x is just one point
+        x.shape = 3
+        return x * ct + cross(r,x) * st + r * dot(x, r) * (1-ct)
+    except:
+        # if x has many points
+        x.shape = (-1,3)
+        aux1 = x * ct + cross(r,x) * st
+        aux2 = r.reshape((-1,1)) * dot(x, r) * (1-ct)
+        return aux1 + aux2.T
+
+def rotoTrasRodri(x, r, t):
+    '''
+    rototraslates all x points using r and t
+    '''
+    t.shape = 3
+    return rotateRodrigues(x, r) + t
+
+
+def rotoTrasRodriInverse(x, r, t):
+    '''
+    rototraslates all x points using r and t inversely
+    '''
+    t.shape = 3
+    return rotateRodrigues(x - t, -r)
+
+def rotoTrasHomog(x, r, t):
+    '''
+    rototraslates points x and projects to homogenous coordinates
+    '''
+    x2 = rotoTrasRodri(x, r, t)
+    
+    return x2[:,:2] / x2[:,2].reshape((-1,1))
 
 # %%
 from calibration import StereographicCalibration as stereographic
@@ -174,7 +221,7 @@ reload(fisheye)
 reload(poly)
 
 # %% PARAMETER HANDLING
-def formatParameters(rVec, tVec, linearCoeffs, distCoeffs, model):
+def formatParameters(rVec, tVec, cameraMatrix, distCoeffs, model):
     
     switcher = {
     'stereographic' : stereographic.formatParameters,
@@ -184,7 +231,7 @@ def formatParameters(rVec, tVec, linearCoeffs, distCoeffs, model):
     'fisheye' : fisheye.formatParameters
     }
     
-    return switcher[model](rVec, tVec, linearCoeffs, distCoeffs)
+    return switcher[model](rVec, tVec, cameraMatrix, distCoeffs)
 
 def retrieveParameters(params, model):
     
@@ -200,19 +247,33 @@ def retrieveParameters(params, model):
 
 # %% DIRECT PROJECTION
 
-def direct(fiducialPoints, rVec, tVec, linearCoeffs, distCoeffs, model):
+def direct(objectPoints, rVec, tVec, cameraMatrix, distCoeffs, model, ocv=False):
+    '''
+    performs projection form 3D world into image, is the "direct" distortion
+    optionally it uses opencv's function if available
+    '''
     
-    switcher = {
-    'stereographic' : stereographic.direct,
-    'unified' : unified.direct,
-    'rational' : rational.direct,
-    'poly' : poly.direct,
-    'fisheye' : fisheye.direct
+    distort = {
+    'stereographic' : stereographic.radialDistort,
+    'unified' : unified.radialDistort,
+    'rational' : rational.radialDistort,
+    'poly' : poly.radialDistort,
+    'fisheye' : fisheye.radialDistort
     }
     
-    return switcher[model](fiducialPoints, rVec, tVec, linearCoeffs, distCoeffs)
+    xHomog = rotoTrasHomog(objectPoints, rVec, tVec)
+    
+    rp = norm(xHomog, axis=1)
+    
+    xDist = xHomog * distort[model](rp, distCoeffs, quot=True).reshape(-1,1)
+    
+    # project to image scale and center
+    imagePoints = dot(cameraMatrix[:2,:2], xDist.T) + cameraMatrix[:2,2].reshape(-1,1)
+    
+    #return switcher[model](objectPoints, rVec, tVec, cameraMatrix, distCoeffs)
+    return imagePoints.T
 
-def residualDirect(params, fiducialPoints, imageCorners, model):
+def residualDirect(params, objectPoints, imageCorners, model):
     
     switcher = {
     'stereographic' : stereographic.residualDirect,
@@ -222,10 +283,10 @@ def residualDirect(params, fiducialPoints, imageCorners, model):
     'fisheye' : fisheye.residualDirect
     }
     
-    return switcher[model](params, fiducialPoints, imageCorners)
+    return switcher[model](params, objectPoints, imageCorners)
 
 
-def calibrateDirect(fiducialPoints, imageCorners, rVec, tVec, linearCoeffs, distCoeffs, model):
+def calibrateDirect(objectPoints, imageCorners, rVec, tVec, cameraMatrix, distCoeffs, model):
     
     switcher = {
     'stereographic' : stereographic.calibrateDirect,
@@ -235,12 +296,12 @@ def calibrateDirect(fiducialPoints, imageCorners, rVec, tVec, linearCoeffs, dist
     'fisheye' : fisheye.calibrateDirect
     }
     
-    return switcher[model](fiducialPoints, imageCorners, rVec, tVec, linearCoeffs, distCoeffs)
+    return switcher[model](objectPoints, imageCorners, rVec, tVec, cameraMatrix, distCoeffs)
 
 
 # %% INVERSE PROJECTION
 
-def inverse(imageCorners, rVec, tVec, linearCoeffs, distCoeffs, model):
+def inverse(imageCorners, rVec, tVec, cameraMatrix, distCoeffs, model):
     '''
     inverseFisheye(objPoints, rVec/rotMatrix, tVec, cameraMatrix,
                     distCoeffs)-> objPoints
@@ -257,9 +318,9 @@ def inverse(imageCorners, rVec, tVec, linearCoeffs, distCoeffs, model):
     'fisheye' : fisheye.inverse
     }
     
-    return switcher[model](imageCorners, rVec, tVec, linearCoeffs, distCoeffs)
+    return switcher[model](imageCorners, rVec, tVec, cameraMatrix, distCoeffs)
 
-def residualInverse(params, fiducialPoints, imageCorners, model):
+def residualInverse(params, objectPoints, imageCorners, model):
     
     switcher = {
     'stereographic' : stereographic.residualInverse,
@@ -269,10 +330,10 @@ def residualInverse(params, fiducialPoints, imageCorners, model):
     'fisheye' : fisheye.residualInverse
     }
     
-    return switcher[model](params, fiducialPoints, imageCorners)
+    return switcher[model](params, objectPoints, imageCorners)
 
 
-def calibrateInverse(fiducialPoints, imageCorners, rVec, tVec, linearCoeffs, distCoeffs, model):
+def calibrateInverse(objectPoints, imageCorners, rVec, tVec, cameraMatrix, distCoeffs, model):
     
     switcher = {
     'stereographic' : stereographic.calibrateInverse,
@@ -282,7 +343,7 @@ def calibrateInverse(fiducialPoints, imageCorners, rVec, tVec, linearCoeffs, dis
     'fisheye' : fisheye.calibrateInverse
     }
     
-    return switcher[model](fiducialPoints, imageCorners, rVec, tVec, linearCoeffs, distCoeffs)
+    return switcher[model](objectPoints, imageCorners, rVec, tVec, cameraMatrix, distCoeffs)
 
 # %% PLOTTING
 
@@ -510,9 +571,9 @@ def joinPoints(pts1, pts2):
     return gcf()
 
 
-def plotHomographyToMatch(fiducialPoints, corners, f, imgSize, images=None):
+def plotHomographyToMatch(objectPoints, corners, f, imgSize, images=None):
     
-    src = fiducialPoints[0]+[0,0,1]
+    src = objectPoints[0]+[0,0,1]
     
     
     for i in range(len(corners)):
@@ -533,8 +594,8 @@ def plotHomographyToMatch(fiducialPoints, corners, f, imgSize, images=None):
 
 
 
-def plotForwardHomography(fiducialPoints, corners, f, imgSize, Hs, images=None):
-    src = fiducialPoints[0]+[0,0,1]
+def plotForwardHomography(objectPoints, corners, f, imgSize, Hs, images=None):
+    src = objectPoints[0]+[0,0,1]
     
     for i in range(len(corners)):
         # cambio de signo y corrimiento de 'y'
@@ -553,8 +614,8 @@ def plotForwardHomography(fiducialPoints, corners, f, imgSize, Hs, images=None):
             ax.imshow(flipud(img),origin='lower');
 
 
-def plotBackwardHomography(fiducialPoints, corners, f, imgSize, Hs):
-    src = fiducialPoints[0]+[0,0,1]
+def plotBackwardHomography(objectPoints, corners, f, imgSize, Hs):
+    src = objectPoints[0]+[0,0,1]
     unos = ones((src.shape[0],1))
     
     for i in range(len(corners)):
@@ -571,23 +632,23 @@ def plotBackwardHomography(fiducialPoints, corners, f, imgSize, Hs):
                          unos[:,0]]).T
         
         
-        fiducialProjected = (srcP-[0,0,1]).reshape(fiducialPoints.shape)
+        fiducialProjected = (srcP-[0,0,1]).reshape(objectPoints.shape)
         
         rVec, tVec = homogr2pose(Hs[i]);
         fiducialComparison3D(rVec, tVec,
-                             fiducialPoints, fiducialProjected,
+                             objectPoints, fiducialProjected,
                              label1="fiducial points",
                              label2="%d ajuste"%i)
 
-def plotRationalDist(distCoeffs,imgSize, linearCoeffs):
+def plotRationalDist(distCoeffs,imgSize, cameraMatrix):
     
     k = distCoeffs[[0,1,4,5,6,7],0]
     pNum = [0, 1, 0, k[0], 0, k[1], 0, k[2]]
     pDen = [1, 0, k[3], 0, k[4], 0, k[5]]
     
     # buscar un buen rango de radio
-    rDistMax = sqrt((linearCoeffs[0,2]/linearCoeffs[0,0])**2 +
-                    (linearCoeffs[1,2]/linearCoeffs[1,1])**2)
+    rDistMax = sqrt((cameraMatrix[0,2]/cameraMatrix[0,0])**2 +
+                    (cameraMatrix[1,2]/cameraMatrix[1,1])**2)
     
     # polynomial coeffs, grade 7
     # # (k1,k2,p1,p2[,k3[,k4,k5,k6[,s1,s2,s3,s4[,τx,τy]]]])

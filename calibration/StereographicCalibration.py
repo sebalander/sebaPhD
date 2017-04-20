@@ -57,6 +57,22 @@ def retrieveParameters(params):
 
 
 # %% ========== ========== DIRECT  ========== ==========
+def radialDistort(rp, k, quot=False):
+    '''
+    returns distorted radius using distortion coefficient k
+    optionally it returns the distortion quotioent rpp = rp * q
+    '''
+    th = arctan(rp)
+    
+    k.shape = 1
+    rpp = k * tan(th/2)
+    
+    if quot:
+        return rpp/rp
+    
+    return rpp
+
+
 # we asume that intrinsic distortion paramters is just a scalar: distCoeffs=k
 def direct(fiducialPoints, rVec, tVec, linearCoeffs, distCoeffs):
     # format as matrix
