@@ -168,7 +168,7 @@ def rotateRodrigues(x, r):
     '''
     r.shape = 3
     th = norm(r)
-    r /= th
+    rn = r / th
     ct = cos(th)
     st = sin(th)
     
@@ -176,12 +176,12 @@ def rotateRodrigues(x, r):
     try:
         # if x is just one point
         x.shape = 3
-        return x * ct + cross(r,x) * st + r * dot(x, r) * (1-ct)
+        return x * ct + cross(rn, x) * st + rn * dot(x, rn) * (1 - ct)
     except:
         # if x has many points
         x.shape = (-1,3)
-        aux1 = x * ct + cross(r,x) * st
-        aux2 = r.reshape((-1,1)) * dot(x, r) * (1-ct)
+        aux1 = x * ct + cross(rn, x) * st
+        aux2 = rn.reshape((-1,1)) * dot(x, rn) * (1 - ct)
         return aux1 + aux2.T
 
 def rotoTrasRodri(x, r, t):

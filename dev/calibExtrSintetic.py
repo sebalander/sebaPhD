@@ -336,6 +336,11 @@ plt.tight_layout()
 #0
 
 
+# %% hago la prueba con el metodo lineal
+# aca no existe directa o inversa
+x1, y1 = objectPoints.T[:2]
+imagePoints, objectPoints
+
 
 
 

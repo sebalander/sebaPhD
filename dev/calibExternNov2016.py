@@ -78,18 +78,18 @@ imagePointsProjected = cl.direct(objectPoints, rVecIni, tVecIni,
 cl.cornerComparison(img, imagePoints, imagePointsProjected)
 
 objectPointsProj = cl.inverse(imagePoints, rVecIni, tVecIni, cameraMatrix, distCoeffs, model)
-cl.fiducialComparison(rVecIni, tVecIni, objectPoints, objectPointsProj)
+cl.fiducialComparison(rVecIni, tVecIni, objectPoints, imagePointsProjected)
 
+# %%
+r = np.array([ 2.63459211,  1.20459456, -0.27162026])*1.000003
+t = np.array([ 63.98385874,  19.93397018, -10.72342661])
 
-## saco los pun to mas lejanos
-#dejar = objectPoints[:,0] <  -58.37
-#
-#objectPointsProj = cl.inverse(imagePoints[dejar], rVecIni, tVecIni, cameraMatrix, distCoeffs, model)
-#cl.fiducialComparison(rVecIni, tVecIni, objectPoints[dejar], objectPointsProj)
-#
-#objectPoints = objectPoints[dejar]
-#imagePoints = imagePoints[dejar]
+imagePointsProjected = cl.direct(objectPoints, r, t, cameraMatrix, distCoeffs, model)
 
+plt.clf()
+plt.imshow(img)
+plt.scatter(imagePoints[:,0], imagePoints[:,1], marker='+')
+plt.scatter(imagePointsProjected[:,0], imagePointsProjected[:,1], marker='x')
 
 # %% calculo el error cuadratico
 

@@ -141,55 +141,57 @@ def radialDistort(rp, k, quot=False):
     
     return rp * q
 
-def direct(fiducialPoints, rVec, tVec, linearCoeffs, distCoeffs):
-    projected, _ = projectPoints(fiducialPoints,
-                                 rVec,
-                                 tVec,
-                                 linearCoeffs,
-                                 distCoeffs)
-    
-    return projected
-
-def residualDirect(params, fiducialPoints, imageCorners):
-    '''
-    '''
-    rVec, tVec, linearCoeffs, distCoeffs = retrieveParameters(params)
-    
-    projectedCorners = direct(fiducialPoints,
-                               rVec,
-                               tVec,
-                               linearCoeffs,
-                               distCoeffs)
-    
-    return imageCorners - projectedCorners
-
-
-def calibrateDirect(fiducialPoints, imageCorners, rVec, tVec, linearCoeffs, distCoeffs):
-    initialParams = formatParameters(rVec, tVec, linearCoeffs, distCoeffs) # generate Parameters obj
-    
-    out = minimize(residualDirect,
-                   initialParams,
-                   args=(fiducialPoints,
-                         imageCorners))
-    
-    rvecOpt, tvecOpt, _, _ = retrieveParameters(out.params)
-    
-    return rvecOpt, tvecOpt, out.params
+#def direct(fiducialPoints, rVec, tVec, linearCoeffs, distCoeffs):
+#    projected, _ = projectPoints(fiducialPoints,
+#                                 rVec,
+#                                 tVec,
+#                                 linearCoeffs,
+#                                 distCoeffs)
+#    
+#    return projected
+#
+#def residualDirect(params, fiducialPoints, imageCorners):
+#    '''
+#    '''
+#    rVec, tVec, linearCoeffs, distCoeffs = retrieveParameters(params)
+#    
+#    projectedCorners = direct(fiducialPoints,
+#                               rVec,
+#                               tVec,
+#                               linearCoeffs,
+#                               distCoeffs)
+#    
+#    return imageCorners - projectedCorners
+#
+#
+#def calibrateDirect(fiducialPoints, imageCorners, rVec, tVec, linearCoeffs, distCoeffs):
+#    initialParams = formatParameters(rVec, tVec, linearCoeffs, distCoeffs) # generate Parameters obj
+#    
+#    out = minimize(residualDirect,
+#                   initialParams,
+#                   args=(fiducialPoints,
+#                         imageCorners))
+#    
+#    rvecOpt, tvecOpt, _, _ = retrieveParameters(out.params)
+#    
+#    return rvecOpt, tvecOpt, out.params
 
 
 # %% ========== ========== INVERSE RATIONAL ========== ==========
-def radialUndistort(rpp, distCoeffs):
+def radialUndistort(rpp, k, quot=False):
     '''
     takes distorted radius and returns the radius undistorted
+    optioally it returns the undistortion quotient rp = rpp * q
     '''
     # polynomial coeffs, grade 7
     # # (k1,k2,p1,p2[,k3[,k4,k5,k6[,s1,s2,s3,s4[,τx,τy]]]])
-    poly = [[distCoeffs[4], # k3
-             -r*distCoeffs[7], # k6
-             distCoeffs[1], # k2
-             -r*distCoeffs[6], # k5
-             distCoeffs[0], # k1
-             -r*distCoeffs[5], # k4
+    k.shape = -1
+    poly = [[k[4], # k3
+             -r*k[7], # k6
+             k[1], # k2
+             -r*k[6], # k5
+             k[0], # k1
+             -r*k[5], # k4
              1,
              -r] for r in rpp]
     
@@ -198,54 +200,57 @@ def radialUndistort(rpp, distCoeffs):
     
     rp = array([max(roo[isreal(roo)].real) for roo in rootsPoly])
     
+    if quot:
+        return rp / rpp
+    
     return rp
 
-
-def inverse(imageCorners, rVec, tVec, linearCoeffs, distCoeffs):
-    
-    imageCorners = imageCorners.reshape((-1,2))
-    distCoeffs = distCoeffs.reshape(-1)
-    
-    xpp = ((imageCorners[:,0]-linearCoeffs[0,2]) /
-            linearCoeffs[0,0])
-    ypp = ((imageCorners[:,1]-linearCoeffs[1,2]) /
-            linearCoeffs[1,1])
-    rpp = sqrt(xpp**2 + ypp**2)
-    
-    rp_rpp = radialUndistort(rpp, linearCoeffs, distCoeffs) / rpp
-    
-    xp = xpp * rp_rpp
-    yp = ypp * rp_rpp
-    
-    # project to z=0 plane. perhaps calculate faster with homography function?
-    XYZ = xypToZplane(xp, yp, rVec, tVec)
-    
-    return XYZ
-
-def residualInverse(params, fiducialPoints, imageCorners):
-    '''
-    '''
-    rVec, tVec, linearCoeffs, distCoeffs = retrieveParameters(params)
-    
-    projectedFiducialPoints = inverse(imageCorners,
-                                              rVec,
-                                              tVec,
-                                              linearCoeffs,
-                                              distCoeffs)
-    
-    return fiducialPoints[:,:2] - projectedFiducialPoints[:,:2]
-
-def calibrateInverse(fiducialPoints, imageCorners, rVec, tVec, linearCoeffs, distCoeffs):
-    initialParams = formatParameters(rVec, tVec, linearCoeffs, distCoeffs) # generate Parameters obj
-    
-    out = minimize(residualInverse,
-                   initialParams,
-                   args=(fiducialPoints,
-                         imageCorners))
-    
-    rvecOpt, tvecOpt, _, _ = retrieveParameters(out.params)
-    
-    return rvecOpt, tvecOpt, out.params
+#
+#def inverse(imageCorners, rVec, tVec, linearCoeffs, distCoeffs):
+#    
+#    imageCorners = imageCorners.reshape((-1,2))
+#    distCoeffs = distCoeffs.reshape(-1)
+#    
+#    xpp = ((imageCorners[:,0]-linearCoeffs[0,2]) /
+#            linearCoeffs[0,0])
+#    ypp = ((imageCorners[:,1]-linearCoeffs[1,2]) /
+#            linearCoeffs[1,1])
+#    rpp = sqrt(xpp**2 + ypp**2)
+#    
+#    rp_rpp = radialUndistort(rpp, linearCoeffs, distCoeffs) / rpp
+#    
+#    xp = xpp * rp_rpp
+#    yp = ypp * rp_rpp
+#    
+#    # project to z=0 plane. perhaps calculate faster with homography function?
+#    XYZ = xypToZplane(xp, yp, rVec, tVec)
+#    
+#    return XYZ
+#
+#def residualInverse(params, fiducialPoints, imageCorners):
+#    '''
+#    '''
+#    rVec, tVec, linearCoeffs, distCoeffs = retrieveParameters(params)
+#    
+#    projectedFiducialPoints = inverse(imageCorners,
+#                                              rVec,
+#                                              tVec,
+#                                              linearCoeffs,
+#                                              distCoeffs)
+#    
+#    return fiducialPoints[:,:2] - projectedFiducialPoints[:,:2]
+#
+#def calibrateInverse(fiducialPoints, imageCorners, rVec, tVec, linearCoeffs, distCoeffs):
+#    initialParams = formatParameters(rVec, tVec, linearCoeffs, distCoeffs) # generate Parameters obj
+#    
+#    out = minimize(residualInverse,
+#                   initialParams,
+#                   args=(fiducialPoints,
+#                         imageCorners))
+#    
+#    rvecOpt, tvecOpt, _, _ = retrieveParameters(out.params)
+#    
+#    return rvecOpt, tvecOpt, out.params
 
 
 # %% programmed own functions to compare with opencv
