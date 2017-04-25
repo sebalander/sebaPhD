@@ -11,7 +11,7 @@ from matplotlib.pyplot import xlabel, ylabel, arrow
 from cv2 import Rodrigues, findHomography
 from numpy import min, max, ndarray, zeros, array, reshape, sqrt, roots
 from numpy import sin, cos, cross, ones, concatenate, flipud, dot, isreal
-from numpy import linspace, polyval, eye, linalg, mean, prod
+from numpy import linspace, polyval, eye, linalg, mean, prod, vstack
 from scipy.linalg import sqrtm, norm, inv
 from matplotlib.patches import FancyArrowPatch
 from mpl_toolkits.mplot3d import proj3d
@@ -20,7 +20,7 @@ from importlib import reload
 
 # %% Z=0 PROJECTION
 
-def xypToZplane(xp, yp, rVec, tVec, z=0):
+def xypToZplane(xp, yp, rVec, tVec):
     '''
     projects a point from homogenous undistorted to 3D asuming z=0
     '''
@@ -64,101 +64,101 @@ def euler(al,be,ga):
     
     return rot
 
-# %% HOMOGRAPHY
-def pose2homogr(rVec,tVec):
-    '''
-    generates the homography from the pose descriptors
-    '''
-    
-    # calcular las puntas de los versores
-    if rVec.shape == (3,3):
-        [x,y,z] = rVec
-    else:
-        [x,y,z] = Rodrigues(rVec)[0]
-    
-    
-    H = array([x,y,tVec[:,0]]).T
-    
-    return H
-
-
-
-def homogr2pose(H):
-    '''
-    returns pose from the homography matrix
-    '''
-    r1B = H[:,0]
-    r2B = H[:,1]
-    r3B = cross(r1B,r2B)
-    
-    # convert to versors of B described in A ref frame
-    r1 = array([r1B[0],r2B[0],r3B[0]])
-    r2 = array([r1B[1],r2B[1],r3B[1]])
-    r3 = array([r1B[2],r2B[2],r3B[2]])
-    
-    rot = array([r1, r2, r3]).T
-    # make sure is orthonormal
-    rotNorm = rot.dot(inv(sqrtm(rot.T.dot(rot))))
-    rVec = Rodrigues(rotNorm)[0]  # make into rot vector
-    
-    # rotate to get displ redcribed in A
-    # tVec = np.dot(rot, -homography[2]).reshape((3,1))
-    tVec = H[:,2].reshape((3,1))
-    
-    # rescale
-    k = sqrt(norm(r1)*norm(r2))  # geometric mean
-    tVec = tVec / k
-    
-    return [rVec, tVec]
-
-
-
-
-def estimateInitialPose(objectPoints, corners, cameraMatrix):
-    '''
-    estimateInitialPose(objectPoints, corners, f, imgSize) -> [rVecs, tVecs, Hs]
-    
-    Recieves fiducial points and list of corners (one for each image), proposed
-    focal distance 'f' and returns the estimated pose of the camera. asumes
-    pinhole model.
-<<<<<<< HEAD:poseCalibration.py
-=======
-    
-    this function doesn't work very well, use at your own risk
->>>>>>> 6d680e7d79797264e8842d99b669d04af01ee6e0:calibration/poseCalibration.py
-    '''
-    
-    src = objectPoints[0]+[0,0,1]
-    unos = ones((src.shape[0],1))
-    
-    rVecs = list()
-    tVecs = list()
-    Hs = list()
-    
-    if len(corners.shape) < 4:
-        corners = array([corners])
-    
-    for cor in corners:
-        # flip 'y' coordinates, so it works
-        # why flip image:
-        # http://stackoverflow.com/questions/14589642/python-matplotlib-inverted-image
-        # dst = [0, imgSize[0]] + cor[:,0,:2]*[1,-1]
-        x,y = cor.transpose((2,0,1))
-        # le saque el -1 y el corrimiento y parece que da mejor??
-        
-        # take to homogenous plane asuming intrinsic pinhole
-        dst = concatenate(((x-cameraMatrix[0,2])/cameraMatrix[0,0],
-                           (y-cameraMatrix[1,2])/cameraMatrix[1,1],
-                           unos), axis=1)
-        # fit homography
-        H = findHomography(src[:,:2], dst[:,:2], method=0)[0]
-        Hs.append(H)
-        
-        rVec, tVec = homogr2pose(H)
-        rVecs.append(rVec)
-        tVecs.append(tVec)
-    
-    return [array(rVecs), array(tVecs), array(Hs)]
+## %% HOMOGRAPHY
+#def pose2homogr(rVec,tVec):
+#    '''
+#    generates the homography from the pose descriptors
+#    '''
+#    
+#    # calcular las puntas de los versores
+#    if rVec.shape == (3,3):
+#        [x,y,z] = rVec
+#    else:
+#        [x,y,z] = Rodrigues(rVec)[0]
+#    
+#    
+#    H = array([x,y,tVec[:,0]]).T
+#    
+#    return H
+#
+#
+#
+#def homogr2pose(H):
+#    '''
+#    returns pose from the homography matrix
+#    '''
+#    r1B = H[:,0]
+#    r2B = H[:,1]
+#    r3B = cross(r1B,r2B)
+#    
+#    # convert to versors of B described in A ref frame
+#    r1 = array([r1B[0],r2B[0],r3B[0]])
+#    r2 = array([r1B[1],r2B[1],r3B[1]])
+#    r3 = array([r1B[2],r2B[2],r3B[2]])
+#    
+#    rot = array([r1, r2, r3]).T
+#    # make sure is orthonormal
+#    rotNorm = rot.dot(inv(sqrtm(rot.T.dot(rot))))
+#    rVec = Rodrigues(rotNorm)[0]  # make into rot vector
+#    
+#    # rotate to get displ redcribed in A
+#    # tVec = np.dot(rot, -homography[2]).reshape((3,1))
+#    tVec = H[:,2].reshape((3,1))
+#    
+#    # rescale
+#    k = sqrt(norm(r1)*norm(r2))  # geometric mean
+#    tVec = tVec / k
+#    
+#    return [rVec, tVec]
+#
+#
+#
+#
+#def estimateInitialPose(objectPoints, corners, cameraMatrix):
+#    '''
+#    estimateInitialPose(objectPoints, corners, f, imgSize) -> [rVecs, tVecs, Hs]
+#    
+#    Recieves fiducial points and list of corners (one for each image), proposed
+#    focal distance 'f' and returns the estimated pose of the camera. asumes
+#    pinhole model.
+#<<<<<<< HEAD:poseCalibration.py
+#=======
+#    
+#    this function doesn't work very well, use at your own risk
+#>>>>>>> 6d680e7d79797264e8842d99b669d04af01ee6e0:calibration/poseCalibration.py
+#    '''
+#    
+#    src = objectPoints[0]+[0,0,1]
+#    unos = ones((src.shape[0],1))
+#    
+#    rVecs = list()
+#    tVecs = list()
+#    Hs = list()
+#    
+#    if len(corners.shape) < 4:
+#        corners = array([corners])
+#    
+#    for cor in corners:
+#        # flip 'y' coordinates, so it works
+#        # why flip image:
+#        # http://stackoverflow.com/questions/14589642/python-matplotlib-inverted-image
+#        # dst = [0, imgSize[0]] + cor[:,0,:2]*[1,-1]
+#        x,y = cor.transpose((2,0,1))
+#        # le saque el -1 y el corrimiento y parece que da mejor??
+#        
+#        # take to homogenous plane asuming intrinsic pinhole
+#        dst = concatenate(((x-cameraMatrix[0,2])/cameraMatrix[0,0],
+#                           (y-cameraMatrix[1,2])/cameraMatrix[1,1],
+#                           unos), axis=1)
+#        # fit homography
+#        H = findHomography(src[:,:2], dst[:,:2], method=0)[0]
+#        Hs.append(H)
+#        
+#        rVec, tVec = homogr2pose(H)
+#        rVecs.append(rVec)
+#        tVecs.append(tVec)
+#    
+#    return [array(rVecs), array(tVecs), array(Hs)]
 
 # %% BASIC ROTOTRASLATION
 def rotateRodrigues(x, r):
@@ -246,6 +246,11 @@ def retrieveParameters(params, model):
     return switcher[model](params)
 
 # %% DIRECT PROJECTION
+def hom2ccd(xpp, ypp, cameraMatrix):
+    xccd = cameraMatrix[0,0] * xpp + cameraMatrix[0,2]
+    yccd = cameraMatrix[1,1] * ypp + cameraMatrix[1,2]
+    
+    return vstack((xccd, yccd)).T
 
 def direct(objectPoints, rVec, tVec, cameraMatrix, distCoeffs, model, ocv=False):
     '''
@@ -265,15 +270,14 @@ def direct(objectPoints, rVec, tVec, cameraMatrix, distCoeffs, model, ocv=False)
     
     rp = norm(xHomog, axis=1)
     
-    xDist = xHomog * distort[model](rp, distCoeffs, quot=True).reshape(-1,1)
+    q = distort[model](rp, distCoeffs, quot=True)
+    print(xHomog.shape, q.shape)
+    xpp, ypp = xHomog.T * q.reshape(1, -1)
     
-    # project to image scale and center
-    imagePoints = dot(cameraMatrix[:2,:2], xDist.T) + cameraMatrix[:2,2].reshape(-1,1)
-    
-    #return switcher[model](objectPoints, rVec, tVec, cameraMatrix, distCoeffs)
-    return imagePoints.T
+    # project to ccd
+    return hom2ccd(xpp, ypp, cameraMatrix)
 
-def residualDirect(params, objectPoints, imageCorners, model):
+def residualDirect(params, objectPoints, imagePoints, model):
     
     switcher = {
     'stereographic' : stereographic.residualDirect,
@@ -283,10 +287,10 @@ def residualDirect(params, objectPoints, imageCorners, model):
     'fisheye' : fisheye.residualDirect
     }
     
-    return switcher[model](params, objectPoints, imageCorners)
+    return switcher[model](params, objectPoints, imagePoints)
 
 
-def calibrateDirect(objectPoints, imageCorners, rVec, tVec, cameraMatrix, distCoeffs, model):
+def calibrateDirect(objectPoints, imagePoints, rVec, tVec, cameraMatrix, distCoeffs, model):
     
     switcher = {
     'stereographic' : stereographic.calibrateDirect,
@@ -296,12 +300,44 @@ def calibrateDirect(objectPoints, imageCorners, rVec, tVec, cameraMatrix, distCo
     'fisheye' : fisheye.calibrateDirect
     }
     
-    return switcher[model](objectPoints, imageCorners, rVec, tVec, cameraMatrix, distCoeffs)
+    return switcher[model](objectPoints, imagePoints, rVec, tVec, cameraMatrix, distCoeffs)
 
 
 # %% INVERSE PROJECTION
+def ccd2hom(imagePoints, cameraMatrix):
+    # undo CCD projection, asume diagonal ccd rescale
+    xpp = (imagePoints[:,0] - cameraMatrix[0,2]) / cameraMatrix[0,0]
+    ypp = (imagePoints[:,1] - cameraMatrix[1,2]) / cameraMatrix[1,1]
+    
+    return xpp, ypp
 
-def inverse(imageCorners, rVec, tVec, cameraMatrix, distCoeffs, model):
+def ccd2homUndistorted(imagePoints, cameraMatrix,  distCoeffs, model):
+    '''
+    takes ccd cordinates and projects to homogenpus coords and undistorts
+    '''
+    
+    undistort = {
+    'stereographic' : stereographic.radialUndistort,
+    'unified' : unified.radialUndistort,
+    'rational' : rational.radialUndistort,
+    'poly' : poly.radialUndistort,
+    'fisheye' : fisheye.radialUndistort
+    }
+    # go to homogenous coords
+    xpp, ypp = ccd2hom(imagePoints, cameraMatrix)
+    
+    rpp = norm([xpp, ypp], axis=0)
+    
+    # calculate ratio of undistorition
+    q = undistort[model](rpp, distCoeffs, quot=True)
+    
+    xp = q * xpp # undistort in homogenous coords
+    yp = q * ypp
+    
+    return xp, yp
+
+
+def inverse(imagePoints, rVec, tVec, cameraMatrix, distCoeffs, model):
     '''
     inverseFisheye(objPoints, rVec/rotMatrix, tVec, cameraMatrix,
                     distCoeffs)-> objPoints
@@ -310,17 +346,12 @@ def inverse(imageCorners, rVec, tVec, cameraMatrix, distCoeffs, model):
     objPoints has size (1,n,3)
     ignores tangential and tilt distortions
     '''
-    switcher = {
-    'stereographic' : stereographic.inverse,
-    'unified' : unified.inverse,
-    'rational' : rational.inverse,
-    'poly' : poly.inverse,
-    'fisheye' : fisheye.inverse
-    }
+    xp, yp = ccd2homUndistorted(imagePoints, cameraMatrix,  distCoeffs, model)
     
-    return switcher[model](imageCorners, rVec, tVec, cameraMatrix, distCoeffs)
+    # project to plane z=0
+    return xypToZplane(xp, yp, rVec, tVec)
 
-def residualInverse(params, objectPoints, imageCorners, model):
+def residualInverse(params, objectPoints, imagePoints, model):
     
     switcher = {
     'stereographic' : stereographic.residualInverse,
@@ -330,10 +361,10 @@ def residualInverse(params, objectPoints, imageCorners, model):
     'fisheye' : fisheye.residualInverse
     }
     
-    return switcher[model](params, objectPoints, imageCorners)
+    return switcher[model](params, objectPoints, imagePoints)
 
 
-def calibrateInverse(objectPoints, imageCorners, rVec, tVec, cameraMatrix, distCoeffs, model):
+def calibrateInverse(objectPoints, imagePoints, rVec, tVec, cameraMatrix, distCoeffs, model):
     
     switcher = {
     'stereographic' : stereographic.calibrateInverse,
@@ -343,7 +374,7 @@ def calibrateInverse(objectPoints, imageCorners, rVec, tVec, cameraMatrix, distC
     'fisheye' : fisheye.calibrateInverse
     }
     
-    return switcher[model](objectPoints, imageCorners, rVec, tVec, cameraMatrix, distCoeffs)
+    return switcher[model](objectPoints, imagePoints, rVec, tVec, cameraMatrix, distCoeffs)
 
 # %% PLOTTING
 

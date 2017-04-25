@@ -60,7 +60,6 @@ xm = np.concatenate((xm, xAux-1))
 ym = np.concatenate((ym, yAux+5))
 
 
-
 # aplico rototraslacion
 xc, yc, zc = np.dot(R[:,:2],[xm, ym]) + T.reshape(-1,1)
 ## es lo mismo que hacer esta cuenta
@@ -73,6 +72,12 @@ xi = xc / zc
 yi = yc / zc
 
 
+
+# sumo ruido
+xm += np.random.randn(xm.shape[0]) * 0.3
+ym += np.random.randn(ym.shape[0]) * 0.3
+xi += np.random.randn(xi.shape[0]) * 0.1
+yi += np.random.randn(yi.shape[0]) * 0.1
 
 plotPointsRefFrame(xm, ym, xc, yc, zc, xi, yi)
 
@@ -101,6 +106,7 @@ plt.figure()
 plt.plot(s)
 plt.semilogy()
 
+
 np.linalg.matrix_rank(A)
 # ta claro que el ultimo valor singular es cero
 m1 = v[-1]
@@ -108,7 +114,11 @@ m1 = v[-1]
 m1n = m1 / np.sqrt(ln.norm(m1[:3])*ln.norm(m1[3:6])) * np.sign(m1[-1])
 m1n
 
-# pruebo a ver como da
+plt.figure()
+plt.plot(m,'k+')
+plt.plot(m1n,'rx')
+
+# %% pruebo a ver como da
 
 # ahora lo grafico con el anterior
 R1 = np.array([m1n[:3], m1n[3:6], np.cross(m1n[:3], m1n[3:6])]).T  # en marco ref camara
@@ -124,25 +134,9 @@ yi1 = yc1 / zc1
 plotPointsRefFrame(xm, ym, xc1, yc1, zc1, xi1, yi1)
 
 plt.figure()
-plt.plot(m,'k+')
-plt.plot(m1n,'rx')
+plt.scatter(xi, yi)
+plt.scatter(xi1, yi1)
 
-
-# %% pruebo a ver como dan
-
-m0norm = np.linalg.norm(m0)
-p = np.empty_like(m0)
-
-for i in range(len(v)):
-    m = v[i]
-    # que tna paralelo es a m0
-    p = np.dot(m0,m)
-    ang = np.arccos(p / np.linalg.norm(m) / m0norm)
-    r1 = np.linalg.norm(m[:3])
-    r2 = np.linalg.norm(m[3:6])
-    
-    print(ang, r1/r2, m[6:])
-0
 
 # %% caso unidimensional
 # pongo la rotacion deseada
