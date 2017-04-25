@@ -200,8 +200,8 @@ dataFile = './resources/nov16/'
 #tVecIni = np.array([0, 0, 15.0])
 #Rini = np.load(rVecIniFile)
 #rVecIni = cv2.Rodrigues(Rini)[0].reshape(-1)
-tVecIni = np.array([0, 0, 15.0])
-Rini = np.array([[1,0,0],[0,-1,0],[0,0,-1]],dtype=float)
+tVecIni = np.array([0, -1, 15.0])
+Rini = cv2.Rodrigues(np.array([np.pi*0.9, 0.1, -0.1]))[0]# np.array([[1,0,0],[0,-1,0],[0,0,-1]],dtype=float)
 rVecIni = cv2.Rodrigues(Rini)[0]
 # paramteros a encontrar
 m = np.array([Rini[0,0], Rini[1,0], Rini[2,0],
@@ -231,7 +231,7 @@ s = np.mean(l)/4
 
 # tomo ~15 grados de margen
 fi = np.arccos(objectPointsC[2] / l)
-dejar = fi < np.pi * (0.4)
+dejar = fi < np.pi * (0.48)
 
 objectPoints = objectPoints[dejar]
 imagePoints = imagePoints[dejar]
