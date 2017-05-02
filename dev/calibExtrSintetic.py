@@ -261,6 +261,24 @@ plt.ylim([0, cameraMatrix[1,2]*2])
 # %% hago la prueba con el metodo lineal
 imagePoints.shape, objectPoints.shape
 
+
+def dataMatrixPoseCalib(xm, ym, xp, yp):
+    '''
+    return data matrix for linear calibration
+    input: object points un z=0 plane and homogenous undistorted coords
+    '''
+    ons = np.ones_like(xm)
+    zer = np.zeros_like(xm)
+    
+    A1 = np.array([xm, zer, -xp*xm, ym, zer, -xp*ym, ons,  zer, -xp])
+    A2 = np.array([zer, xm, -yp*xm, zer, ym, -yp*ym,  zer, ons, -yp])
+    
+    # tal que A*m = 0
+    A = np.concatenate((A1,A2), axis=1).T
+    
+    return A
+
+
 def poseLinearCalibration(objectPoints, imagePoints, cameraMatrix, distCoeffs, model):
     '''
     takes calibration points and estimate linearly camera pose. re
@@ -270,14 +288,7 @@ def poseLinearCalibration(objectPoints, imagePoints, cameraMatrix, distCoeffs, m
     # undistort ccd points, x,y homogenous undistorted
     xp, yp = cl.ccd2homUndistorted(imagePoints, cameraMatrix, distCoeffs, model)
     
-    ons = np.ones_like(xm)
-    zer = np.zeros_like(xm)
-    
-    A1 = np.array([xm, zer, -xp*xm, ym, zer, -xp*ym, ons,  zer, -xp])
-    A2 = np.array([zer, xm, -yp*xm, zer, ym, -yp*ym,  zer, ons, -yp])
-    
-    # tal que A*m = 0
-    A = np.concatenate((A1,A2), axis=1).T
+    A = dataMatrixPoseCalib(xm, ym, xp, yp)
     
     _, s, v = ln.svd(A)
     m = v[-1] # select eigVector with smaller singular value

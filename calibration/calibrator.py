@@ -252,26 +252,29 @@ def hom2ccd(xpp, ypp, cameraMatrix):
     
     return vstack((xccd, yccd)).T
 
+
+# switcher for radial distortion
+distort = {
+'stereographic' : stereographic.radialDistort,
+'unified' : unified.radialDistort,
+'rational' : rational.radialDistort,
+'poly' : poly.radialDistort,
+'fisheye' : fisheye.radialDistort
+}
+
+
 def direct(objectPoints, rVec, tVec, cameraMatrix, distCoeffs, model, ocv=False):
     '''
     performs projection form 3D world into image, is the "direct" distortion
     optionally it uses opencv's function if available
     '''
     
-    distort = {
-    'stereographic' : stereographic.radialDistort,
-    'unified' : unified.radialDistort,
-    'rational' : rational.radialDistort,
-    'poly' : poly.radialDistort,
-    'fisheye' : fisheye.radialDistort
-    }
-    
     xHomog = rotoTrasHomog(objectPoints, rVec, tVec)
     
     rp = norm(xHomog, axis=1)
     
     q = distort[model](rp, distCoeffs, quot=True)
-    print(xHomog.shape, q.shape)
+    # print(xHomog.shape, q.shape)
     xpp, ypp = xHomog.T * q.reshape(1, -1)
     
     # project to ccd
@@ -706,6 +709,29 @@ def plotRationalDist(distCoeffs,imgSize, cameraMatrix):
     
 
 # %% INRINSIC CALIBRATION
+switcherIntrinsicFunc = {
+    'poly' : poly.calibrateIntrinsic,
+    'rational' : rational.calibrateIntrinsic,
+    'fisheye' : fisheye.calibrateIntrinsic
+    }
+
+switcherIntrCalibFlags = {
+    # CALIB_FIX_ASPECT_RATIO, CALIB_FIX_PRINCIPAL_POINT, CALIB_ZERO_TANGENT_DIST
+    'poly' : 14,  # (1 << 1) + (1 << 2) + (1 << 3)
+    # add CALIB_RATIONAL_MODEL
+    'rational' : 16398,  # (1 << 1) + (1 << 2) + (1 << 3) + (1 << 14)
+    # CALIB_FIX_SKEW,CALIB_RECOMPUTE_EXTRINSIC, CALIB_FIX_PRINCIPAL_POINT
+    'fisheye' : 522  # (1 << 3) + (1 << 1) + (1 << 9)
+    }
+
+
+switcherIntrCalibD = {
+    'poly' : zeros((1, 5)),  # (1 << 1) + (1 << 3)
+    'rational' : zeros((1, 8)),  # (1 << 1) + (1 << 3) + (1 << 14)
+    'fisheye' : zeros((1, 4))   # (1 << 3)
+    }
+
+
 
 def calibrateIntrinsic(objpoints, imgpoints, imgSize, model, K=None, D=None,
                        flags=None, criteria=None):
@@ -730,6 +756,9 @@ def calibrateIntrinsic(objpoints, imgpoints, imgSize, model, K=None, D=None,
         K[0, 2] = imgSize[1]/2
         K[1, 2] = imgSize[0]/2
         K[0, 0] = K[1, 1] = 600.0
+    
+    if D is None:
+        D = switcherIntrCalibD[model]
         
 #     calibrateCamera flags =========================
 #     enum  	{
@@ -755,7 +784,6 @@ def calibrateIntrinsic(objpoints, imgpoints, imgSize, model, K=None, D=None,
 #      cv::CALIB_ZERO_DISPARITY = 0x00400,      2**10
 #      cv::CALIB_USE_LU = (1 << 17)             2**17
 #    }
-
 #     fisheye calibrate flags =========================
 #    enum{
 #      cv::fisheye::CALIB_USE_INTRINSIC_GUESS = 1 << 0,
@@ -769,19 +797,8 @@ def calibrateIntrinsic(objpoints, imgpoints, imgSize, model, K=None, D=None,
 #      cv::fisheye::CALIB_FIX_INTRINSIC = 1 << 8,
 #      cv::fisheye::CALIB_FIX_PRINCIPAL_POINT = 1 << 9
 #    }
-
-    if flags is None:
-        # CALIB_FIX_ASPECT_RATIO, CALIB_FIX_PRINCIPAL_POINT,
-        # CALIB_ZERO_TANGENT_DIST,
-        if model is 'poly':
-            flags = 1 << 1 + 1 << 2 + 1 << 3
-        if model is 'rational':
-            # add CALIB_RATIONAL_MODEL
-            flags = 1 << 1 + 1 << 2 + 1 << 3 + 1 << 14
-        if model is 'fisheye':
-            # CALIB_FIX_SKEW CALIB_FIX_PRINCIPAL_POINT
-            flags = 1 << 3 + 1 << 9
-
+    
+    flags = switcherIntrCalibFlags[model]
     
     if criteria is None:
         # terminaion criteria
@@ -790,12 +807,6 @@ def calibrateIntrinsic(objpoints, imgpoints, imgSize, model, K=None, D=None,
         # in https://en.wikipedia.org/wiki/Machine_epsilon#Approximation
         criteria = (3, 50, 1e-15)
     
-    switcher = {
-    'rational' : rational.calibrateIntrinsic,
-    'poly' : poly.calibrateIntrinsic,
-    'fisheye' : fisheye.calibrateIntrinsic
-    }
-    
-    return switcher[model](objpoints, imgpoints, imgSize, K, D,
-                           flags=flags, criteria=criteria)
+    return switcherIntrinsicFunc[model](objpoints, imgpoints, imgSize, K, D,
+                                        flags=flags, criteria=criteria)
 

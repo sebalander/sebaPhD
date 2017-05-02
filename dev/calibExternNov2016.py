@@ -27,7 +27,7 @@ formatParameters = rational.formatParameters
 retrieveParameters = rational.retrieveParameters
 
 from lmfit import minimize, Parameters
-
+import scipy.linalg as ln
 
 # %% LOAD DATA
 # cam puede ser ['vca', 'vcaWide', 'ptz'] son los datos que se tienen
@@ -57,7 +57,7 @@ rVecIniFile = dataFile + 'rVecIni.npy'
 
 # %% load data
 ptsCalib = np.loadtxt(dawCalibTxt)
-img = cv2.imread(imgFile)
+img = plt.imread(imgFile)
 
 # corners in image must have shape (N,1,2)
 imagePoints = ptsCalib[:, :2].reshape((-1,2))
@@ -67,9 +67,31 @@ objectPoints = np.concatenate((ptsCalib[:, 3:1:-1],
                                np.zeros((len(ptsCalib),1)) ),
                                axis=1).reshape((-1,3))
 
+# escala de posicion en metros
+cen = np.mean(objectPoints, axis=0)
+k = 62.07 / np.linalg.norm([-58.370731 + 58.370678, -34.629440 + 34.628883])
+
+objectPoints = objectPoints - cen
+objectPoints *= k
+
+
+## filtrar los que estan lejos
+#dejar = objectPoints[:,0] < 40
+#
+#objectPoints = objectPoints[dejar]
+#imagePoints = imagePoints[dejar]
+
+
+# calgo condiciones iniciales de pose
 tVecIni = np.load(tVecIniFile)
 rVecIni = np.load(rVecIniFile)
 rVecIni = cv2.Rodrigues(rVecIni)[0].reshape(-1)
+
+# cambio la T de la camara
+t = - cl.rotateRodrigues(tVecIni, -rVecIni) # voy a marco de ref mapa
+t = t -cen # cambio en origen de coords
+tVecIni = - cl.rotateRodrigues(t, rVecIni) # vuelvo a marco ref camara
+tVecIni *= k
 
 imagePointsProjected = cl.direct(objectPoints, rVecIni, tVecIni,
                                  cameraMatrix, distCoeffs, model)
@@ -77,8 +99,262 @@ imagePointsProjected = cl.direct(objectPoints, rVecIni, tVecIni,
 # chequear que caigan donde deben
 cl.cornerComparison(img, imagePoints, imagePointsProjected)
 
-objectPointsProj = cl.inverse(imagePoints, rVecIni, tVecIni, cameraMatrix, distCoeffs, model)
+objectPointsProj = cl.inverse(imagePoints, rVecIni, tVecIni,
+                              cameraMatrix, distCoeffs, model)
 cl.fiducialComparison(rVecIni, tVecIni, objectPoints, imagePointsProjected)
+
+#plt.scatter(objectPoints[:,0], objectPoints[:,1])
+#plt.scatter(imagePointsProjected[:,0], imagePointsProjected[:,1])
+
+
+# %% funciones para resolver linealmente
+def dataMatrixPoseCalib(xm, ym, xp, yp):
+    '''
+    return data matrix for linear calibration
+    input: object points un z=0 plane and homogenous undistorted coords
+    '''
+    ons = np.ones_like(xm)
+    zer = np.zeros_like(xm)
+    
+    A1 = np.array([xm, zer, -xp*xm, ym, zer, -xp*ym, ons,  zer, -xp])
+    A2 = np.array([zer, xm, -yp*xm, zer, ym, -yp*ym,  zer, ons, -yp])
+    
+    # tal que A*m = 0
+    A = np.concatenate((A1,A2), axis=1).T
+    
+    return A
+
+
+def poseLinearCalibration(objectPoints, imagePoints, cameraMatrix, distCoeffs, model, retMatrix=False):
+    '''
+    takes calibration points and estimate linearly camera pose. re
+    '''
+    # map coordinates with z=0
+    xm, ym = objectPoints.T[:2]
+    # undistort ccd points, x,y homogenous undistorted
+    xp, yp = cl.ccd2homUndistorted(imagePoints, cameraMatrix, distCoeffs, model)
+    
+    A = dataMatrixPoseCalib(xm, ym, xp, yp)
+    
+    _, s, v = ln.svd(A)
+    m = v[-1] # select right singular vector of smaller singular value
+    
+    # normalize and ensure that points are in front of the camera
+    m /= np.sqrt(ln.norm(m[:3])*ln.norm(m[3:6])) * np.sign(m[-1])
+    
+    # rearrange as rVec, tVec
+    R = np.array([m[:3], m[3:6], np.cross(m[:3], m[3:6])]).T
+    rVec = cv2.Rodrigues(R)[0]
+    tVec = m[6:]
+    
+    if retMatrix:
+        return rVec, tVec, A
+    
+    return rVec, tVec
+
+0
+
+# %% get mappings for graph comparison
+imagePoints.shape, objectPoints.shape
+
+
+rV, tV, A = poseLinearCalibration(objectPoints, imagePoints, cameraMatrix, distCoeffs, model, True)
+
+# resuelvo con SVD
+#_, s, v = ln.svd(A)  # v[i] es el vector singular i-esimo
+
+# resulevo con autovectores
+#A2 = A ## - np.mean(A, axis=0)  # saco la media
+u, s, v = ln.svd(A)
+SS = A.T.dot(A)
+s2, v2 = ln.eig(SS, right=True)  # v[:,i] es autovector i esimo
+s2 = np.real(s2)
+# ordeno
+arsor = np.argsort(s2)
+s2 = s2[arsor[::-1]]
+v2 = v2[:, arsor[::-1]]
+# proyecto los vectores de un metodo sobre el otro para cuantificar la similaridad
+vSim = np.abs(np.diag(v.dot(v2)))
+
+# %% comparo
+plt.subplot(211)
+plt.plot(np.sqrt(s2), '-xr', label=' sqrt(autovalores)')
+plt.plot(s, '-+b', label='vals singuls')
+plt.semilogy()
+plt.legend()
+
+plt.subplot(212)
+plt.ylabel('proyección de autovects y vec sing')
+plt.plot(vSim)
+plt.ylim(0,1.1)
+plt.xlabel('indice de valor')
+plt.tight_layout()
+plt.subplots_adjust(hspace=0)
+
+
+# %% ploteo la nube, proyectada en sus autovectores para detectar outliers
+B = A2.dot(v2).T
+
+fig = plt.figure()
+plt.plot(A.T,'+k')
+#plt.plot(np.sqrt(s2/A.shape[0]))
+
+fig = plt.figure()
+ax = fig.gca(projection='3d')
+ax.scatter(B[0], B[1], B[2])
+
+fig = plt.figure()
+ax = fig.gca(projection='3d')
+ax.scatter(B[3], B[4], B[5])
+
+fig = plt.figure()
+ax = fig.gca(projection='3d')
+ax.scatter(B[6], B[7], B[8])
+
+# %% veo que posiblemente haya outliers que tienen en su tercera componente
+# (de indice [2]) valores menores a -1e8 y en su tercera componente, [5], 
+# valores menores a -0.8e8.
+#filtro los que serian primeros outlier
+# parece que tambien corresponden a los segundos
+dejar = A[:,2] > -2e8
+
+fig = plt.figure()
+plt.plot(A[dejar].T,'+k')
+
+fig = plt.figure()
+ax = fig.gca(projection='3d')
+ax.scatter(A[dejar,0], A[dejar,1], A[dejar,2])
+
+fig = plt.figure()
+ax = fig.gca(projection='3d')
+ax.scatter(A[dejar,3], A[dejar,4], A[dejar,5])
+
+fig = plt.figure()
+ax = fig.gca(projection='3d')
+ax.scatter(A[dejar,6], A[dejar,7], A[dejar,8])
+
+_, s4, v4 = ln.svd(A[dejar])
+
+# %%
+def projectionPlots(rV, tV, data):
+    imagePoints, objectPoints, cameraMatrix, model = data
+    
+    imagePointsProj = cl.direct(objectPoints, rV, tV, cameraMatrix, distCoeffs, model)
+    objectPointsProj = cl.inverse(imagePoints, rV, tV, cameraMatrix, distCoeffs, model)
+    xc, yc, zc = cl.rotoTrasRodri(objectPoints,rV,tV).T
+    
+    xp, yp = cl.ccd2homUndistorted(imagePoints, cameraMatrix,  distCoeffs, model)
+    xp2, yp2 = cl.rotoTrasHomog(objectPoints, rV, tV).T
+    
+    l = np.linalg.norm(objectPoints, axis=0)
+    r = np.mean(l) / 7
+    
+    plt.figure()
+    plt.title('image Points')
+    plt.imshow(img)
+    plt.scatter(imagePoints[:,0], imagePoints[:,1], marker='+', label='calibration')
+    plt.scatter(imagePointsProj[:,0], imagePointsProj[:,1], marker='x', label='projected')
+    plt.legend()
+    
+    plt.figure()
+    plt.title('homogenous Points')
+    plt.scatter(xp, yp, marker='+', label='undistorted from image')
+    plt.scatter(xp2, yp2, marker='x', label='rptotraslated from map')
+    plt.legend()
+    
+    plt.figure()
+    plt.title('object Points')
+    plt.scatter(objectPoints[:,0], objectPoints[:,1], marker='+', label='calibration')
+    plt.scatter(objectPointsProj[:,0], objectPointsProj[:,1], marker='x', label='projected')
+    plt.legend()
+    
+    
+    fig = plt.figure()
+    plt.title('3D object Points, camera ref frame')
+    ax = fig.gca(projection='3d')
+    ax.axis('equal')
+    ax.scatter(xc, yc, zc)
+    ax.plot([0, r], [0, 0], [0, 0], "-r")
+    ax.plot([0, 0], [0, r], [0, 0], "-b")
+    ax.plot([0, 0], [0, 0], [0, r], "-k")
+    
+    return imagePointsProj, objectPointsProj
+
+data = [imagePoints, objectPoints, cameraMatrix, model]
+imagePointsProj, objectPointsProj = projectionPlots(rV, tV, data)
+
+# %%
+data = [imagePoints, objectPoints, cameraMatrix, model]
+
+alfaR = 1e-6
+alfaT = 1e-6
+beta = 0.9
+N = 10 # cantidad de iteraciones
+
+rVlis, tVlis, Elis, gRlis, gTlis = graDescMome(alfaR, alfaT, beta, N, data, rV, tV, data)
+
+plt.figure(1)
+plt.plot(Elis)
+
+# %%
+imagePointsProj, objectPointsProj = projectionPlots(rV, tV, data)
+
+
+# %%
+for i in range(9):
+    vv = v4[i]
+    
+    print('singular value',s4[i])
+    
+    r1 = ln.norm(vv[:3])
+    r2 = ln.norm(vv[3:6])
+    print('modulos',r1, r2)
+    
+    print('angulo', np.rad2deg(np.arccos(np.dot(vv[:3],vv[3:6])/ r1 /r2)))
+    print(vv/np.sqrt(r1*r2))
+    print('\n')
+
+0
+
+# %% ajusto una transformacion lineal cualquiera sin importar si hay una roto
+# traslacion asociada (tiene que haber)
+# xh = Ad xm + Bd # la directa
+# xm = Ai xh + Bi # la inversa
+# agregando unos:
+# Xm(2xn) = Ad(2x3) * XmUnos(3xn)
+# Xh(2xn) = Ai(2x3) * XhUnos(3xn)
+
+# armo los vectores de datos
+Xm = objectPoints.T[:2] # queda de 2xn
+Xh = cl.ccd2homUndistorted(imagePoints, cameraMatrix,  distCoeffs, model)
+Xh = np.array(Xh) # 2xn
+
+ones = np.ones_like(Xm[0]).reshape(1,-1)
+XmUnos = np.concatenate((Xm,ones),axis=0) # 3xn
+XhUnos = np.concatenate((Xh,ones),axis=0) # 3xn
+
+# ahora resuelvo las matrices de transformacion
+Ad = Xh.dot(ln.pinv(XmUnos))
+Ai = Xm.dot(ln.pinv(XhUnos))
+
+# proyecto para ver que da y comparar
+XhProj = Ad.dot(XmUnos)
+XmProj = Ai.dot(XhUnos)
+
+# grafico par comparar
+plt.subplot(121)
+plt.scatter(Xh[0], Xh[1], marker='+')
+plt.scatter(XhProj[0], XhProj[1], marker='x')
+
+plt.subplot(122)
+plt.scatter(Xm[0], Xm[1], marker='+')
+plt.scatter(XmProj[0], XmProj[1], marker='x')
+
+
+
+
+
+
 
 # %%
 r = np.array([ 2.63459211,  1.20459456, -0.27162026])*1.000003
@@ -365,6 +641,10 @@ for cond in condIni:
     print(rVec, tVec)
 
 0
+
+
+
+
 
 
 
