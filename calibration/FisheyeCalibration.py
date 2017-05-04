@@ -141,8 +141,13 @@ def radialUndistort(rpp, k, quot=False):
              -r] for r in rpp]
     
     rootsPoly = [roots(p) for p in poly]
-    thetap = array([roo[isreal(roo)].real[0] for roo in rootsPoly]) / rpp
-    
+    # select real roots
+    rootsPoly2 = [roo[isreal(roo)].real for roo in rootsPoly]
+    # choose minimum positive roots
+    # if there are no positive, it wil choose the abs of negative
+    thetap = array([min(abs(roo)) for roo in rootsPoly2])
+    # guaranteed that there is at least one root (pos or neg) because polys
+    # are odd degree
     rp = tan(thetap)
     
     if quot:

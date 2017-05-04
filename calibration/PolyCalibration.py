@@ -4,7 +4,9 @@ Created on Tue Sep 13 19:01:57 2016
 
 @author: sebalander
 """
-from numpy import zeros, sqrt, roots, array, isreal, shape, prod
+from numpy import zeros, sqrt, roots, array, isreal, shape, prod, abs, sum
+from numpy import reshape
+from scipy import linalg.dot as dot
 from cv2 import projectPoints, Rodrigues
 from lmfit import minimize, Parameters
 from calibration import calibrator
@@ -195,11 +197,16 @@ def radialUndistort(rpp, k, quot=False):
              1,
              -r] for r in rpp]
     
-    # choose the maximum of the real roots, hopefully it will be positive
+    # calculate roots
     rootsPoly = [roots(p) for p in poly]
-    
-    rp = array([max(roo[isreal(roo)].real) for roo in rootsPoly])
-    
+    # select real roots
+    rootsPoly2 = [roo[isreal(roo)].real for roo in rootsPoly]
+
+    # choose minimum positive roots
+    # if there are no positive, it wil choose the abs of negative
+    rp = array([min(abs(roo)) for roo in rootsPoly2])
+    # guaranteed that there is at least one root (pos or neg) because polys
+    # are odd degree
     if quot:
         return rp / rpp
     
@@ -281,7 +288,7 @@ def inverseRationalOwn(corners, rotMatrix, tVec, cameraMatrix, distCoeffs):
     
     xpp = (corners[:,0,0]-cameraMatrix[0,2]) / cameraMatrix[0,0]
     ypp = (corners[:,0,1]-cameraMatrix[1,2]) / cameraMatrix[1,1]
-    rpp = np.sqrt(xpp**2 + ypp**2)
+    rpp = sqrt(xpp**2 + ypp**2)
     
     # polynomial coeffs
     # # (k1,k2,p1,p2[,k3[,k4,k5,k6[,s1,s2,s3,s4[,τx,τy]]]])
@@ -295,13 +302,13 @@ def inverseRationalOwn(corners, rotMatrix, tVec, cameraMatrix, distCoeffs):
              -r] for r in rpp]
     
     # roots = np.roots(p)
-    roots = [np.roots(p) for p in poly]
+    roots = [roots(p) for p in poly]
 #    # max radious possible
 #    rppMax = np.sqrt((cameraMatrix[0,2] / cameraMatrix[0,0])**2 +
 #                     (cameraMatrix[1,2] / cameraMatrix[1,1])**2)
     
     # rp_rpp = roots[np.isreal(roots)].real[0] / rpp # asume real positive root, in interval
-    rp_rpp = np.array([roo[np.isreal(roo)].real[0] for roo in roots]) / rpp
+    rp_rpp = array([roo[isreal(roo)].real[0] for roo in roots]) / rpp
     
     xp = xpp * rp_rpp
     yp = ypp * rp_rpp
@@ -319,8 +326,8 @@ def inverseRationalOwn(corners, rotMatrix, tVec, cameraMatrix, distCoeffs):
     Y = -(f*a - c*d)/q
     
     shape = (1,corners.shape[0],3)
-    XYZ = np.array([X, Y, np.zeros(shape[1])]).T
-    XYZ = np.reshape(XYZ, shape)
+    XYZ = array([X, Y, zeros(shape[1])]).T
+    XYZ = reshape(XYZ, shape)
     
     return XYZ
 
@@ -341,8 +348,8 @@ def directRationalOwn(objectPoints, rotMatrix, tVec, cameraMatrix, distCoeffs,
     if rotMatrix.shape != (3,3):
         rotMatrix, _ = Rodrigues(rotMatrix)
     # chequear esta linea a ver si se esta haciendo bien
-    xyz = [np.linalg.linalg.dot(rotMatrix,p)+tVec[:,0] for p in objectPoints[0]]
-    xyz = np.array(xyz).T
+    xyz = [dot(rotMatrix,p)+tVec[:,0] for p in objectPoints[0]]
+    xyz = array(xyz).T
     
     # plot rototranslation
     if plot:
