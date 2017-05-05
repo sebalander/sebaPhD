@@ -5,6 +5,7 @@ Created on Tue Sep 13 19:01:57 2016
 @author: sebalander
 """
 from numpy import zeros, sqrt, roots, array, isreal, tan, prod, arctan
+from numpy import any, empty_like, arange, real
 from cv2 import Rodrigues
 from cv2.fisheye import projectPoints
 from lmfit import minimize, Parameters
@@ -140,20 +141,33 @@ def radialUndistort(rpp, k, quot=False):
              1,
              -r] for r in rpp]
     
-    rootsPoly = [roots(p) for p in poly]
-    # select real roots
-    rootsPoly2 = [roo[isreal(roo)].real for roo in rootsPoly]
+    # calculate roots
+    rootsPoly = array([roots(p) for p in poly])
+    
+    # return flag, True if there is a suitable (real AND positive) solution
+    rPRB = isreal(rootsPoly) & (0 < real(rootsPoly))  # real Positive Real Bool
+    retVal = any(rPRB, axis=1)
+    
+    thetap = empty_like(rpp)
+    
+    if any(-retVal): # if at least one case of non solution
+        # calculate extrema of polyniomial
+        thExtrema = roots([9*k[3], 0, 7*k[2], 0, 5*k[1], 0, 3*k[0], 1])
+        # select real extrema in positive side, keep smallest
+        thRealPos = min(thExtrema.real[isreal(thExtrema) & (0 < thExtrema.real)])
+        # assign to problematic values
+        thetap[-retVal] = thRealPos
+    
     # choose minimum positive roots
-    # if there are no positive, it wil choose the abs of negative
-    thetap = array([min(abs(roo)) for roo in rootsPoly2])
-    # guaranteed that there is at least one root (pos or neg) because polys
-    # are odd degree
+    thetap[retVal] = [min(rootsPoly[i, rPRB[i]].real)
+                   for i in arange(rpp.shape[0])[retVal]]
+    
     rp = tan(thetap)
     
     if quot:
-        return rp / rpp
+        return rp / rpp, retVal
     
-    return rp
+    return rp, retVal
 #
 #def inverse(imageCorners, rVec, tVec, linearCoeffs, distCoeffs):
 #    

@@ -5,6 +5,7 @@ Created on Tue Sep 13 19:01:57 2016
 @author: sebalander
 """
 from numpy import zeros, sqrt, roots, array, isreal, shape, bitwise_and, prod
+from numpy import empty_like, arange, real, full_like  # , polyder, polymul
 from cv2 import projectPoints, Rodrigues
 from lmfit import minimize, Parameters
 from calibration import calibrator
@@ -196,14 +197,35 @@ def radialUndistort(rpp, k, quot=False):
              -r] for r in rpp]
     
     # choose the maximum of the real roots, hopefully it will be positive
-    rootsPoly = [roots(p) for p in poly]
+    rootsPoly = array([roots(p) for p in poly])
     
-    rp = array([max(roo[isreal(roo)].real) for roo in rootsPoly])
+    # True if there is a suitable (real AND positive) solution
+    rPRB = isreal(rootsPoly) & (0 < real(rootsPoly))  # radius Positive Real Bool
+    
+    # there should be solutions for any case because rational model distortion
+    # is dominated by ~rp^1 term
+    retVal = full_like(rpp, True, dtype=bool)  # all solutions exist
+    
+    # if any(-retVal): # if at least one case of non solution
+    #    # calculate extrema of polyniomial
+    #    a = [k[4],0,k[1],0,k[0],0,1,0]  # numerator
+    #    b = [k[7],0,k[6],0,k[5],0,1]  # denominator
+    #    # derivarive as a polynomial (ignore denominator)
+    #    der = polymul(polyder(a), b) - polymul(a, polyder(b))
+    #    rExtrema = roots(der)
+    #    # select real extrema in positive side, keep smallest
+    #    # for rational model this always gives error, for there is no extrema
+    #    rRealPos = min(rExtrema.real[isreal(rExtrema) & (0 < rExtrema.real)])
+    #    # assign to problematic values
+    #    rp[-retVal] = rRealPos
+    
+    # choose minimum positive roots
+    rp = array([min(rootsPoly[i, rPRB[i]].real) for i in range(rpp.shape[0])])
     
     if quot:
-        return rp / rpp
+        return rp / rpp, retVal
     
-    return rp
+    return rp, retVal
 
 #
 #def inverse(imageCorners, rVec, tVec, linearCoeffs, distCoeffs):

@@ -5,8 +5,7 @@ Created on Tue Sep 13 19:01:57 2016
 @author: sebalander
 """
 from numpy import zeros, sqrt, roots, array, isreal, shape, prod, abs, sum
-from numpy import reshape
-from scipy import linalg.dot as dot
+from numpy import reshape, dot, real, any, empty_like, arange
 from cv2 import projectPoints, Rodrigues
 from lmfit import minimize, Parameters
 from calibration import calibrator
@@ -198,19 +197,30 @@ def radialUndistort(rpp, k, quot=False):
              -r] for r in rpp]
     
     # calculate roots
-    rootsPoly = [roots(p) for p in poly]
-    # select real roots
-    rootsPoly2 = [roo[isreal(roo)].real for roo in rootsPoly]
-
-    # choose minimum positive roots
-    # if there are no positive, it wil choose the abs of negative
-    rp = array([min(abs(roo)) for roo in rootsPoly2])
-    # guaranteed that there is at least one root (pos or neg) because polys
-    # are odd degree
-    if quot:
-        return rp / rpp
+    rootsPoly = array([roots(p) for p in poly])
     
-    return rp
+    # return flag, True if there is a suitable (real AND positive) solution
+    rPRB = isreal(rootsPoly) & (0 < real(rootsPoly))  # real Positive Real Bool
+    retVal = any(rPRB, axis=1)
+    
+    rp = empty_like(rpp)
+    
+    if any(-retVal): # if at least one case of non solution
+        # calculate extrema of polyniomial
+        rExtrema = roots([7*k[4], 0, 5*k[1], 0, 3*k[0], 1])
+        # select real extrema in positive side, keep smallest
+        rRealPos = min(rExtrema.real[isreal(rExtrema) & (0 < rExtrema.real)])
+        # assign to problematic values
+        rp[-retVal] = rRealPos
+    
+    # choose minimum positive roots
+    rp[retVal] = [min(rootsPoly[i, rPRB[i]].real)
+                   for i in arange(rpp.shape[0])[retVal]]
+    
+    if quot:
+        return rp / rpp, retVal
+    
+    return rp, retVal
 
 #def inverse(imageCorners, rVec, tVec, linearCoeffs, distCoeffs):
 #    

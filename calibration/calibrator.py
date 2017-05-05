@@ -24,7 +24,6 @@ def xypToZplane(xp, yp, rVec, tVec):
     '''
     projects a point from homogenous undistorted to 3D asuming z=0
     '''
-    
     if prod(rVec.shape) == 3:
         rVec = Rodrigues(rVec)[0]
     
@@ -41,8 +40,9 @@ def xypToZplane(xp, yp, rVec, tVec):
     Y = (c*d - f*a) / q
     
     #shape = (X.shape[0], 3)
-    XYZ = array([X, Y, zeros(len(X))]).T
-    XYZ = XYZ.reshape(-1, 3)
+    XYZ = [X, Y, zeros(X.shape[0])]
+    XYZ = array(XYZ).T
+    # XYZ = XYZ.reshape(-1, 3)
     
     return XYZ
 
@@ -332,7 +332,7 @@ def ccd2homUndistorted(imagePoints, cameraMatrix,  distCoeffs, model):
     rpp = norm([xpp, ypp], axis=0)
     
     # calculate ratio of undistorition
-    q = undistort[model](rpp, distCoeffs, quot=True)
+    q, _ = undistort[model](rpp, distCoeffs, quot=True)
     
     xp = q * xpp # undistort in homogenous coords
     yp = q * ypp

@@ -129,7 +129,7 @@ for model in modelos:
 0
 
 # %% plot comparison of models
-rp0 = np.linspace(-np.max(RP[model])*1.2,np.max(RP[model])*1.2,500)
+rp0 = np.linspace(0,np.max(RP[model])*1.2,500)
 
 plt.figure(n)
 plt.xlim([rp0[0], rp0[-1]])
