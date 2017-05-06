@@ -200,7 +200,7 @@ def radialUndistort(rpp, k, quot=False):
     rootsPoly = array([roots(p) for p in poly])
     
     # True if there is a suitable (real AND positive) solution
-    rPRB = isreal(rootsPoly) & (0 < real(rootsPoly))  # radius Positive Real Bool
+    rPRB = isreal(rootsPoly) & (0 <= real(rootsPoly))  # radius Positive Real Bool
     
     # there should be solutions for any case because rational model distortion
     # is dominated by ~rp^1 term

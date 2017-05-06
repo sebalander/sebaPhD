@@ -5,7 +5,7 @@ Created on Tue Sep 13 19:01:57 2016
 @author: sebalander
 """
 from numpy import zeros, sqrt, roots, array, isreal, tan, prod, arctan
-from numpy import any, empty_like, arange, real
+from numpy import any, empty_like, arange, real, pi, abs
 from cv2 import Rodrigues
 from cv2.fisheye import projectPoints
 from lmfit import minimize, Parameters
@@ -76,7 +76,7 @@ def radialDistort(rp, k, quot=False):
     th8 = th4*th4
     
     k.shape = -1
-    rpp = (1 + k[0]*th2 +k[1]*th4 + k[2]*th6 + k[3]*th8) * th
+    rpp = (1 + k[0]*th2 + k[1]*th4 + k[2]*th6 + k[3]*th8) * th
     
     if quot:
         return rpp / rp
@@ -131,30 +131,22 @@ def radialUndistort(rpp, k, quot=False):
     # # (k1,k2,p1,p2[,k3[,k4,k5,k6[,s1,s2,s3,s4[,τx,τy]]]])
     
     k.shape = -1
-    poly = [[k[3], # k4
-             0,
-             k[2], # k3
-             0,
-             k[1], # k2
-             0,
-             k[0], # k1
-             1,
-             -r] for r in rpp]
+    poly = [[k[3], 0, k[2], 0, k[1], 0, k[0], 0, 1, -r] for r in rpp]
     
     # calculate roots
     rootsPoly = array([roots(p) for p in poly])
     
     # return flag, True if there is a suitable (real AND positive) solution
-    rPRB = isreal(rootsPoly) & (0 < real(rootsPoly))  # real Positive Real Bool
+    rPRB = isreal(rootsPoly) & (0 <= real(rootsPoly))  # real Positive Real Bool
     retVal = any(rPRB, axis=1)
     
     thetap = empty_like(rpp)
     
     if any(-retVal): # if at least one case of non solution
         # calculate extrema of polyniomial
-        thExtrema = roots([9*k[3], 0, 7*k[2], 0, 5*k[1], 0, 3*k[0], 1])
+        thExtrema = roots([9*k[3], 0, 7*k[2], 0, 5*k[1], 0, 3*k[0], 0, 1])
         # select real extrema in positive side, keep smallest
-        thRealPos = min(thExtrema.real[isreal(thExtrema) & (0 < thExtrema.real)])
+        thRealPos = min(thExtrema.real[isreal(thExtrema) & (0<=thExtrema.real)])
         # assign to problematic values
         thetap[-retVal] = thRealPos
     
@@ -162,8 +154,9 @@ def radialUndistort(rpp, k, quot=False):
     thetap[retVal] = [min(rootsPoly[i, rPRB[i]].real)
                    for i in arange(rpp.shape[0])[retVal]]
     
-    rp = tan(thetap)
-    
+    rp = abs(tan(thetap))  # correct negative values
+    # if theta angle is greater than pi/2, retVal=False
+    retVal[thetap >= pi/2] = False
     if quot:
         return rp / rpp, retVal
     

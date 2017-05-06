@@ -200,16 +200,16 @@ def radialUndistort(rpp, k, quot=False):
     rootsPoly = array([roots(p) for p in poly])
     
     # return flag, True if there is a suitable (real AND positive) solution
-    rPRB = isreal(rootsPoly) & (0 < real(rootsPoly))  # real Positive Real Bool
+    rPRB = isreal(rootsPoly) & (0 <= real(rootsPoly))  # real Positive Real Bool
     retVal = any(rPRB, axis=1)
     
     rp = empty_like(rpp)
     
     if any(-retVal): # if at least one case of non solution
         # calculate extrema of polyniomial
-        rExtrema = roots([7*k[4], 0, 5*k[1], 0, 3*k[0], 1])
+        rExtrema = roots([7*k[4], 0, 5*k[1], 0, 3*k[0], 0, 1])
         # select real extrema in positive side, keep smallest
-        rRealPos = min(rExtrema.real[isreal(rExtrema) & (0 < rExtrema.real)])
+        rRealPos = min(rExtrema.real[isreal(rExtrema) & (0<=rExtrema.real)])
         # assign to problematic values
         rp[-retVal] = rRealPos
     

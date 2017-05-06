@@ -314,18 +314,20 @@ def ccd2hom(imagePoints, cameraMatrix):
     
     return xpp, ypp
 
+# switcher for radial un-distortion
+undistort = {
+'stereographic' : stereographic.radialUndistort,
+'unified' : unified.radialUndistort,
+'rational' : rational.radialUndistort,
+'poly' : poly.radialUndistort,
+'fisheye' : fisheye.radialUndistort
+}
+
+
 def ccd2homUndistorted(imagePoints, cameraMatrix,  distCoeffs, model):
     '''
     takes ccd cordinates and projects to homogenpus coords and undistorts
     '''
-    
-    undistort = {
-    'stereographic' : stereographic.radialUndistort,
-    'unified' : unified.radialUndistort,
-    'rational' : rational.radialUndistort,
-    'poly' : poly.radialUndistort,
-    'fisheye' : fisheye.radialUndistort
-    }
     # go to homogenous coords
     xpp, ypp = ccd2hom(imagePoints, cameraMatrix)
     

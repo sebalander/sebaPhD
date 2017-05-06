@@ -129,20 +129,35 @@ for model in modelos:
 0
 
 # %% plot comparison of models
-rp0 = np.linspace(0,np.max(RP[model])*1.2,500)
+reload(cl)
+rpMax = np.max([np.max(RP[model]) for model in modelos])
+rppMax = np.max([np.max(RPP[model]) for model in modelos])
+rp0 = np.linspace(0, rpMax*1.2 ,100)
+rpp0 = np.linspace(0, rppMax*1.2 ,100)
+
+clr = {modelos[0]:'b', modelos[1]:'r', modelos[2]:'k'}
 
 plt.figure(n)
-plt.xlim([rp0[0], rp0[-1]])
+plt.xlim([0, rpMax*1.2])
+plt.ylim([0, rppMax*1.2])
+plt.xlabel('Undistorted radius (r\')')
+plt.ylabel('Distorted radius (r\")')
+
+
+
 
 for model in modelos:
     plt.plot(RP[model], RPP[model], '.', markersize=3)
-    plt.ylim([0, np.max(RPP[model])*1.2])
     
-    rpp0 = cl.distort[model](rp0, D[model])
-    plt.plot(rp0, rpp0, '-', lw=1, label=model)
+    rpp1 = cl.distort[model](rp0, D[model])
+    plt.plot(rp0, rpp1, '-',c=clr[model], lw=1, label=model+' direct')
+    
+    rp1, _ = cl.undistort[model](rpp0, D[model])
+    plt.plot(rp1, rpp0, '--',c=clr[model], lw=1, label=model+' inverse')
+
 
 plt.legend()
-plt.plot()
+plt.tight_layout()
 
 # %% comparo tvecs
 # se nota que el modelo compensa diferencia de distorsion con un cambio en la
@@ -155,25 +170,28 @@ plt.plot([-20, 30], [-20, 30], '--k', lw=0.5)
 plt.plot(TV['rational'][:,:,0],TV['fisheye'][:,:,0], '+')
 plt.xlabel('Tvec rational')
 plt.ylabel('Tvec fisheye')
+plt.legend()
 
 plt.subplot(222)
 plt.plot([-20, 30], [-20, 30], '--k', lw=0.5)
 plt.plot(TV['rational'][:,:,0],TV['poly'][:,:,0], '+')
 plt.xlabel('Tvec rational')
 plt.ylabel('Tvec poly')
+plt.legend()
 
 plt.subplot(223)
 plt.plot([-np.pi, np.pi], [-np.pi, np.pi], '--k', lw=0.5)
-plt.plot(RV['rational'][:,:,0],RV['fisheye'][:,:,0], '+')
+plt.plot(RV['rational'][:,:,0],RV['fisheye'][:,:,0], '+',)
 plt.xlabel('Rvec rational')
 plt.ylabel('Rvec fisheye')
+plt.legend()
 
 plt.subplot(224)
 plt.plot([-np.pi, np.pi], [-np.pi, np.pi], '--k', lw=0.5)
 plt.plot(RV['rational'][:,:,0],RV['poly'][:,:,0], '+')
 plt.xlabel('Rvec rational')
 plt.ylabel('Rvec poly')
-
+plt.legend()
 
 plt.tight_layout()
 
@@ -182,32 +200,26 @@ plt.tight_layout()
 objectPoints = chessboardModel.reshape(-1,3)
 imagePoints.shape
 
-clr = {modelos[0]:'b', modelos[1]:'r', modelos[2]:'k'}
-
 
 plt.figure(n+2)
+# corro sobre las imagenes
 plt.subplot(121)
-for model in modelos:
-    # corro sobre las imagenes
-    for i in range(n):
-        x0, y0 = imagePoints[i,0,:].T
+for i in range(n):
+    x0, y0 = imagePoints[i,0,:].T
+    plt.plot(x0, y0, '+k', markersize=1)
+    
+    for model in modelos:
         x1, y1 = IP[model][i].T
-        
-        plt.plot([x0,x1], [y0,y1], color=clr[model], lw=1)
+        plt.plot(x1, y1, '.', color=clr[model], markersize=1)
 
 
 plt.subplot(122)
-x0, y0 = objectPoints[:,:2].T
-
-# %%
-model = modelos[0]
-for model in modelos:
-    # corro sobre las imagenes
-    for i in range(n):
+for i in range(n):
+    x0, y0 = objectPoints[:,:2].T
+    plt.plot(x0, y0, '+k', markersize=1.5)
+    
+    for model in modelos:
         x1, y1, _ = OP[model][i].T
-        
-        # plt.plot([x0, x1], [y0, y1], color=clr[model], lw=1)
-        plt.scatter(x1, y1,c=clr[model],s=1)
-    plt.scatter(x0, y0,c='g',marker='+')
-0
+        plt.plot(x1, y1, '.', color=clr[model], markersize=1)
 
+plt.tight_layout()
