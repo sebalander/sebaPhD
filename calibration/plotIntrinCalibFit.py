@@ -125,6 +125,8 @@ for model in modelos:
     # to array
     RP[model] = np.array(RP[model]).flatten()
     RPP[model] = np.array(RPP[model]).flatten()
+    OP[model] = np.array(OP[model])
+    IP[model] = np.array(IP[model])
 
 0
 
@@ -196,7 +198,24 @@ plt.legend()
 plt.tight_layout()
 
 
+# %%
+from scipy.special import chdtriv
+fi = np.linspace(0,2*np.pi,20)
+Xcirc = np.array([np.cos(fi), np.sin(fi)]) * chdtriv(0.1, 2)
+
+def plotEllipse(ax, c, mux, muy, col):
+    l, v = ln.eig(ln.inv(c))
+    
+    D = v.T*np.sqrt(l.real) # queda con los autovectores como filas
+    
+    xeli, yeli = np.dot(ln.inv(D), Xcirc)
+    
+    ax.plot(xeli+mux, yeli+muy, c=col, lw=0.5)
+
+#
+
 # %% comparo los errores proyectando sobre las imagenes
+from matplotlib.patches import Ellipse
 objectPoints = chessboardModel.reshape(-1,3)
 imagePoints.shape
 
@@ -204,22 +223,43 @@ imagePoints.shape
 plt.figure(n+2)
 # corro sobre las imagenes
 plt.subplot(121)
-for i in range(n):
-    x0, y0 = imagePoints[i,0,:].T
-    plt.plot(x0, y0, '+k', markersize=1)
-    
-    for model in modelos:
-        x1, y1 = IP[model][i].T
-        plt.plot(x1, y1, '.', color=clr[model], markersize=1)
+x0, y0 = imagePoints[:,0,:].reshape(-1,2).T
+plt.plot(x0, y0, '+k', markersize=1)
+for model in modelos:
+    x1, y1 = IP[model].reshape(-1,2).T
+    plt.plot(x1, y1, '.', color=clr[model], markersize=1)
 
 
 plt.subplot(122)
-for i in range(n):
-    x0, y0 = objectPoints[:,:2].T
-    plt.plot(x0, y0, '+k', markersize=1.5)
+x0, y0 = objectPoints[:,:2].T
+
+ax = plt.gca()
+ax.plot(x0, y0, '+k', markersize=7)
+for model in modelos:
+    x1, y1, _ = OP[model].transpose((2,1,0))
+    ax.plot(x1, y1, '.', color=clr[model], markersize=2)
+    # centrides
+    mux = np.mean(x1, axis=1)
+    muy = np.mean(y1, axis=1)
+    # errores
+    ex = x1 - mux.reshape(-1,1)
+    ey = y1 - muy.reshape(-1,1)
+    E = np.array([ex, ey]).transpose(1,0,2)
+    # covarianzas
+    C = np.array([np.dot(EE, EE.T) for EE in E]) / x1.shape[0]
     
-    for model in modelos:
-        x1, y1, _ = OP[model][i].T
-        plt.plot(x1, y1, '.', color=clr[model], markersize=1)
+    # calculo de la elipse a partir de la covarianza
+    for i in range(len(C)):
+        plotEllipse(ax, C[i], mux[i], muy[i], clr[model])
+        
 
 plt.tight_layout()
+
+
+
+
+
+
+
+
+
