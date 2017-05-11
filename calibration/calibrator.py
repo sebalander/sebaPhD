@@ -718,12 +718,15 @@ switcherIntrinsicFunc = {
     }
 
 switcherIntrCalibFlags = {
-    # CALIB_FIX_ASPECT_RATIO, CALIB_FIX_PRINCIPAL_POINT, CALIB_ZERO_TANGENT_DIST
-    'poly' : 14,  # (1 << 1) + (1 << 2) + (1 << 3)
+    # CALIB_ZERO_TANGENT_DIST
+    'poly' : 8,  #  (1 << 3)
+    # decided to not fix ppal point, CALIB_FIX_PRINCIPAL_POINT + (1 << 2)
+    # CALIB_FIX_ASPECT_RATIO, (1 << 1) +
     # add CALIB_RATIONAL_MODEL
-    'rational' : 16398,  # (1 << 1) + (1 << 2) + (1 << 3) + (1 << 14)
-    # CALIB_FIX_SKEW,CALIB_RECOMPUTE_EXTRINSIC, CALIB_FIX_PRINCIPAL_POINT
-    'fisheye' : 522  # (1 << 3) + (1 << 1) + (1 << 9)
+    'rational' : 16386,  # (1 << 1) + (1 << 14)
+    # CALIB_FIX_SKEW, CALIB_RECOMPUTE_EXTRINSIC
+    'fisheye' : 10  # (1 << 3) + (1 << 1)
+    # decided to not fix ppal point, CALIB_FIX_PRINCIPAL_POINT + (1 << 9)
     }
 
 

@@ -255,11 +255,20 @@ for model in modelos:
 
 plt.tight_layout()
 
+# %% check projection in one particular image
+imFiles = glob.glob(imagesFolder + "*.png")  # list of images
+image2check = 'vlcsnap-2017-04-03-22h00m06s444.png'
 
+n = np.argwhere([f==imagesFolder+image2check for f in imFiles])
+n.shape = -1
+n = n[0]
 
+# %%
+plt.figure()
+plt.plot(x0, y0, '+k', markersize=7)
 
-
-
-
-
-
+model='fisheye'
+x1, y1, _ = OP[model].transpose((2,1,0))
+plt.plot(x1[:,n], y1[:,n], 'x', color=clr[model], markersize=5)
+# centrides
+#

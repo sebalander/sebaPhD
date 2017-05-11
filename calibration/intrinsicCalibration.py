@@ -72,8 +72,7 @@ if plotCorners:
         fiducial1 = chessboardModel
         
         cl.fiducialComparison3D(rVec, tVec, fiducial1)
-
-0  # si no pongo este cero spyder no sale solo del bucle
+#
 
 # %% TEST MAPPING (DISTORTION MODEL)
 # pruebo con la imagen j-esima
@@ -98,8 +97,7 @@ if plotCorners:
         plt.plot(imagePntsX, imagePntsY, 'xr', markersize=10)
         plt.plot(xPos, yPos, '+b', markersize=10)
         #fig.savefig("distortedPoints3.png")
-
-0  # si no pongo este cero spyder no sale solo del bucle en la consola
+#
 
 # %% SAVE CALIBRATION
 np.save(distCoeffsFile, D)
