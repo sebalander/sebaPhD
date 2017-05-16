@@ -12,9 +12,11 @@ from cv2 import Rodrigues, findHomography
 from numpy import min, max, ndarray, zeros, array, reshape, sqrt, roots
 from numpy import sin, cos, cross, ones, concatenate, flipud, dot, isreal
 from numpy import linspace, polyval, eye, linalg, mean, prod, vstack
+from numpy import empty_like
 from scipy.linalg import sqrtm, norm, inv
 from matplotlib.patches import FancyArrowPatch
 from mpl_toolkits.mplot3d import proj3d
+from copy import deepcopy as dc
 
 from importlib import reload
 
@@ -307,12 +309,26 @@ def calibrateDirect(objectPoints, imagePoints, rVec, tVec, cameraMatrix, distCoe
 
 
 # %% INVERSE PROJECTION
-def ccd2hom(imagePoints, cameraMatrix):
+def ccd2hom(imagePoints, cameraMatrix, cov=None):
+    '''
+    must provide covariances for every point if cov is not None
+    '''
     # undo CCD projection, asume diagonal ccd rescale
     xpp = (imagePoints[:,0] - cameraMatrix[0,2]) / cameraMatrix[0,0]
     ypp = (imagePoints[:,1] - cameraMatrix[1,2]) / cameraMatrix[1,1]
     
-    return xpp, ypp
+    if cov is None:
+        return xpp, ypp
+    else:
+        C = dc(cov)
+        
+        C[:,0,0] /= cameraMatrix[0, 0]**2
+        C[:,1,1] /= cameraMatrix[1, 1]**2
+        fxfy = cameraMatrix[0, 0] * cameraMatrix[1, 1]
+        C[:,0,1] /= fxfy
+        C[:,1,0] /= fxfy
+        
+        return xpp, ypp, C
 
 # switcher for radial un-distortion
 undistort = {
@@ -324,25 +340,53 @@ undistort = {
 }
 
 
-def ccd2homUndistorted(imagePoints, cameraMatrix,  distCoeffs, model):
+def ccd2homUndistorted(imagePoints, cameraMatrix,  distCoeffs, model, cov=None):
     '''
     takes ccd cordinates and projects to homogenpus coords and undistorts
     '''
-    # go to homogenous coords
-    xpp, ypp = ccd2hom(imagePoints, cameraMatrix)
-    
-    rpp = norm([xpp, ypp], axis=0)
-    
-    # calculate ratio of undistorition
-    q, _ = undistort[model](rpp, distCoeffs, quot=True)
-    
-    xp = q * xpp # undistort in homogenous coords
-    yp = q * ypp
-    
-    return xp, yp
+    if cov is None:
+        # go to homogenous coords
+        xpp, ypp = ccd2hom(imagePoints, cameraMatrix)
+        
+        rpp = norm([xpp, ypp], axis=0)
+        
+        # calculate ratio of undistortion
+        q, _ = undistort[model](rpp, distCoeffs, quot=True)
+        
+        xp = q * xpp # undistort in homogenous coords
+        yp = q * ypp
+        
+        return xp, yp
+    else:
+        # go to homogenous coords
+        xpp, ypp, Cpp = ccd2hom(imagePoints, cameraMatrix, cov)
+        
+        rpp = norm([xpp, ypp], axis=0)
+        
+        # calculate ratio of undistorition and it's derivative wrt radius
+        q, _, dqI = undistort[model](rpp, distCoeffs, quot=True, der=True)
+        
+        xp = q * xpp # undistort in homogenous coords
+        yp = q * ypp
+        
+        xpp2 = xpp**2
+        ypp2 = ypp**2
+        xypp = xpp * ypp
+        dqIrpp = dqI / rpp
+        
+        # calculo jacobiano
+        J = array([[xpp2, xypp],[xypp, ypp2]]).transpose(2,0,1)
+        J *= dqIrpp.reshape(-1,1,1)
+        J[:,0,0] += q
+        J[:,1,1] += q
+        
+        Cp = empty_like(Cpp)
+        for i in range(len(J)):
+            Cp[i] = J[i].dot(Cp[i]).dot(J[i])
+        
+        return xp, yp, Cp
 
-
-def inverse(imagePoints, rVec, tVec, cameraMatrix, distCoeffs, model):
+def inverse(imagePoints, rVec, tVec, cameraMatrix, distCoeffs, model, cov=None):
     '''
     inverseFisheye(objPoints, rVec/rotMatrix, tVec, cameraMatrix,
                     distCoeffs)-> objPoints
@@ -350,11 +394,19 @@ def inverse(imagePoints, rVec, tVec, cameraMatrix, distCoeffs, model):
     corners must be of size (n,1,2)
     objPoints has size (1,n,3)
     ignores tangential and tilt distortions
-    '''
-    xp, yp = ccd2homUndistorted(imagePoints, cameraMatrix,  distCoeffs, model)
     
-    # project to plane z=0
-    return xypToZplane(xp, yp, rVec, tVec)
+    propagates covariance uncertainty
+    '''
+    if cov is None:
+        xp, yp = ccd2homUndistorted(imagePoints, cameraMatrix, distCoeffs, model)
+        # project to plane z=0
+        return xypToZplane(xp, yp, rVec, tVec)
+    else:
+        xp, yp, sp = ccd2homUndistorted(imagePoints, cameraMatrix,
+                                        distCoeffs, model, cov)
+        # project to plane z=0
+        return xypToZplane(xp, yp, rVec, tVec, cov)
+
 
 def residualInverse(params, objectPoints, imagePoints, model):
     

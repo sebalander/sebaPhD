@@ -204,6 +204,10 @@ fi = np.linspace(0,2*np.pi,20)
 Xcirc = np.array([np.cos(fi), np.sin(fi)]) * chdtriv(0.1, 2)
 
 def plotEllipse(ax, c, mux, muy, col):
+    '''
+    se grafican una elipse asociada a la covarianza c, centrada en mux, muy
+    '''
+    
     l, v = ln.eig(ln.inv(c))
     
     D = v.T*np.sqrt(l.real) # queda con los autovectores como filas

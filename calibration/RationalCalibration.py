@@ -124,23 +124,38 @@ def retrieveParameters(params):
 
 
 # %% ========== ========== DIRECT RATIONAL ========== ==========
-def radialDistort(rp, k, quot=False):
+def radialDistort(rp, k, quot=False, der=False):
     '''
     returns distorted radius using distortion coefficients k
     optionally it returns the distortion quotioent rpp = rp * q
+    optionally returns 
     '''
     rp2 = rp**2
     rp4 = rp2**2
     rp6 = rp2*rp4
     
     k.shape = -1
-    q = 1 + k[0]*rp2 + k[1]*rp4 + k[4]*rp6
-    q /= 1 + k[5]*rp2 + k[6]*rp4 + k[7]*rp6
+    num = 1 + k[0]*rp2 + k[1]*rp4 + k[4]*rp6
+    den = 1 + k[5]*rp2 + k[6]*rp4 + k[7]*rp6
     
-    if quot:
-        return q
+    q = num / den
     
-    return rp * q
+    if der:
+        # numerator and denominator derived wrt rp
+        dNum = rp * 2 * (k[0] + 2*k[1]*rp2 + 3*k[4]*rp4)
+        dDen = rp * 2 * (k[5] + 2*k[6]*rp2 + 3*k[7]*rp4)
+        # derivative of quot of polynomials, "Direct" mapping
+        dqD = (dNum * den - num * dDen) / den**2
+        
+        if quot:
+            return q, dqD
+        else:
+            return rp * q, dqD
+    else:
+        if quot:
+            return q
+        else:
+            return rp * q
 
 #def direct(fiducialPoints, rVec, tVec, linearCoeffs, distCoeffs):
 #    projected, _ = projectPoints(fiducialPoints,
@@ -179,7 +194,7 @@ def radialDistort(rp, k, quot=False):
 
 
 # %% ========== ========== INVERSE RATIONAL ========== ==========
-def radialUndistort(rpp, k, quot=False):
+def radialUndistort(rpp, k, quot=False, der=False):
     '''
     takes distorted radius and returns the radius undistorted
     optioally it returns the undistortion quotient rp = rpp * q
@@ -222,10 +237,21 @@ def radialUndistort(rpp, k, quot=False):
     # choose minimum positive roots
     rp = array([min(rootsPoly[i, rPRB[i]].real) for i in range(rpp.shape[0])])
     
-    if quot:
-        return rp / rpp, retVal
-    
-    return rp, retVal
+    if der:
+        # derivada de la directa
+        _, dqD = radialDistort(rp, k, der=True)
+        # derivative of quotient of "Inverse" mapping
+        dqI = - rp**3 * dqD / rpp**2 / (rpp + rp**2 * dqD)
+        
+        if quot:
+            return rp / rpp, retVal, dqI
+        else:
+            return rp, retVal, dqI
+    else:
+        if quot:
+            return rp / rpp, retVal
+        else:
+            return rp, retVal
 
 #
 #def inverse(imageCorners, rVec, tVec, linearCoeffs, distCoeffs):
