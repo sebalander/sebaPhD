@@ -375,14 +375,14 @@ def ccd2homUndistorted(imagePoints, cameraMatrix,  distCoeffs, model, cov=None):
         dqIrpp = dqI / rpp
         
         # calculo jacobiano
-        J = array([[xpp2, xypp],[xypp, ypp2]]).transpose(2,0,1)
-        J *= dqIrpp.reshape(-1,1,1)
-        J[:,0,0] += q
-        J[:,1,1] += q
+        J = array([[xpp2, xypp],[xypp, ypp2]])
+        J *= dqIrpp.reshape(1,1,-1)
+        J[0,0,:] += q
+        J[1,1,:] += q
         
         Cp = empty_like(Cpp)
         for i in range(len(J)):
-            Cp[i] = J[i].dot(Cp[i]).dot(J[i])
+            Cp[i] = J[:,:,i].dot(Cp[i]).dot(J[:,:,i].T)
         
         return xp, yp, Cp
 

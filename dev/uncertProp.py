@@ -19,16 +19,18 @@ from scipy.special import chdtriv
 fi = np.linspace(0,2*np.pi,20)
 Xcirc = np.array([np.cos(fi), np.sin(fi)]) * chdtriv(0.1, 2)
 
-def plotEllipse(ax, c, mux, muy, col):
+def plotEllipse(ax, C, mux, muy, col):
     '''
-    se grafican una elipse asociada a la covarianza c, centrada en mux, muy
+    se grafica una elipse asociada a la covarianza c, centrada en mux, muy
     '''
+    Ci = ln.inv(C)
     
-    l, v = ln.eig(ln.inv(c))
+    l, v = ln.eig(Ci)
     
-    D = v.T*np.sqrt(l.real) # queda con los autovectores como filas
-    
-    xeli, yeli = np.dot(ln.inv(D), Xcirc)
+    # matrix such that A.dot(A.T)==Ci
+    A = np.sqrt(l.real) * v
+    # roto eescaleo para llevae al cicuulo a la elipse
+    xeli, yeli = np.dot(Xcirc.T, ln.inv(A)).T
     
     ax.plot(xeli+mux, yeli+muy, c=col, lw=0.5)
 
@@ -76,19 +78,38 @@ print('\t imagen', j)
 
 # %% testeo cada paso de propagacion
 imagePoints[j,0].shape
+# covariances
+Cccd = 2 * np.array([np.eye(2)]*imagePoints[j,0].shape[0])
 
-Cccd = np.array([np.eye(2)]*imagePoints[j,0].shape[0])
-
+# %% step by step calculation
 reload(cl)
 
 xp, yp, Cp = cl.ccd2homUndistorted(imagePoints[j].reshape(-1,2), cameraMatrix,  distCoeffs, model, cov=Cccd)
 
+Cp
+
+
+
+# %% plot ellipses
 fig = plt.figure()
 ax = fig.gca()
 
-for i in range(len(xp)):
+for i in range(1,len(xp)):
     print(Cp[i], xp[i], yp[i])
-    plotEllipse(ax, Cp[i], xp[i], yp[i], 'k')
+    #plotEllipse(ax, Cp[i], xp[i], yp[i], 'k')
+    
+    c, mux, muy, col = (Cp[i], xp[i], yp[i], 'k')
+    
+    l, v  = ln.eig(c)
+    print(i, l)
+    
+    D = v.T*s # queda con los autovectores como filas
+    
+    xeli, yeli = np.dot(ln.inv(D), Xcirc)
+    
+    ax.plot(xeli+mux, yeli+muy, c=col, lw=0.5)
+
+#
 
 # %%
 rvec = rVecs[j]
