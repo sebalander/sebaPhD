@@ -59,7 +59,7 @@ images = glob.glob(imagesFolder+'*.png')
 
 nIm, _, nPts, _ = imagePoints.shape  # cantidad de imagenes
 # Parametros de entrada/salida de la calibracion
-objpoints = np.array([chessboardModel]*n)
+objpoints = np.array([chessboardModel]*nIm)
 
 distCoeffsFile =   imagesFolder + camera + model + "DistCoeffs.npy"
 linearCoeffsFile = imagesFolder + camera + model + "LinearCoeffs.npy"
@@ -73,7 +73,7 @@ rVecs = np.load(rVecsFile)
 tVecs = np.load(tVecsFile)
 
 # %% choose image
-j = 10 # 18
+j = 11 # 18
 print('\t imagen', j)
 imagePoints = np.load(cornersFile)
 imagePoints = imagePoints[j,0]
@@ -83,7 +83,7 @@ img = plt.imread(images[j])
 # covariances
 Cccd = 2 * np.array([np.eye(2)]*imagePoints.shape[0])
 
-# %% plot initial uncertanties
+# plot initial uncertanties
 fig = plt.figure()
 ax = fig.gca()
 ax.imshow(img)
@@ -114,6 +114,7 @@ xp = q * xpp # undistort in homogenous coords
 yp = q * ypp
 
 rp = rpp * q
+plt.figure()
 plt.plot(rp, rpp, '+')
 
 xpp2 = xpp**2
@@ -147,7 +148,15 @@ def rototrasCovariance(Cp, xp, yp, rV, tV):
     r11, r12, r21, r22, r31,r32 = cv2.Rodrigues(rV)[0][:,:2].flatten()
     tx, ty, tz = tV.flatten()
     
-    C11 = (a*mx**2*r31**2 - 2*a*mx*r11*r31 + a*r11**2 + 2*b*mx*my*r31**2 - 2*b*mx*r21*r31 - 2*b*my*r11*r31 + 2*b*r11*r21 + c*my**2*r31**2 - 2*c*my*r21*r31 + c*r21**2)
+    C11 = (a*(mx**2*r31**2 + r11**2)
+           + c*(r21**2 + my**2*r31**2)
+           - 2*a*mx*r11*r31
+           + 2*b*mx*my*r31**2
+           - 2*b*mx*r21*r31
+           - 2*b*my*r11*r31
+           + 2*b*r11*r21
+          
+           - 2*c*my*r21*r31)
     
     C12 = (a*mx**2*r31*r32 - a*mx*r11*r32 - a*mx*r12*r31 + a*r11*r12 + 2*b*mx*my*r31*r32 - b*mx*r21*r32 - b*mx*r22*r31 - b*my*r11*r32 - b*my*r12*r31 + b*r11*r22 + b*r12*r21 + c*my**2*r31*r32 - c*my*r21*r32 - c*my*r22*r31 + c*r21*r22)
     
