@@ -147,10 +147,14 @@ def radialDistort(rp, k, quot=False, der=False):
         # derivative of quot of polynomials, "Direct" mapping
         dqD = (dNum * den - num * dDen) / den**2
         
+        dqDk = array([rp2, rp4, rp6, rp2, rp4, rp6])
+        dqDk[:3] /= den
+        dqDk[3:] *= num / den**2
+        
         if quot:
-            return q, dqD
+            return q, dqD, dqDk
         else:
-            return rp * q, dqD
+            return rp * q, dqD, dqDk
     else:
         if quot:
             return q
@@ -239,14 +243,14 @@ def radialUndistort(rpp, k, quot=False, der=False):
     
     if der:
         # derivada de la directa
-        _, dqD = radialDistort(rp, k, der=True)
+        _, dqD, dqDk = radialDistort(rp, k, der=True)
         # derivative of quotient of "Inverse" mapping
         dqI = - rp**3 * dqD / rpp**2 / (rpp + rp**2 * dqD)
         
         if quot:
-            return rp / rpp, retVal, dqI
+            return rp / rpp, retVal, dqI, dqDk
         else:
-            return rp, retVal, dqI
+            return rp, retVal, dqI, dqDk
     else:
         if quot:
             return rp / rpp, retVal

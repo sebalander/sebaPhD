@@ -12,7 +12,7 @@ from cv2 import Rodrigues, findHomography
 from numpy import min, max, ndarray, zeros, array, reshape, sqrt, roots
 from numpy import sin, cos, cross, ones, concatenate, flipud, dot, isreal
 from numpy import linspace, polyval, eye, linalg, mean, prod, vstack
-from numpy import empty_like
+from numpy import empty_like, ones_like, zeros_like
 from scipy.linalg import sqrtm, norm, inv
 from matplotlib.patches import FancyArrowPatch
 from mpl_toolkits.mplot3d import proj3d
@@ -309,7 +309,7 @@ def calibrateDirect(objectPoints, imagePoints, rVec, tVec, cameraMatrix, distCoe
 
 
 # %% INVERSE PROJECTION
-def ccd2hom(imagePoints, cameraMatrix, cov=None):
+def ccd2hom(imagePoints, cameraMatrix, cov=None, Cf=None):
     '''
     must provide covariances for every point if cov is not None
     '''
@@ -321,14 +321,29 @@ def ccd2hom(imagePoints, cameraMatrix, cov=None):
         return xpp, ypp
     else:
         C = dc(cov)
-        
         C[:,0,0] /= cameraMatrix[0, 0]**2
         C[:,1,1] /= cameraMatrix[1, 1]**2
         fxfy = cameraMatrix[0, 0] * cameraMatrix[1, 1]
         C[:,0,1] /= fxfy
         C[:,1,0] /= fxfy
         
-        return xpp, ypp, C
+        if Cf is None:
+            return xpp, ypp, C
+        else:
+            unos = ones_like(imagePoints[:,0])
+            ceros = zeros_like(unos)
+            a = - unos / cameraMatrix[0, 0]
+            b = (cameraMatrix[0, 2] - imagePoints[:,0]) * a**2
+            c = - unos / cameraMatrix[1, 1]
+            d = (cameraMatrix[1, 2] - imagePoints[:,1]) * c**2
+            
+            J = array([[a, ceros, b, ceros],[ceros, c, ceros, d]])
+            J = J.transpose((2,0,1))
+            
+            for i in range(unos.shape[0]):
+                C[i] += J[i].dot(Cf).dot(J[i].T)
+            
+            return xpp, ypp, C
 
 # switcher for radial un-distortion
 undistort = {
@@ -340,7 +355,7 @@ undistort = {
 }
 
 
-def ccd2homUndistorted(imagePoints, cameraMatrix,  distCoeffs, model, cov=None):
+def ccd2homUndistorted(imagePoints, cameraMatrix,  distCoeffs, model, cov=None, Cf=None, Ck=None):
     '''
     takes ccd cordinates and projects to homogenpus coords and undistorts
     '''
@@ -359,12 +374,15 @@ def ccd2homUndistorted(imagePoints, cameraMatrix,  distCoeffs, model, cov=None):
         return xp, yp
     else:
         # go to homogenous coords
-        xpp, ypp, Cpp = ccd2hom(imagePoints, cameraMatrix, cov)
+        if Cf is None:
+            xpp, ypp, Cpp = ccd2hom(imagePoints, cameraMatrix, cov)
+        else:
+            xpp, ypp, Cpp = ccd2hom(imagePoints, cameraMatrix, cov, Cf)
         
         rpp = norm([xpp, ypp], axis=0)
         
         # calculate ratio of undistorition and it's derivative wrt radius
-        q, _, dqI = undistort[model](rpp, distCoeffs, quot=True, der=True)
+        q, _, dqI, dqDk = undistort[model](rpp, distCoeffs, quot=True, der=True)
         
         xp = q * xpp # undistort in homogenous coords
         yp = q * ypp
@@ -374,7 +392,7 @@ def ccd2homUndistorted(imagePoints, cameraMatrix,  distCoeffs, model, cov=None):
         xypp = xpp * ypp
         dqIrpp = dqI / rpp
         
-        # calculo jacobiano
+        # calculo jacobiano de (xp,yp) wrt (xpp,ypp)
         J = array([[xpp2, xypp],[xypp, ypp2]])
         J *= dqIrpp.reshape(1,1,-1)
         J[0,0,:] += q
@@ -382,7 +400,7 @@ def ccd2homUndistorted(imagePoints, cameraMatrix,  distCoeffs, model, cov=None):
         
         Cp = empty_like(Cpp)
         for i in range(len(J)):
-            Cp[i] = J[:,:,i].dot(Cp[i]).dot(J[:,:,i].T)
+            Cp[i] = J[:,:,i].dot(Cpp[i]).dot(J[:,:,i].T)
         
         return xp, yp, Cp
 

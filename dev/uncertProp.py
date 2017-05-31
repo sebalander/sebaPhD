@@ -14,6 +14,130 @@ from importlib import reload
 import scipy.linalg as ln
 import cv2
 
+
+def cart2sphe(X):
+    '''
+    convert vector to spherical coordinates
+    '''
+    r = ln.norm(X)
+    # se asume seno de b positivo porque b esta en [0, pi]
+    a = np.arctan2(X[1], X[0])
+    
+    # elijo un par de intervalos donde debo usar el seno, para el resto uso cos
+    if (1 < a < 2.5) or (-2.5 < a < -1):
+        b = np.arctan2(X[1]/np.sin(a), X[2])
+    else:
+        b = np.arctan2(X[0]/np.cos(a), X[2])
+    
+    return r, a, b
+
+
+def jacobianosHom2Map(r, a, b, tx, ty, tz, xp, yp):
+    '''
+    returns the jacobians needed to calculate the propagation of uncertainty
+    
+    '''
+    x0 = ty - tz*yp
+    x3, x6, x2 = np.sin([r, a, b])
+    x9, x1, x8 = np.cos([r, a, b])
+    x4 = x2*x3
+    x5 = x1*x4
+    x7 = x2*x6
+    x10 = -x9
+    x11 = x10 + 1
+    x12 = x11*x8
+    x13 = x12*x7
+    x14 = -x13 - x5
+    x15, x16, x22, x26 = np.square([x6, x2, x1, x8])
+    x17 = x11*x16
+    x18 = x15*x17
+    x19 = x13 + x5
+    x20 = x19*yp
+    x21 = x18 - x20 + x9
+    x23 = x17*x22
+    x24 = x3*x7
+    x25 = -x24
+    x27 = x11*x26
+    x28 = x25 + x27
+    x29 = x28*xp
+    x30 = x23 - x29 + x9
+    x31 = x3*x8
+    x32 = x1*x6
+    x33 = x17*x32
+    x34 = -x28*yp + x31 + x33
+    x35 = -x19*xp - x31 + x33
+    x36 = x21*x30 - x34*x35
+    x37 = 1/x36
+    x38 = x24 - x27
+    x39 = x14*x34 - x21*x38
+    x40 = tx - tz*xp
+    x41 = x36**(-2)
+    x42 = x41*(x0*x35 - x21*x40)
+    x43 = -x14*x30 + x35*x38
+    x44 = x41*(-x0*x30 + x34*x40)
+    x45 = -x18
+    x46 = -x3
+    x47 = x16*x3
+    x48 = x1*x2
+    x49 = x31*x7 + x48*x9
+    x50 = x15*x47 + x46 - x49*yp
+    x51 = x8*x9
+    x52 = x32*x47
+    x53 = -x49*xp - x51 + x52
+    x54 = x26*x3 - x7*x9
+    x55 = x22*x47 + x46 - x54*xp
+    x56 = x51 + x52 - x54*yp
+    x57 = -x21*x55 - x30*x50 + x34*x53 + x35*x56
+    x58 = 2*x33
+    x59 = x12*x48 + x25
+    x60 = x58 - x59*yp
+    x61 = x23 + x45
+    x62 = -x59*xp + x61
+    x63 = x5*xp - x58
+    x64 = x5*yp + x61
+    x65 = -x21*x63 - x30*x60 + x34*x62 + x35*x64
+    x66 = 2*x12*x2
+    x67 = x1*x31 - x17*x6 + x27*x6
+    x68 = x15*x66 - x67*yp
+    x69 = 2*x1*x13
+    x70 = x4 - x67*xp + x69
+    x71 = -x31*x6 - x66
+    x72 = x22*x66 - x71*xp
+    x73 = -x4 + x69 - x71*yp
+    x74 = -x21*x72 - x30*x68 + x34*x70 + x35*x73
+    x75 = r*x2
+    x76 = r*x8
+    
+    # jacobiano de la pos en el mapa con respecto a las posiciones homogeneas
+    JX_Xp = np.array([[x37*(tz*x21 + x0*x14) + x39*x42,
+                       x37*(-tz*x35 - x14*x40) + x42*x43],
+                      [x37*(-tz*x34 - x0*x38) + x39*x44,
+                       x37*(tz*x30 + x38*x40) + x43*x44]], dtype=float)
+    
+    # jacobiano respecto a la traslacion
+    JX_tV = np.array([[x37*(x10 + x20 + x45), x35*x37, x37*(x21*xp - x35*yp)],
+                      [x34*x37, x37*(x10 - x23 + x29), x37*(x30*yp - x34*xp)]],
+                     dtype=float)
+    
+    # jacobiano de  posiciones en mapa wrt vector de rodrigues en esfericas
+    JX_rVsph = np.array([[x37*(x0*x53 - x40*x50) + x42*x57,
+                          x37*(x0*x62 - x40*x60) + x42*x65,
+                          x37*(x0*x70 - x40*x68) + x42*x74],
+                         [x37*(-x0*x55 + x40*x56) + x44*x57,
+                          x37*(-x0*x63 + x40*x64) + x44*x65,
+                          x37*(-x0*x72 + x40*x73) + x44*x74]], dtype=float)
+    
+    # jacobiano de vector de rodrigues cartesiano wrt esfericas
+    JrV_rVsph = np.array([[x48, -x6*x75, x1*x76],
+                          [x7,   x1*x75, x6*x76],
+                          [x8,        0,   -x75]], dtype=float)
+
+    JrVsph_rV = ln.inv(JrV_rVsph)
+
+    return JX_Xp, JX_tV, JX_rVsph, JrVsph_rV
+
+#
+
 # %%
 from scipy.special import chdtriv
 fi = np.linspace(0,2*np.pi,20)
@@ -67,10 +191,14 @@ tVecsFile =        imagesFolder + camera + model + "Tvecs.npy"
 rVecsFile =        imagesFolder + camera + model + "Rvecs.npy"
 
 # load model specific data
-distCoeffs = np.load(distCoeffsFile)
+distCoeffs = np.load(distCoeffsFile).reshape(-1)
 cameraMatrix = np.load(linearCoeffsFile)
 rVecs = np.load(rVecsFile)
 tVecs = np.load(tVecsFile)
+
+# covarianza de los parametros intrinsecos de la camara
+Cf = np.eye(4)*(0.1)**2
+Ck = np.diag((distCoeffs[[0,1,4,5,6,7]]*0.001)**2)  # 0.1% error distorsion
 
 # %% choose image
 j = 11 # 18
@@ -81,7 +209,7 @@ imagePoints = imagePoints[j,0]
 img = plt.imread(images[j])
 
 # covariances
-Cccd = 2 * np.array([np.eye(2)]*imagePoints.shape[0])
+Cccd = (0.5**2) * np.array([np.eye(2)]*imagePoints.shape[0])
 
 # plot initial uncertanties
 fig = plt.figure()
@@ -95,7 +223,7 @@ for i in range(nPts):
 
 # %% propagate to homogemous
 
-xpp, ypp, Cpp = cl.ccd2hom(imagePoints, cameraMatrix, cov=Cccd)
+xpp, ypp, Cpp = cl.ccd2hom(imagePoints, cameraMatrix, cov=Cccd, Cf=Cf)
 
 fig = plt.figure()
 ax = fig.gca()
@@ -104,18 +232,18 @@ for i in range(nPts):
 
 # 
 
-# %% go to undostorted homogenous
+# %% go to undistorted homogenous
 rpp = ln.norm([xpp, ypp], axis=0)
 
 # calculate ratio of undistorition and it's derivative wrt radius
-q, _, dqI = cl.undistort[model](rpp, distCoeffs, quot=True, der=True)
+q, _, dqI, dqDk = cl.undistort[model](rpp, distCoeffs, quot=True, der=True)
 
 xp = q * xpp # undistort in homogenous coords
 yp = q * ypp
 
 rp = rpp * q
-plt.figure()
-plt.plot(rp, rpp, '+')
+#plt.figure()
+#plt.plot(rp, rpp, '+')
 
 xpp2 = xpp**2
 ypp2 = ypp**2
@@ -128,54 +256,43 @@ J *= dqIrpp.reshape(1,1,-1)
 J[0,0,:] += q
 J[1,1,:] += q
 
+Jk = np.array([xpp, ypp]).T.reshape(-1,2,1) * dqDk.T.reshape(-1,1,6)
+
 Cp = np.empty_like(Cpp)
+
 for i in range(nPts):
-    Cp[i] = J[:,:,i].dot(Cpp[i]).dot(J[:,:,i].T)
+    Caux = Cpp[i] + Jk[i].dot(Ck).dot(Jk[i].T)
+    Cp[i] = J[:,:,i].dot(Caux).dot(J[:,:,i].T)
 
 
 fig = plt.figure()
 ax = fig.gca()
 for i in range(nPts):
     plotEllipse(ax, Cp[i], xp[i], yp[i], 'b')
+#
 
+# %% project to map
 # cargo la rototraslacion
-rV = rVecs[j]
-tV = tVecs[j]
+rV = rVecs[j].reshape(-1)
+tV = tVecs[j].reshape(-1)
 
-def rototrasCovariance(Cp, xp, yp, rV, tV):
-    a, b, _, c = Cp.flatten()
-    mx, my = (xp, yp)
-    r11, r12, r21, r22, r31,r32 = cv2.Rodrigues(rV)[0][:,:2].flatten()
-    tx, ty, tz = tV.flatten()
-    
-    C11 = (a*(mx**2*r31**2 + r11**2)
-           + c*(r21**2 + my**2*r31**2)
-           - 2*a*mx*r11*r31
-           + 2*b*mx*my*r31**2
-           - 2*b*mx*r21*r31
-           - 2*b*my*r11*r31
-           + 2*b*r11*r21
-          
-           - 2*c*my*r21*r31)
-    
-    C12 = (a*mx**2*r31*r32 - a*mx*r11*r32 - a*mx*r12*r31 + a*r11*r12 + 2*b*mx*my*r31*r32 - b*mx*r21*r32 - b*mx*r22*r31 - b*my*r11*r32 - b*my*r12*r31 + b*r11*r22 + b*r12*r21 + c*my**2*r31*r32 - c*my*r21*r32 - c*my*r22*r31 + c*r21*r22)
-    
-    C22 = (a*mx**2*r32**2 - 2*a*mx*r12*r32 + a*r12**2 + 2*b*mx*my*r32**2 - 2*b*mx*r22*r32 - 2*b*my*r12*r32 + 2*b*r12*r22 + c*my**2*r32**2 - 2*c*my*r22*r32 + c*r22**2)
-    
-    C = np.array([[C11, C12], [C12, C22]])
-    
-    #s=1
-    #alfa = -(a*mx**2*r31*tz - a*mx*r11*tz - a*mx*r31*tx + a*r11*tx + 2*b*mx*my*r31*tz - b*mx*r21*tz - b*mx*r31*ty - b*my*r11*tz - b*my*r31*tx + b*r11*ty + b*r21*tx + c*my**2*r31*tz - c*my*r21*tz - c*my*r31*ty + c*r21*ty - r31*s)
-    #
-    #beta = -(a*mx**2*r32*tz - a*mx*r12*tz - a*mx*r32*tx + a*r12*tx + 2*b*mx*my*r32*tz - b*mx*r22*tz - b*mx*r32*ty - b*my*r12*tz - b*my*r32*tx + b*r12*ty + b*r22*tx + c*my**2*r32*tz - c*my*r22*tz - c*my*r32*ty + c*r22*ty - r32*s)
-    #
-    #MUx, MUy = ln.inv(C).dot([alfa, beta])
+# invento unas covarianzas
+Cr = np.diag((rV*0.001)**2)
+Ct = np.diag((tV*0.001)**2)
 
-    return C
+r, a, b = cart2sphe(rV)
+tx, ty, tz = tV.reshape(-1)
+
+JX_Xp, JX_tV, JX_rVsph, JrVsph_rV = jacobianosHom2Map(r, a, b, tx, ty, tz, xp, yp)
+
 
 C = np.empty_like(Cp)
+Caux = JrVsph_rV.dot(Cr).dot(JrVsph_rV.T)
 for i in range(nPts):
-    C[i] = rototrasCovariance(Cp[i], xp[i], yp[i], rV, tV)
+    C[i] = JX_rVsph[:,:,i].dot(Caux).dot(JX_rVsph[:,:,i].T)
+    C[i] += JX_tV[:,:,i].dot(Ct).dot(JX_tV[:,:,i].T)
+    C[i] += JX_Xp[:,:,i].dot(Cp[i]).dot(JX_Xp[:,:,i].T)
+
 
 xm, ym, _ = cl.inverse(imagePoints, rV, tV, cameraMatrix, distCoeffs, model).T
 

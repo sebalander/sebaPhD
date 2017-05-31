@@ -84,7 +84,42 @@ C22 = + (a*mx**2*r32**2 - 2*a*mx*r12*r32 + a*r12**2 + 2*b*mx*my*r32**2 - 2*b*mx*
 '''
 
 
+# %%
 
+def rototrasCovariance(Cp, xp, yp, rV, tV):
+    '''
+    propaga la elipse proyectada por el conoide soble el plano del mapa
+    solo toma en cuenta la incerteza en xp, yp
+    '''
+    a, b, _, c = Cp.flatten()
+    mx, my = (xp, yp)
+    r11, r12, r21, r22, r31,r32 = cv2.Rodrigues(rV)[0][:,:2].flatten()
+    tx, ty, tz = tV.flatten()
+    
+    C11 = (a*(mx**2*r31**2 + r11**2)
+           + c*(r21**2 + my**2*r31**2)
+           - 2*a*mx*r11*r31
+           + 2*b*mx*my*r31**2
+           - 2*b*mx*r21*r31
+           - 2*b*my*r11*r31
+           + 2*b*r11*r21
+          
+           - 2*c*my*r21*r31)
+    
+    C12 = (a*mx**2*r31*r32 - a*mx*r11*r32 - a*mx*r12*r31 + a*r11*r12 + 2*b*mx*my*r31*r32 - b*mx*r21*r32 - b*mx*r22*r31 - b*my*r11*r32 - b*my*r12*r31 + b*r11*r22 + b*r12*r21 + c*my**2*r31*r32 - c*my*r21*r32 - c*my*r22*r31 + c*r21*r22)
+    
+    C22 = (a*mx**2*r32**2 - 2*a*mx*r12*r32 + a*r12**2 + 2*b*mx*my*r32**2 - 2*b*mx*r22*r32 - 2*b*my*r12*r32 + 2*b*r12*r22 + c*my**2*r32**2 - 2*c*my*r22*r32 + c*r22**2)
+    
+    C = np.array([[C11, C12], [C12, C22]])
+    
+    #s=1
+    #alfa = -(a*mx**2*r31*tz - a*mx*r11*tz - a*mx*r31*tx + a*r11*tx + 2*b*mx*my*r31*tz - b*mx*r21*tz - b*mx*r31*ty - b*my*r11*tz - b*my*r31*tx + b*r11*ty + b*r21*tx + c*my**2*r31*tz - c*my*r21*tz - c*my*r31*ty + c*r21*ty - r31*s)
+    #
+    #beta = -(a*mx**2*r32*tz - a*mx*r12*tz - a*mx*r32*tx + a*r12*tx + 2*b*mx*my*r32*tz - b*mx*r22*tz - b*mx*r32*ty - b*my*r12*tz - b*my*r32*tx + b*r12*ty + b*r22*tx + c*my**2*r32*tz - c*my*r22*tz - c*my*r32*ty + c*r22*ty - r32*s)
+    #
+    #MUx, MUy = ln.inv(C).dot([alfa, beta])
+
+    return C
 
 
 

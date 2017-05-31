@@ -78,7 +78,11 @@ simps, exps = sy.cse((JX_Xp, JX_tV, JX_rVsph, JrV_rVsph))
 # %% calculo de jacobianos
 
 
-def jacobianos(r, a, b, tx, ty, tz, xp, yp):
+def jacobianosHom2Map(r, a, b, tx, ty, tz, xp, yp):
+    '''
+    returns the jacobians needed to calculate the propagation of uncertainty
+    
+    '''
     x0 = ty - tz*yp
     x3, x6, x2 = np.sin([r, a, b])
     x9, x1, x8 = np.cos([r, a, b])
