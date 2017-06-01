@@ -122,7 +122,7 @@ def retrieveParameters(params):
 
 
 # %% ========== ========== DIRECT RATIONAL ========== ==========
-def radialDistort(rp, k, quot=False):
+def radialDistort(rp, k, quot=False, der=False):
     '''
     returns distorted radius using distortion coefficients k
     optionally it returns the distortion quotioent rpp = rp * q
@@ -134,10 +134,22 @@ def radialDistort(rp, k, quot=False):
     k.shape = -1
     q = 1 + k[0]*rp2 + k[1]*rp4 + k[4]*rp6
     
-    if quot:
-        return q
-    
-    return rp * q
+    if der:
+        # derivative of quot of polynomials, "Direct" mapping
+        dqD = rp * 2 * (k[0] + 2 * k[1]*rp2 + 3 * k[4]*rp4)
+        
+        dqDk = array([rp2, rp4, rp6])
+        
+        if quot:
+            return q, dqD, dqDk
+        else:
+            return rp * q, dqD, dqDk
+    else:
+        if quot:
+            return q
+        else:
+            return rp * q
+
 
 #
 #def direct(fiducialPoints, rVec, tVec, linearCoeffs, distCoeffs):
@@ -177,7 +189,7 @@ def radialDistort(rp, k, quot=False):
 
 
 # %% ========== ========== INVERSE RATIONAL ========== ==========
-def radialUndistort(rpp, k, quot=False):
+def radialUndistort(rpp, k, quot=False, der=True):
     '''
     takes distorted radius and returns the radius undistorted
     optioally it returns the undistortion quotient rp = rpp * q
@@ -217,10 +229,21 @@ def radialUndistort(rpp, k, quot=False):
     rp[retVal] = [min(rootsPoly[i, rPRB[i]].real)
                    for i in arange(rpp.shape[0])[retVal]]
     
-    if quot:
-        return rp / rpp, retVal
-    
-    return rp, retVal
+    if der:
+        # derivada de la directa
+        _, dqD, dqDk = radialDistort(rp, k, der=True)
+        # derivative of quotient of "Inverse" mapping
+        dqI = - rp**3 * dqD / rpp**2 / (rpp + rp**2 * dqD)
+        
+        if quot:
+            return rp / rpp, retVal, dqI, dqDk
+        else:
+            return rp, retVal, dqI, dqDk
+    else:
+        if quot:
+            return rp / rpp, retVal
+        else:
+            return rp, retVal
 
 #def inverse(imageCorners, rVec, tVec, linearCoeffs, distCoeffs):
 #    

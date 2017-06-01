@@ -12,12 +12,12 @@ from cv2 import Rodrigues, findHomography
 from numpy import min, max, ndarray, zeros, array, reshape, sqrt, roots
 from numpy import sin, cos, cross, ones, concatenate, flipud, dot, isreal
 from numpy import linspace, polyval, eye, linalg, mean, prod, vstack
-from numpy import empty_like, ones_like, zeros_like
+from numpy import empty_like, ones_like, zeros_like, pi
 from scipy.linalg import sqrtm, norm, inv
 from matplotlib.patches import FancyArrowPatch
 from mpl_toolkits.mplot3d import proj3d
 from copy import deepcopy as dc
-
+from scipy.linalg import eig
 from importlib import reload
 
 # %% Z=0 PROJECTION
@@ -977,6 +977,30 @@ def plotRationalDist(distCoeffs,imgSize, cameraMatrix):
     xlabel("radio")
     ylabel("radio distorsionado")
     
+
+# %%
+from scipy.special import chdtriv
+fi = linspace(0,2*pi,20)
+Xcirc = array([cos(fi), sin(fi)]) * chdtriv(0.1, 2)
+
+def plotEllipse(ax, C, mux, muy, col):
+    '''
+    se grafica una elipse asociada a la covarianza c, centrada en mux, muy
+    '''
+    Ci = inv(C)
+    
+    l, v = eig(Ci)
+    
+    # matrix such that A.dot(A.T)==Ci
+    A = sqrt(l.real) * v
+    # roto eescaleo para llevae al cicuulo a la elipse
+    xeli, yeli = dot(Xcirc.T, inv(A)).T
+    
+    ax.plot(xeli+mux, yeli+muy, c=col, lw=0.5)
+
+#
+
+
 
 # %% INRINSIC CALIBRATION
 switcherIntrinsicFunc = {

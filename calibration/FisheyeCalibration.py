@@ -64,7 +64,7 @@ def retrieveParameters(params):
 
 
 # %% ========== ========== DIRECT Fisheye ========== ==========
-def radialDistort(rp, k, quot=False):
+def radialDistort(rp, k, quot=False, der=False):
     '''
     returns distorted radius using distortion coefficients k
     optionally it returns the distortion quotioent rpp = rp * q
@@ -78,10 +78,24 @@ def radialDistort(rp, k, quot=False):
     k.shape = -1
     rpp = (1 + k[0]*th2 + k[1]*th4 + k[2]*th6 + k[3]*th8) * th
     
-    if quot:
-        return rpp / rp
-    
-    return rpp
+    if der:
+        # derivative of quot of polynomials, "Direct" mapping
+        dqD = (1 + 3 * k[0]*th2 + 4 * k[1]*th4 + 6 * k[2]*th6 + 9 * k[3]*th8)
+        dqD /= (1 + rp**2)
+        
+        dqDk = array([th2, th4, th6, th8]) * th
+        
+        if quot:
+            return rpp / rp, dqD, dqDk
+        else:
+            return rpp, dqD, dqDk
+    else:
+        if quot:
+            return rpp / rp
+        else:
+            return rpp
+
+
 #
 #
 #
@@ -120,7 +134,7 @@ def radialDistort(rp, k, quot=False):
 
 
 # %% ========== ========== INVERSE Fisheye ========== ==========
-def radialUndistort(rpp, k, quot=False):
+def radialUndistort(rpp, k, quot=False, der=False):
     '''
     takes distorted radius and returns the radius undistorted
     optionally it returns the undistortion quotioent rp = rpp * q
@@ -157,10 +171,22 @@ def radialUndistort(rpp, k, quot=False):
     rp = abs(tan(thetap))  # correct negative values
     # if theta angle is greater than pi/2, retVal=False
     retVal[thetap >= pi/2] = False
-    if quot:
-        return rp / rpp, retVal
     
-    return rp, retVal
+    if der:
+        # derivada de la directa
+        _, dqD, dqDk = radialDistort(rp, k, der=True)
+        # derivative of quotient of "Inverse" mapping
+        dqI = - rp**3 * dqD / rpp**2 / (rpp + rp**2 * dqD)
+        
+        if quot:
+            return rp / rpp, retVal, dqI, dqDk
+        else:
+            return rp, retVal, dqI, dqDk
+    else:
+        if quot:
+            return rp / rpp, retVal
+        else:
+            return rp, retVal
 #
 #def inverse(imageCorners, rVec, tVec, linearCoeffs, distCoeffs):
 #    
