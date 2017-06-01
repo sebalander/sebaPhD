@@ -9,7 +9,7 @@ from numpy import reshape, dot, real, any, empty_like, arange
 from cv2 import projectPoints, Rodrigues
 from lmfit import minimize, Parameters
 from calibration import calibrator
-xypToZplane = calibrator.xypToZplane
+#xypToZplane = calibrator.xypToZplane
 
 # %% ========== ========== RATIONAL PARAMETER HANDLING ========== ==========
 def formatParameters(rVec, tVec, linearCoeffs, distCoeffs):

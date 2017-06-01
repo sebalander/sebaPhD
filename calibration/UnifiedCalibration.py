@@ -8,7 +8,7 @@ from numpy import zeros, sqrt, array, prod
 from cv2 import  Rodrigues
 from lmfit import minimize, Parameters
 from calibration import calibrator
-xypToZplane = calibrator.xypToZplane
+#xypToZplane = calibrator.xypToZplane
 
 # %% ========== ==========  PARAMETER HANDLING ========== ==========
 def formatParameters(rVec, tVec, linearCoeffs, distCoeffs):

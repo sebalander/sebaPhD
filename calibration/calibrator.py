@@ -22,31 +22,6 @@ from importlib import reload
 
 # %% Z=0 PROJECTION
 
-def xypToZplane(xp, yp, rVec, tVec):
-    '''
-    projects a point from homogenous undistorted to 3D asuming z=0
-    '''
-    if prod(rVec.shape) == 3:
-        rVec = Rodrigues(rVec)[0]
-    
-    # auxiliar calculations
-    a = rVec[0,0] - rVec[2,0] * xp
-    b = rVec[0,1] - rVec[2,1] * xp
-    c = tVec[0] - tVec[2] * xp
-    d = rVec[1,0] - rVec[2,0] * yp
-    e = rVec[1,1] - rVec[2,1] * yp
-    f = tVec[1] - tVec[2] * yp
-    q = a*e - d*b
-    
-    X = (f*b - c*e) / q
-    Y = (c*d - f*a) / q
-    
-    #shape = (X.shape[0], 3)
-    XYZ = [X, Y, zeros(X.shape[0])]
-    XYZ = array(XYZ).T
-    # XYZ = XYZ.reshape(-1, 3)
-    
-    return XYZ
 
 def euler(al,be,ga):
     '''
@@ -309,7 +284,7 @@ def calibrateDirect(objectPoints, imagePoints, rVec, tVec, cameraMatrix, distCoe
 
 
 # %% INVERSE PROJECTION
-def ccd2hom(imagePoints, cameraMatrix, cov=None, Cf=None):
+def ccd2hom(imagePoints, cameraMatrix, Cccd=None, Cf=None):
     '''
     must provide covariances for every point if cov is not None
     '''
@@ -317,18 +292,18 @@ def ccd2hom(imagePoints, cameraMatrix, cov=None, Cf=None):
     xpp = (imagePoints[:,0] - cameraMatrix[0,2]) / cameraMatrix[0,0]
     ypp = (imagePoints[:,1] - cameraMatrix[1,2]) / cameraMatrix[1,1]
     
-    if cov is None:
+    if Cccd is None:
         return xpp, ypp
     else:
-        C = dc(cov)
-        C[:,0,0] /= cameraMatrix[0, 0]**2
-        C[:,1,1] /= cameraMatrix[1, 1]**2
+        Cpp = dc(Cccd)
+        Cpp[:,0,0] /= cameraMatrix[0, 0]**2
+        Cpp[:,1,1] /= cameraMatrix[1, 1]**2
         fxfy = cameraMatrix[0, 0] * cameraMatrix[1, 1]
-        C[:,0,1] /= fxfy
-        C[:,1,0] /= fxfy
+        Cpp[:,0,1] /= fxfy
+        Cpp[:,1,0] /= fxfy
         
         if Cf is None:
-            return xpp, ypp, C
+            return xpp, ypp, Cpp
         else:
             unos = ones_like(imagePoints[:,0])
             ceros = zeros_like(unos)
@@ -341,9 +316,9 @@ def ccd2hom(imagePoints, cameraMatrix, cov=None, Cf=None):
             J = J.transpose((2,0,1))
             
             for i in range(unos.shape[0]):
-                C[i] += J[i].dot(Cf).dot(J[i].T)
+                Cpp[i] += J[i].dot(Cf).dot(J[i].T)
             
-            return xpp, ypp, C
+            return xpp, ypp, Cpp
 
 # switcher for radial un-distortion
 undistort = {
@@ -355,14 +330,11 @@ undistort = {
 }
 
 
-def ccd2homUndistorted(imagePoints, cameraMatrix,  distCoeffs, model, cov=None, Cf=None, Ck=None):
+def homDist2homUndist(xpp, ypp, distCoeffs, model, Cpp=None, Ck=None):
     '''
     takes ccd cordinates and projects to homogenpus coords and undistorts
     '''
-    if cov is None:
-        # go to homogenous coords
-        xpp, ypp = ccd2hom(imagePoints, cameraMatrix)
-        
+    if Cpp is None:
         rpp = norm([xpp, ypp], axis=0)
         
         # calculate ratio of undistortion
@@ -373,12 +345,6 @@ def ccd2homUndistorted(imagePoints, cameraMatrix,  distCoeffs, model, cov=None, 
         
         return xp, yp
     else:
-        # go to homogenous coords
-        if Cf is None:
-            xpp, ypp, Cpp = ccd2hom(imagePoints, cameraMatrix, cov)
-        else:
-            xpp, ypp, Cpp = ccd2hom(imagePoints, cameraMatrix, cov, Cf)
-        
         rpp = norm([xpp, ypp], axis=0)
         
         # calculate ratio of undistorition and it's derivative wrt radius
@@ -392,19 +358,243 @@ def ccd2homUndistorted(imagePoints, cameraMatrix,  distCoeffs, model, cov=None, 
         xypp = xpp * ypp
         dqIrpp = dqI / rpp
         
-        # calculo jacobiano de (xp,yp) wrt (xpp,ypp)
+        # calculo jacobiano
         J = array([[xpp2, xypp],[xypp, ypp2]])
         J *= dqIrpp.reshape(1,1,-1)
         J[0,0,:] += q
         J[1,1,:] += q
         
+        Jk = array([xpp, ypp]).T.reshape(-1,2,1) * dqDk.T.reshape(-1,1,6)
+        
         Cp = empty_like(Cpp)
-        for i in range(len(J)):
-            Cp[i] = J[:,:,i].dot(Cpp[i]).dot(J[:,:,i].T)
+        
+        for i in range(len(xp)):
+            Caux = Cpp[i] + Jk[i].dot(Ck).dot(Jk[i].T)
+            Cp[i] = J[:,:,i].dot(Caux).dot(J[:,:,i].T)
         
         return xp, yp, Cp
 
-def inverse(imagePoints, rVec, tVec, cameraMatrix, distCoeffs, model, cov=None):
+
+def rototrasCovariance(xp, yp, rV, tV, Cp):
+    '''
+    propaga la elipse proyectada por el conoide soble el plano del mapa
+    solo toma en cuenta la incerteza en xp, yp
+    '''
+    a, b, _, c = Cp.flatten()
+    mx, my = (xp, yp)
+    
+    r11, r12, r21, r22, r31,r32 = Rodrigues(rV)[0][:,:2].flatten()
+    tx, ty, tz = tV.flatten()
+    
+    # auxiliar alculations
+    br11 = b*r11
+    bmx = b*mx
+    amx = a*mx
+    cmy = c*my
+    x0, x1, x2, x3, x4, x8, x9, x10, x11, x12, x13, x14 = 2*array([
+            br11, amx*r11, bmx*r21, br11*my, cmy*r21, bmx*my, b*r12, amx*r12,
+            bmx*r22, b*my*r12, cmy*r22, r31*r32])
+    x5, mx2, my2, x15 = array(r31, mx, my, r32)**2
+    x6 = a*mx2
+    x7 = c*my2
+    
+    # matrix elements
+    C11 = a*r11**2 + c*r21**2 + r21*x0 - r31*x1 - r31*x2 - r31*x3 - r31*x4
+    C11 += x5*x6 + x5*x7 + x5*x8
+    
+    C12 = r12*(2*a*r11) + r21*x9 + r22*x0 + r22*(2*c*r21) - r31*x10 - r31*x11
+    C12 += - r31*x12 - r31*x13 - r32*x1 - r32*x2 - r32*x3 - r32*x4 + x14*x6
+    C12 += x14*x7 + (4*r31*r32)*(bmx*my)
+    
+    C22 = a*r12**2 + c*r22**2 + r22*x9 - r32*x10 - r32*x11 - r32*x12 - r32*x13
+    C22 += x15*x6 + x15*x7 + x15*x8
+    
+    # compose covaciance matrix
+    Cm = array([[C11, C12], [C12, C22]])
+    
+    return Cm
+
+
+
+def jacobianosHom2Map(xp, yp, rV, tV):
+    '''
+    returns the jacobians needed to calculate the propagation of uncertainty
+    
+    '''
+    rx, ry, rz = rV
+    tx, ty, tz = tV
+    x0 = ty - tz*yp
+    x1 = rx**2
+    x2 = ry**2
+    x3 = rz**2
+    x4 = x1 + x2 + x3
+    x5 = sqrt(x4)
+    x6 = sin(x5)
+    x7 = x6/x5
+    x8 = rx*x7
+    x9 = -x8
+    x10 = ry*rz
+    x11 = 1/x4
+    x12 = cos(x5)
+    x13 = -x12
+    x14 = x13 + 1
+    x15 = x11*x14
+    x16 = x10*x15
+    x17 = -x16 + x9
+    x18 = x15*x2
+    x19 = x16 + x8
+    x20 = x19*yp
+    x21 = x12 + x18 - x20
+    x22 = x1*x15
+    x23 = ry*x7
+    x24 = -x23
+    x25 = x15*x3
+    x26 = x24 + x25
+    x27 = x26*xp
+    x28 = x12 + x22 - x27
+    x29 = rz*x7
+    x30 = -x29
+    x31 = rx*ry
+    x32 = x15*x31
+    x33 = -x19*xp + x30 + x32
+    x34 = -x26*yp + x29 + x32
+    x35 = x21*x28 - x33*x34
+    x36 = 1/x35
+    x37 = x23 - x25
+    x38 = x17*x34 - x21*x37
+    x39 = tx - tz*xp
+    x40 = x35**(-2)
+    x41 = x40*(x0*x33 - x21*x39)
+    x42 = -x17*x28 + x33*x37
+    x43 = x40*(-x0*x28 + x34*x39)
+    x44 = x6/x4**(3/2)
+    x45 = x2*x44
+    x46 = rx*x45
+    x47 = x4**(-2)
+    x48 = 2*rx*x14*x47
+    x49 = -x2*x48
+    x50 = x11*x12
+    x51 = x1*x44
+    x52 = x31*x44
+    x53 = rz*x52
+    x54 = 2*rz*x14*x47
+    x55 = -x31*x54
+    x56 = x53 + x55 + x7
+    x57 = x1*x50 - x51 + x56
+    x58 = x46 + x49 - x57*yp + x9
+    x59 = 2*ry*x14*x47
+    x60 = ry*x51 - x1*x59
+    x61 = rx*rz
+    x62 = x44*x61
+    x63 = x50*x61
+    x64 = ry*x15
+    x65 = -x57*xp + x60 + x62 - x63 + x64
+    x66 = rx**3
+    x67 = rx*x15
+    x68 = 2*x14*x47
+    x69 = x31*x50
+    x70 = x3*x44
+    x71 = rx*x70 - x3*x48 + x52 - x69
+    x72 = x44*x66 - x66*x68 + 2*x67 - x71*xp + x9
+    x73 = -x62
+    x74 = x60 + x63 + x64 - x71*yp + x73
+    x75 = -x21*x72 - x28*x58 + x33*x74 + x34*x65
+    x76 = ry**3
+    x77 = rz*x45 - x2*x54
+    x78 = rz*x15
+    x79 = -x52 + x69 + x77 + x78
+    x80 = x24 + x44*x76 + 2*x64 - x68*x76 - x79*yp
+    x81 = x46 + x49 + x67
+    x82 = x10*x44
+    x83 = x10*x50
+    x84 = -x83
+    x85 = -x79*xp + x81 + x82 + x84
+    x86 = ry*x70 - x3*x59
+    x87 = -x7
+    x88 = -x2*x50 + x45 + x86 + x87
+    x89 = x24 + x60 - x88*xp
+    x90 = x81 - x82 + x83 - x88*yp
+    x91 = -x21*x89 - x28*x80 + x33*x90 + x34*x85
+    x92 = x63 + x64 + x73 + x86
+    x93 = x30 + x77 - x92*yp
+    x94 = x3*x50
+    x95 = x53 + x55 + x70 + x87 - x92*xp - x94
+    x96 = rz**3
+    x97 = x44*x96 - x68*x96 + 2*x78 + x82 + x84
+    x98 = rz*x51 - x1*x54 + x30 - x97*xp
+    x99 = x56 - x70 + x94 - x97*yp
+    x100 = -x21*x98 - x28*x93 + x33*x99 + x34*x95
+    
+    # jacobiano de la pos en el mapa con respecto a las posiciones homogeneas
+    JXm_Xp = array([[x36*(tz*x21 + x0*x17) + x38*x41,
+                     x36*(-tz*x33 - x17*x39) + x41*x42],
+                    [x36*(-tz*x34 - x0*x37) + x38*x43,
+                     x36*(tz*x28 + x37*x39) + x42*x43]])
+    
+    # jacobiano respecto al vector de rodriguez
+    JXm_rV = array([[x36*(x0*x65 - x39*x58) + x41*x75,
+                     x36*(x0*x85 - x39*x80) + x41*x91,
+                     x100*x41 + x36*(x0*x95 - x39*x93)],
+                    [x36*(-x0*x72 + x39*x74) + x43*x75,
+                     x36*(-x0*x89 + x39*x90) + x43*x91,
+                     x100*x43 + x36*(-x0*x98 + x39*x99)]])
+    
+    # jacobiano respecto a la traslacion
+    JXm_tV = array([[x36*(x13 - x18 + x20),
+                     x33*x36,
+                     x36*(x21*xp - x33*yp)],
+                     [x34*x36,
+                     x36*(x13 - x22 + x27),
+                     x36*(x28*yp - x34*xp)]])
+
+    return JXm_Xp, JXm_rV, JXm_tV
+
+#
+
+def xypToZplane(xp, yp, rV, tV, Cp=None, Crt=None):
+    '''
+    projects a point from homogenous undistorted to 3D asuming z=0
+    '''
+    if prod(rV.shape) == 3:
+        R = Rodrigues(rV)[0]
+    
+    # auxiliar calculations
+    a = R[0,0] - R[2,0] * xp
+    b = R[0,1] - R[2,1] * xp
+    c = tV[0] - tV[2] * xp
+    d = R[1,0] - R[2,0] * yp
+    e = R[1,1] - R[2,1] * yp
+    f = tV[1] - tV[2] * yp
+    q = a*e - d*b
+    
+    xm = (f*b - c*e) / q
+    ym = (c*d - f*a) / q
+    
+    if Cp is None:
+        return xm, ym
+    else:
+        if Crt is None:
+            # calculo con el conoide
+            Cm = rototrasCovariance(xp, yp, rV, tV, Cp)
+            return xm, ym, Cm
+        
+        else:
+            Cr, Ct = Crt
+            # calculo jacobianos
+            JXm_Xp, JXm_rV, JXm_tV = jacobianosHom2Map(xp, yp, rV, tV)
+            # propago las matrices de incerteza
+            Cm = empty_like(Cp)
+            for i in range(len(xp)):
+                Cm[i] = JXm_Xp[:,:,i].dot(Cp[i]).dot(JXm_Xp[:,:,i].T)
+                Cm[i] += JXm_rV[:,:,i].dot(Cr).dot(JXm_rV[:,:,i].T)
+                Cm[i] += JXm_tV[:,:,i].dot(Ct).dot(JXm_tV[:,:,i].T)
+            
+            return xm, ym, Cm
+
+
+
+def inverse(imagePoints, rV, tV, cameraMatrix, distCoeffs, model,
+            Cccd=None, Cf=None, Ck=None, Crt=None):
     '''
     inverseFisheye(objPoints, rVec/rotMatrix, tVec, cameraMatrix,
                     distCoeffs)-> objPoints
@@ -415,15 +605,23 @@ def inverse(imagePoints, rVec, tVec, cameraMatrix, distCoeffs, model, cov=None):
     
     propagates covariance uncertainty
     '''
-    if cov is None:
-        xp, yp = ccd2homUndistorted(imagePoints, cameraMatrix, distCoeffs, model)
-        # project to plane z=0
-        return xypToZplane(xp, yp, rVec, tVec)
+    
+    if Cccd is None:
+        # project to homogenous distorted
+        xpp, ypp = ccd2hom(imagePoints, cameraMatrix)
+        # undistort
+        xp, yp = homDist2homUndist(xpp, ypp, distCoeffs, model)
+        # project to plane z=0 from homogenous
+        xm, ym = xypToZplane(xp, yp, rV, tV)
+        return xm, ym
     else:
-        xp, yp, sp = ccd2homUndistorted(imagePoints, cameraMatrix,
-                                        distCoeffs, model, cov)
-        # project to plane z=0
-        return xypToZplane(xp, yp, rVec, tVec, cov)
+        # project to homogenous distorted
+        xpp, ypp, Cpp = ccd2hom(imagePoints, cameraMatrix, Cccd, Cf)
+        # undistort
+        xp, yp, Cp = homDist2homUndist(xpp, ypp, distCoeffs, model, Cpp, Ck)
+        # project to plane z=0 from homogenous
+        xm, ym, Cm = xypToZplane(xp, yp, rV, tV, Cp, Crt)
+        return xm, ym, Cm
 
 
 def residualInverse(params, objectPoints, imagePoints, model):

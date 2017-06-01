@@ -12,129 +12,139 @@ from calibration import calibrator as cl
 import matplotlib.pyplot as plt
 from importlib import reload
 import scipy.linalg as ln
-import cv2
+from numpy import sqrt, cos, sin
 
 
-def cart2sphe(X):
-    '''
-    convert vector to spherical coordinates
-    '''
-    r = ln.norm(X)
-    # se asume seno de b positivo porque b esta en [0, pi]
-    a = np.arctan2(X[1], X[0])
-    
-    # elijo un par de intervalos donde debo usar el seno, para el resto uso cos
-    if (1 < a < 2.5) or (-2.5 < a < -1):
-        b = np.arctan2(X[1]/np.sin(a), X[2])
-    else:
-        b = np.arctan2(X[0]/np.cos(a), X[2])
-    
-    return r, a, b
-
-
-def jacobianosHom2Map(r, a, b, tx, ty, tz, xp, yp):
+def jacobianosHom2Map(rx, ry, rz, tx, ty, tz, xp, yp):
     '''
     returns the jacobians needed to calculate the propagation of uncertainty
     
     '''
     x0 = ty - tz*yp
-    x3, x6, x2 = np.sin([r, a, b])
-    x9, x1, x8 = np.cos([r, a, b])
-    x4 = x2*x3
-    x5 = x1*x4
-    x7 = x2*x6
-    x10 = -x9
-    x11 = x10 + 1
-    x12 = x11*x8
-    x13 = x12*x7
-    x14 = -x13 - x5
-    x15, x16, x22, x26 = np.square([x6, x2, x1, x8])
-    x17 = x11*x16
-    x18 = x15*x17
-    x19 = x13 + x5
+    x1 = rx**2
+    x2 = ry**2
+    x3 = rz**2
+    x4 = x1 + x2 + x3
+    x5 = sqrt(x4)
+    x6 = sin(x5)
+    x7 = x6/x5
+    x8 = rx*x7
+    x9 = -x8
+    x10 = ry*rz
+    x11 = 1/x4
+    x12 = cos(x5)
+    x13 = -x12
+    x14 = x13 + 1
+    x15 = x11*x14
+    x16 = x10*x15
+    x17 = -x16 + x9
+    x18 = x15*x2
+    x19 = x16 + x8
     x20 = x19*yp
-    x21 = x18 - x20 + x9
-    x23 = x17*x22
-    x24 = x3*x7
-    x25 = -x24
-    x27 = x11*x26
-    x28 = x25 + x27
-    x29 = x28*xp
-    x30 = x23 - x29 + x9
-    x31 = x3*x8
-    x32 = x1*x6
-    x33 = x17*x32
-    x34 = -x28*yp + x31 + x33
-    x35 = -x19*xp - x31 + x33
-    x36 = x21*x30 - x34*x35
-    x37 = 1/x36
-    x38 = x24 - x27
-    x39 = x14*x34 - x21*x38
-    x40 = tx - tz*xp
-    x41 = x36**(-2)
-    x42 = x41*(x0*x35 - x21*x40)
-    x43 = -x14*x30 + x35*x38
-    x44 = x41*(-x0*x30 + x34*x40)
-    x45 = -x18
-    x46 = -x3
-    x47 = x16*x3
-    x48 = x1*x2
-    x49 = x31*x7 + x48*x9
-    x50 = x15*x47 + x46 - x49*yp
-    x51 = x8*x9
-    x52 = x32*x47
-    x53 = -x49*xp - x51 + x52
-    x54 = x26*x3 - x7*x9
-    x55 = x22*x47 + x46 - x54*xp
-    x56 = x51 + x52 - x54*yp
-    x57 = -x21*x55 - x30*x50 + x34*x53 + x35*x56
-    x58 = 2*x33
-    x59 = x12*x48 + x25
-    x60 = x58 - x59*yp
-    x61 = x23 + x45
-    x62 = -x59*xp + x61
-    x63 = x5*xp - x58
-    x64 = x5*yp + x61
-    x65 = -x21*x63 - x30*x60 + x34*x62 + x35*x64
-    x66 = 2*x12*x2
-    x67 = x1*x31 - x17*x6 + x27*x6
-    x68 = x15*x66 - x67*yp
-    x69 = 2*x1*x13
-    x70 = x4 - x67*xp + x69
-    x71 = -x31*x6 - x66
-    x72 = x22*x66 - x71*xp
-    x73 = -x4 + x69 - x71*yp
-    x74 = -x21*x72 - x30*x68 + x34*x70 + x35*x73
-    x75 = r*x2
-    x76 = r*x8
+    x21 = x12 + x18 - x20
+    x22 = x1*x15
+    x23 = ry*x7
+    x24 = -x23
+    x25 = x15*x3
+    x26 = x24 + x25
+    x27 = x26*xp
+    x28 = x12 + x22 - x27
+    x29 = rz*x7
+    x30 = -x29
+    x31 = rx*ry
+    x32 = x15*x31
+    x33 = -x19*xp + x30 + x32
+    x34 = -x26*yp + x29 + x32
+    x35 = x21*x28 - x33*x34
+    x36 = 1/x35
+    x37 = x23 - x25
+    x38 = x17*x34 - x21*x37
+    x39 = tx - tz*xp
+    x40 = x35**(-2)
+    x41 = x40*(x0*x33 - x21*x39)
+    x42 = -x17*x28 + x33*x37
+    x43 = x40*(-x0*x28 + x34*x39)
+    x44 = x6/x4**(3/2)
+    x45 = x2*x44
+    x46 = rx*x45
+    x47 = x4**(-2)
+    x48 = 2*rx*x14*x47
+    x49 = -x2*x48
+    x50 = x11*x12
+    x51 = x1*x44
+    x52 = x31*x44
+    x53 = rz*x52
+    x54 = 2*rz*x14*x47
+    x55 = -x31*x54
+    x56 = x53 + x55 + x7
+    x57 = x1*x50 - x51 + x56
+    x58 = x46 + x49 - x57*yp + x9
+    x59 = 2*ry*x14*x47
+    x60 = ry*x51 - x1*x59
+    x61 = rx*rz
+    x62 = x44*x61
+    x63 = x50*x61
+    x64 = ry*x15
+    x65 = -x57*xp + x60 + x62 - x63 + x64
+    x66 = rx**3
+    x67 = rx*x15
+    x68 = 2*x14*x47
+    x69 = x31*x50
+    x70 = x3*x44
+    x71 = rx*x70 - x3*x48 + x52 - x69
+    x72 = x44*x66 - x66*x68 + 2*x67 - x71*xp + x9
+    x73 = -x62
+    x74 = x60 + x63 + x64 - x71*yp + x73
+    x75 = -x21*x72 - x28*x58 + x33*x74 + x34*x65
+    x76 = ry**3
+    x77 = rz*x45 - x2*x54
+    x78 = rz*x15
+    x79 = -x52 + x69 + x77 + x78
+    x80 = x24 + x44*x76 + 2*x64 - x68*x76 - x79*yp
+    x81 = x46 + x49 + x67
+    x82 = x10*x44
+    x83 = x10*x50
+    x84 = -x83
+    x85 = -x79*xp + x81 + x82 + x84
+    x86 = ry*x70 - x3*x59
+    x87 = -x7
+    x88 = -x2*x50 + x45 + x86 + x87
+    x89 = x24 + x60 - x88*xp
+    x90 = x81 - x82 + x83 - x88*yp
+    x91 = -x21*x89 - x28*x80 + x33*x90 + x34*x85
+    x92 = x63 + x64 + x73 + x86
+    x93 = x30 + x77 - x92*yp
+    x94 = x3*x50
+    x95 = x53 + x55 + x70 + x87 - x92*xp - x94
+    x96 = rz**3
+    x97 = x44*x96 - x68*x96 + 2*x78 + x82 + x84
+    x98 = rz*x51 - x1*x54 + x30 - x97*xp
+    x99 = x56 - x70 + x94 - x97*yp
+    x100 = -x21*x98 - x28*x93 + x33*x99 + x34*x95
     
     # jacobiano de la pos en el mapa con respecto a las posiciones homogeneas
-    JX_Xp = np.array([[x37*(tz*x21 + x0*x14) + x39*x42,
-                       x37*(-tz*x35 - x14*x40) + x42*x43],
-                      [x37*(-tz*x34 - x0*x38) + x39*x44,
-                       x37*(tz*x30 + x38*x40) + x43*x44]], dtype=float)
+    JXm_Xp = np.array([[x36*(tz*x21 + x0*x17) + x38*x41,
+                        x36*(-tz*x33 - x17*x39) + x41*x42],
+                       [x36*(-tz*x34 - x0*x37) + x38*x43,
+                        x36*(tz*x28 + x37*x39) + x42*x43]])
+    
+    # jacobiano respecto al vector de rodriguez
+    JXm_rV = np.array([[x36*(x0*x65 - x39*x58) + x41*x75,
+                        x36*(x0*x85 - x39*x80) + x41*x91,
+                        x100*x41 + x36*(x0*x95 - x39*x93)],
+                       [x36*(-x0*x72 + x39*x74) + x43*x75,
+                       x36*(-x0*x89 + x39*x90) + x43*x91,
+                       x100*x43 + x36*(-x0*x98 + x39*x99)]])
     
     # jacobiano respecto a la traslacion
-    JX_tV = np.array([[x37*(x10 + x20 + x45), x35*x37, x37*(x21*xp - x35*yp)],
-                      [x34*x37, x37*(x10 - x23 + x29), x37*(x30*yp - x34*xp)]],
-                     dtype=float)
-    
-    # jacobiano de  posiciones en mapa wrt vector de rodrigues en esfericas
-    JX_rVsph = np.array([[x37*(x0*x53 - x40*x50) + x42*x57,
-                          x37*(x0*x62 - x40*x60) + x42*x65,
-                          x37*(x0*x70 - x40*x68) + x42*x74],
-                         [x37*(-x0*x55 + x40*x56) + x44*x57,
-                          x37*(-x0*x63 + x40*x64) + x44*x65,
-                          x37*(-x0*x72 + x40*x73) + x44*x74]], dtype=float)
-    
-    # jacobiano de vector de rodrigues cartesiano wrt esfericas
-    JrV_rVsph = np.array([[x48, -x6*x75, x1*x76],
-                          [x7,   x1*x75, x6*x76],
-                          [x8,        0,   -x75]], dtype=float)
+    JXm_tV = np.array([[x36*(x13 - x18 + x20),
+                        x33*x36,
+                        x36*(x21*xp - x33*yp)],
+                       [x34*x36,
+                        x36*(x13 - x22 + x27),
+                        x36*(x28*yp - x34*xp)]])
 
-    JrVsph_rV = ln.inv(JrV_rVsph)
-
-    return JX_Xp, JX_tV, JX_rVsph, JrVsph_rV
+    return JXm_Xp, JXm_rV, JXm_tV
 
 #
 
@@ -223,7 +233,7 @@ for i in range(nPts):
 
 # %% propagate to homogemous
 
-xpp, ypp, Cpp = cl.ccd2hom(imagePoints, cameraMatrix, cov=Cccd, Cf=Cf)
+xpp, ypp, Cpp = cl.ccd2hom(imagePoints, cameraMatrix, Cccd=Cccd, Cf=Cf)
 
 fig = plt.figure()
 ax = fig.gca()
@@ -233,37 +243,39 @@ for i in range(nPts):
 # 
 
 # %% go to undistorted homogenous
-rpp = ln.norm([xpp, ypp], axis=0)
+#
+#rpp = ln.norm([xpp, ypp], axis=0)
+#
+## calculate ratio of undistorition and it's derivative wrt radius
+#q, _, dqI, dqDk = cl.undistort[model](rpp, distCoeffs, quot=True, der=True)
+#
+#xp = q * xpp # undistort in homogenous coords
+#yp = q * ypp
+#
+#rp = rpp * q
+##plt.figure()
+##plt.plot(rp, rpp, '+')
+#
+#xpp2 = xpp**2
+#ypp2 = ypp**2
+#xypp = xpp * ypp
+#dqIrpp = dqI / rpp
+#
+## calculo jacobiano
+#J = np.array([[xpp2, xypp],[xypp, ypp2]])
+#J *= dqIrpp.reshape(1,1,-1)
+#J[0,0,:] += q
+#J[1,1,:] += q
+#
+#Jk = np.array([xpp, ypp]).T.reshape(-1,2,1) * dqDk.T.reshape(-1,1,6)
+#
+#Cp = np.empty_like(Cpp)
+#
+#for i in range(nPts):
+#    Caux = Cpp[i] + Jk[i].dot(Ck).dot(Jk[i].T)
+#    Cp[i] = J[:,:,i].dot(Caux).dot(J[:,:,i].T)
 
-# calculate ratio of undistorition and it's derivative wrt radius
-q, _, dqI, dqDk = cl.undistort[model](rpp, distCoeffs, quot=True, der=True)
-
-xp = q * xpp # undistort in homogenous coords
-yp = q * ypp
-
-rp = rpp * q
-#plt.figure()
-#plt.plot(rp, rpp, '+')
-
-xpp2 = xpp**2
-ypp2 = ypp**2
-xypp = xpp * ypp
-dqIrpp = dqI / rpp
-
-# calculo jacobiano
-J = np.array([[xpp2, xypp],[xypp, ypp2]])
-J *= dqIrpp.reshape(1,1,-1)
-J[0,0,:] += q
-J[1,1,:] += q
-
-Jk = np.array([xpp, ypp]).T.reshape(-1,2,1) * dqDk.T.reshape(-1,1,6)
-
-Cp = np.empty_like(Cpp)
-
-for i in range(nPts):
-    Caux = Cpp[i] + Jk[i].dot(Ck).dot(Jk[i].T)
-    Cp[i] = J[:,:,i].dot(Caux).dot(J[:,:,i].T)
-
+xp, yp, Cp = cl.homDist2homUndist(xpp, ypp, distCoeffs, model, Cpp=Cpp, Ck=Ck)
 
 fig = plt.figure()
 ax = fig.gca()
@@ -279,104 +291,54 @@ tV = tVecs[j].reshape(-1)
 # invento unas covarianzas
 Cr = np.diag((rV*0.001)**2)
 Ct = np.diag((tV*0.001)**2)
+Crt = [Cr, Ct]
 
-r, a, b = cart2sphe(rV)
-tx, ty, tz = tV.reshape(-1)
+#rx, ry, rz = rV.reshape(-1)
+#tx, ty, tz = tV.reshape(-1)
+#
+#JXm_Xp, JXm_rV, JXm_tV = jacobianosHom2Map(rx, ry, rz, tx, ty, tz, xp, yp)
+#
+#
+#C = np.empty_like(Cp)
+#
+#for i in range(nPts):
+#    i, "      "
+#    #ln.svd(JXm_Xp[:,:,i])[1]
+#    a = JXm_Xp[:,:,i].dot(Cp[i]).dot(JXm_Xp[:,:,i].T)
+#    #np.trace(a)
+#    C[i] = a
+#    
+#    #ln.svd(JXm_rV[:,:,i])[1]
+#    b = JXm_rV[:,:,i].dot(Cr).dot(JXm_rV[:,:,i].T)
+#    #np.trace(b)
+#    C[i] += b
+#    
+#    #ln.svd(JXm_tV[:,:,i])[1]
+#    c = JXm_tV[:,:,i].dot(Ct).dot(JXm_tV[:,:,i].T)
+#    #np.trace(c)
+#    C[i] += c
+#    
+#    [np.trace(a), np.trace(b), np.trace(c)] / np.trace(C[i])
+#
+#xm, ym, _ = cl.inverse(imagePoints, rV, tV, cameraMatrix, distCoeffs, model).T
 
-JX_Xp, JX_tV, JX_rVsph, JrVsph_rV = jacobianosHom2Map(r, a, b, tx, ty, tz, xp, yp)
 
-
-C = np.empty_like(Cp)
-#Caux = JrVsph_rV.dot(Cr).dot(JrVsph_rV.T)
-#ln.svd(JrVsph_rV)[1]
-for i in range(nPts):
-    i, "      "
-    JX_rV = JX_rVsph[:,:,i].dot(JrVsph_rV)
-    ln.svd(JX_rV)[1]
-    C[i] = JX_rV.dot(Cr).dot(JX_rV.T)
-    
-    ln.svd(JX_tV[:,:,i])[1]
-    C[i] += JX_tV[:,:,i].dot(Ct).dot(JX_tV[:,:,i].T)
-    
-    ln.svd(JX_Xp[:,:,i])[1]
-    C[i] += JX_Xp[:,:,i].dot(Cp[i]).dot(JX_Xp[:,:,i].T)
-
-
-xm, ym, _ = cl.inverse(imagePoints, rV, tV, cameraMatrix, distCoeffs, model).T
+xm, ym, Cm = cl.xypToZplane(xp, yp, rV, tV, Cp=Cp, Crt=[Cr, Ct])
 
 fig = plt.figure()
 ax = fig.gca()
 ax.plot(xm, ym, '+', markersize=2)
 for i in range(nPts):
-    plotEllipse(ax, C[i], xm[i], ym[i], 'b')
-
-#
-
-# %% step by step calculation
-reload(cl)
-
-xp, yp, Cp = cl.ccd2homUndistorted(imagePoints[j].reshape(-1,2), cameraMatrix,  distCoeffs, model, cov=Cccd)
-
-Cp
+    plotEllipse(ax, Cm[i], xm[i], ym[i], 'b')
 
 
 
-# %% plot ellipses
+# %% in one line
+
+cl.inverse(imagePoints, rV, tV, cameraMatrix, distCoeffs, model, Cccd, Cf, Ck, Crt)
+
 fig = plt.figure()
 ax = fig.gca()
-
-for i in range(1,len(xp)):
-    print(Cp[i], xp[i], yp[i])
-    plotEllipse(ax, Cp[i], xp[i], yp[i], 'k')
-    
-#    c, mux, muy, col = (Cp[i], xp[i], yp[i], 'k')
-#    
-#    l, v  = ln.eig(c)
-#    print(i, l)
-#    
-#    D = v.T*np.sqrt(l) # queda con los autovectores como filas
-#    
-#    xeli, yeli = np.dot(ln.inv(D), Xcirc)
-#    
-#    ax.plot(xeli+mux, yeli+muy, c=col, lw=0.5)
-
-#
-
-# %%
-rvec = rVecs[j]
-tvec = tVecs[j]
-
-imagePointsProjected = cl.direct(chessboardModel, rvec, tvec,
-                                 cameraMatrix, distCoeffs, model)
-imagePointsProjected = imagePointsProjected.reshape((-1,2))
-
-objectPointsProjected = cl.inverse(imagePoints[j,0], rvec, tvec,
-                                    cameraMatrix, distCoeffs, model)
-objectPointsProjected = objectPointsProjected.reshape((-1,3))
-
-if plotCorners:
-    imagePntsX = imagePoints[j, 0, :, 0]
-    imagePntsY = imagePoints[j, 0, :, 1]
-
-    xPos = imagePointsProjected[:, 0]
-    yPos = imagePointsProjected[:, 1]
-
-    plt.figure(j)
-    im = plt.imread(images[j])
-    plt.imshow(im)
-    plt.plot(imagePntsX, imagePntsY, 'xr', markersize=10)
-    plt.plot(xPos, yPos, '+b', markersize=10)
-    #fig.savefig("distortedPoints3.png")
-
-# calculate distorted radius
-xpp, ypp = cl.ccd2hom(imagePoints[j,0], cameraMatrix)
-RPP[model].append(ln.norm([xpp,ypp], axis=0))
-
-# calculate undistorted homogenous radius from 3D rototraslation
-xyp = cl.rotoTrasHomog(chessboardModel, rVecs[j], tVecs[j])
-RP[model].append(ln.norm(xyp, axis=1))
-
-
-
-
-
+ax.plot(xm, ym, '+', markersize=2)
+for i in range(nPts):
+    plotEllipse(ax, Cm[i], xm[i], ym[i], 'b')
