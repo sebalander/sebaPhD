@@ -201,7 +201,7 @@ Cf = np.eye(4)*(0.1)**2
 Ck = np.diag((distCoeffs[[0,1,4,5,6,7]]*0.001)**2)  # 0.1% error distorsion
 
 # %% choose image
-j = 11 # 18
+j = 2
 print('\t imagen', j)
 imagePoints = np.load(cornersFile)
 imagePoints = imagePoints[j,0]
@@ -287,10 +287,18 @@ JX_Xp, JX_tV, JX_rVsph, JrVsph_rV = jacobianosHom2Map(r, a, b, tx, ty, tz, xp, y
 
 
 C = np.empty_like(Cp)
-Caux = JrVsph_rV.dot(Cr).dot(JrVsph_rV.T)
+#Caux = JrVsph_rV.dot(Cr).dot(JrVsph_rV.T)
+#ln.svd(JrVsph_rV)[1]
 for i in range(nPts):
-    C[i] = JX_rVsph[:,:,i].dot(Caux).dot(JX_rVsph[:,:,i].T)
+    i, "      "
+    JX_rV = JX_rVsph[:,:,i].dot(JrVsph_rV)
+    ln.svd(JX_rV)[1]
+    C[i] = JX_rV.dot(Cr).dot(JX_rV.T)
+    
+    ln.svd(JX_tV[:,:,i])[1]
     C[i] += JX_tV[:,:,i].dot(Ct).dot(JX_tV[:,:,i].T)
+    
+    ln.svd(JX_Xp[:,:,i])[1]
     C[i] += JX_Xp[:,:,i].dot(Cp[i]).dot(JX_Xp[:,:,i].T)
 
 
