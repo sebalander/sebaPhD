@@ -22,7 +22,9 @@ plotCorners = False
 camera = 'vcaWide'
 # puede ser ['rational', 'fisheye', 'poly']
 modelos = ['poly', 'rational', 'fisheye']
-model = modelos[1]
+model = modelos[2]
+
+model
 
 imagesFolder = "./resources/intrinsicCalib/" + camera + "/"
 cornersFile =      imagesFolder + camera + "Corners.npy"
@@ -52,7 +54,12 @@ tVecs = np.load(tVecsFile)
 
 # covarianza de los parametros intrinsecos de la camara
 Cf = np.eye(4)*(0.1)**2
-Ck = np.diag((distCoeffs[[0,1,4,5,6,7]]*0.001)**2)  # 0.1% error distorsion
+if model is 'poly':
+    Ck = np.diag((distCoeffs[[0,1,4]]*0.001)**2)  # 0.1% error distorsion
+if model is 'rational':
+    Ck = np.diag((distCoeffs[[0,1,4,5,6,7]]*0.001)**2)  # 0.1% error distorsion
+if model is 'fisheye':
+    Ck = np.diag((distCoeffs*0.001)**2)  # 0.1% error distorsion
 
 # %% choose image
 j = 2
@@ -62,8 +69,17 @@ imagePoints = imagePoints[j,0]
 
 img = plt.imread(images[j])
 
-# covariances
+# cargo la rototraslacion
+rV = rVecs[j].reshape(-1)
+tV = tVecs[j].reshape(-1)
+
+# invento unas covarianzas
 Cccd = (0.5**2) * np.array([np.eye(2)]*imagePoints.shape[0])
+
+Cr = np.diag((rV*0.001)**2)
+Ct = np.diag((tV*0.001)**2)
+Crt = [Cr, Ct]
+
 
 # plot initial uncertanties
 fig = plt.figure()
@@ -74,48 +90,35 @@ for i in range(nPts):
     cl.plotEllipse(ax, Cccd[i], x, y, 'b')
 
 #
-
-# %% propagate to homogemous
-
-xpp, ypp, Cpp = cl.ccd2hom(imagePoints, cameraMatrix, Cccd=Cccd, Cf=Cf)
-
-fig = plt.figure()
-ax = fig.gca()
-for i in range(nPts):
-    cl.plotEllipse(ax, Cpp[i], xpp[i], ypp[i], 'b')
-
-# 
-
-# %% go to undistorted homogenous
-
-xp, yp, Cp = cl.homDist2homUndist(xpp, ypp, distCoeffs, model, Cpp=Cpp, Ck=Ck)
-
-fig = plt.figure()
-ax = fig.gca()
-for i in range(nPts):
-    cl.plotEllipse(ax, Cp[i], xp[i], yp[i], 'b')
 #
-
-# %% project to map
-# cargo la rototraslacion
-rV = rVecs[j].reshape(-1)
-tV = tVecs[j].reshape(-1)
-
-# invento unas covarianzas
-Cr = np.diag((rV*0.001)**2)
-Ct = np.diag((tV*0.001)**2)
-Crt = [Cr, Ct]
-
-
-xm, ym, Cm = cl.xypToZplane(xp, yp, rV, tV, Cp=Cp, Crt=[Cr, Ct])
-
-fig = plt.figure()
-ax = fig.gca()
-ax.plot(xm, ym, '+', markersize=2)
-for i in range(nPts):
-    cl.plotEllipse(ax, Cm[i], xm[i], ym[i], 'b')
-
-
+## %% propagate to homogemous
+#
+#xpp, ypp, Cpp = cl.ccd2hom(imagePoints, cameraMatrix, Cccd=Cccd, Cf=Cf)
+#
+#fig = plt.figure()
+#ax = fig.gca()
+#for i in range(nPts):
+#    cl.plotEllipse(ax, Cpp[i], xpp[i], ypp[i], 'b')
+#
+## 
+#
+## %% go to undistorted homogenous
+#xp, yp, Cp = cl.homDist2homUndist(xpp, ypp, distCoeffs, model, Cpp=Cpp, Ck=Ck)
+#
+#fig = plt.figure()
+#ax = fig.gca()
+#for i in range(nPts):
+#    cl.plotEllipse(ax, Cp[i], xp[i], yp[i], 'b')
+##
+#
+## %% project to map
+#xm, ym, Cm = cl.xypToZplane(xp, yp, rV, tV, Cp=Cp, Crt=[Cr, Ct])
+#
+#fig = plt.figure()
+#ax = fig.gca()
+#ax.plot(xm, ym, '+', markersize=2)
+#for i in range(nPts):
+#    cl.plotEllipse(ax, Cm[i], xm[i], ym[i], 'b')
 
 # %% in one line
 

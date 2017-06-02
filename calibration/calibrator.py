@@ -364,7 +364,7 @@ def homDist2homUndist(xpp, ypp, distCoeffs, model, Cpp=None, Ck=None):
         J[0,0,:] += q
         J[1,1,:] += q
         
-        Jk = array([xpp, ypp]).T.reshape(-1,2,1) * dqDk.T.reshape(-1,1,6)
+        Jk = array([xpp, ypp]).T.reshape(-1,2,1) * dqDk.T.reshape(-1,1,Ck.shape[0])
         
         Cp = empty_like(Cpp)
         
