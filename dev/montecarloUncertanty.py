@@ -1,10 +1,13 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Created on Mon May 15 14:46:50 2017
+Created on Fri Jun  2 20:11:26 2017
+
+test uncertanty propagation wrt montecarlo
 
 @author: sebalander
 """
+
 # %%
 import numpy as np
 import glob
@@ -66,6 +69,7 @@ j = 2
 print('\t imagen', j)
 imagePoints = np.load(cornersFile)
 imagePoints = imagePoints[j,0]
+npts = imagePoints.shape[0]
 
 img = plt.imread(images[j])
 
@@ -89,43 +93,36 @@ for i in range(nPts):
     x, y = imagePoints[i]
     cl.plotEllipse(ax, Cccd[i], x, y, 'b')
 
-#
-#
-## %% propagate to homogemous
-#
-#xpp, ypp, Cpp = cl.ccd2hom(imagePoints, cameraMatrix, Cccd=Cccd, Cf=Cf)
-#
-#fig = plt.figure()
-#ax = fig.gca()
-#for i in range(nPts):
-#    cl.plotEllipse(ax, Cpp[i], xpp[i], ypp[i], 'b')
-#
-## 
-#
-## %% go to undistorted homogenous
-#xp, yp, Cp = cl.homDist2homUndist(xpp, ypp, distCoeffs, model, Cpp=Cpp, Ck=Ck)
-#
-#fig = plt.figure()
-#ax = fig.gca()
-#for i in range(nPts):
-#    cl.plotEllipse(ax, Cp[i], xp[i], yp[i], 'b')
-##
-#
-## %% project to map
-#xm, ym, Cm = cl.xypToZplane(xp, yp, rV, tV, Cp=Cp, Crt=[Cr, Ct])
-#
-#fig = plt.figure()
-#ax = fig.gca()
-#ax.plot(xm, ym, '+', markersize=2)
-#for i in range(nPts):
-#    cl.plotEllipse(ax, Cm[i], xm[i], ym[i], 'b')
-
-# %% in one line
-
+# %% in one line, analytical propagation
 xm, ym, Cm = cl.inverse(imagePoints, rV, tV, cameraMatrix, distCoeffs, model, Cccd, Cf, Ck, Crt)
+
+
+# %% simulate many
+N = 200
+
+# por suerte todas las pdfs son indep
+xI = np.random.randn(N,npts,2).dot(np.sqrt(Cccd[0])) + imagePoints
+rots = np.random.randn(N,3).dot(np.sqrt(Cr)) + rV
+tras = np.random.randn(N,3).dot(np.sqrt(Ct)) + tV
+kD = np.random.randn(N,Ck.shape[0]).dot(np.sqrt(Ck)) + distCoeffs  # disorsion
+kL = np.zeros((N, 3, 3), dtype=float)  # lineal
+kL[:,2,2] = 1
+kL[:,:2,2] = np.random.randn(N,2).dot(np.sqrt(Cf[2:,2:])) + cameraMatrix[:2,2]
+kL[:,[0,1],[0,1]] = np.random.randn(N,2).dot(np.sqrt(Cf[:2,:2]))
+kL[:,[0,1],[0,1]] += cameraMatrix[[0,1],[0,1]]
+
+xM = np.empty((N,npts), dtype=float)
+yM = np.empty_like(xM)
+
+for i in range(N):
+    xM[i], yM[i] = cl.inverse(xI[i], rots[i], tras[i], kL[i], kD[i], model)
 
 fig = plt.figure()
 ax = fig.gca()
 ax.plot(xm, ym, '+', markersize=2)
 for i in range(nPts):
     cl.plotEllipse(ax, Cm[i], xm[i], ym[i], 'b')
+
+ax.plot(xM,yM,'.k', markersize=0.5)
+
+
