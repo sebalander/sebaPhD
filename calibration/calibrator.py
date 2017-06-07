@@ -8,7 +8,7 @@ Created on Thu Aug 18 11:47:18 2016
 # %% IMPORTS
 from matplotlib.pyplot import plot, imshow, legend, show, figure, gcf, imread
 from matplotlib.pyplot import xlabel, ylabel
-from cv2 import Rodrigues, homogr2pose
+from cv2 import Rodrigues  # , homogr2pose
 from numpy import max, zeros, array, sqrt, roots
 from numpy import sin, cos, cross, ones, concatenate, flipud, dot, isreal
 from numpy import linspace, polyval, eye, linalg, mean, prod, vstack
@@ -50,92 +50,94 @@ def euler(al, be, ga):
 
     rot = array([[ca*cb, ca*sb*sg-sa*cg, ca*sb*cg+sa*sg],
                  [sa*cb, sa*sb*sg+ca*cg, sa*sb*cg+ca*sa],
-                 [ -sb, cb*sg, cb*cg]])
+                 [-sb, cb*sg, cb*cg]])
 
     return rot
 
-## %% HOMOGRAPHY
-#def pose2homogr(rVec, tVec):
+# %% HOMOGRAPHY
+# def pose2homogr(rVec, tVec):
 #    '''
 #    generates the homography from the pose descriptors
 #    '''
-#    
+#
 #    # calcular las puntas de los versores
 #    if rVec.shape == (3, 3):
 #        [x, y, z] = rVec
 #    else:
 #        [x, y, z] = Rodrigues(rVec)[0]
-#    
-#    
+#
 #    H = array([x, y, tVec[:, 0]]).T
-#    
+#
 #    return H
 #
 #
 #
-#def homogr2pose(H):
+# def homogr2pose(H):
 #    '''
 #    returns pose from the homography matrix
 #    '''
 #    r1B = H[:, 0]
 #    r2B = H[:, 1]
 #    r3B = cross(r1B, r2B)
-#    
+#
 #    # convert to versors of B described in A ref frame
 #    r1 = array([r1B[0], r2B[0], r3B[0]])
 #    r2 = array([r1B[1], r2B[1], r3B[1]])
 #    r3 = array([r1B[2], r2B[2], r3B[2]])
-#    
+#
 #    rot = array([r1, r2, r3]).T
 #    # make sure is orthonormal
 #    rotNorm = rot.dot(inv(sqrtm(rot.T.dot(rot))))
 #    rVec = Rodrigues(rotNorm)[0]  # make into rot vector
-#    
+#
 #    # rotate to get displ redcribed in A
 #    # tVec = np.dot(rot, -homography[2]).reshape((3, 1))
 #    tVec = H[:, 2].reshape((3, 1))
-#    
+#
 #    # rescale
 #    k = sqrt(norm(r1)*norm(r2))  # geometric mean
 #    tVec = tVec / k
-#    
+#
 #    return [rVec, tVec]
 #
 #
 #
 #
-#def estimateInitialPose(objectPoints, corners, cameraMatrix):
+# def estimateInitialPose(objectPoints, corners, cameraMatrix):
 #    '''
-#    estimateInitialPose(objectPoints, corners, f, imgSize) -> [rVecs, tVecs, Hs]
-#    
-#    Recieves fiducial points and list of corners (one for each image), proposed
+#    estimateInitialPose(objectPoints, corners, f, imgSize) -> [rVecs,
+#                                                               tVecs, Hs]
+#
+#    Recieves fiducial points and list of corners (one for each image),
+#    proposed
 #    focal distance 'f' and returns the estimated pose of the camera. asumes
 #    pinhole model.
-#<<<<<<< HEAD:poseCalibration.py
-#=======
-#    
+# <<<<<<< HEAD:poseCalibration.py
+# =======
+#
 #    this function doesn't work very well, use at your own risk
-#>>>>>>> 6d680e7d79797264e8842d99b669d04af01ee6e0:calibration/poseCalibration.py
+# >>>>> 6d680e7d79797264e8842d99b669d04af01ee6e0:calibration/poseCalibration.py
 #    '''
-#    
+#
 #    src = objectPoints[0]+[0, 0, 1]
 #    unos = ones((src.shape[0], 1))
-#    
+#
 #    rVecs = list()
 #    tVecs = list()
 #    Hs = list()
-#    
+#
 #    if len(corners.shape) < 4:
 #        corners = array([corners])
-#    
+#
 #    for cor in corners:
 #        # flip 'y' coordinates, so it works
 #        # why flip image:
-#        # http://stackoverflow.com/questions/14589642/python-matplotlib-inverted-image
+#        # http://stackoverflow.com/questions/14589642/
+#        # python-matplotlib-inverted-image
 #        # dst = [0, imgSize[0]] + cor[:, 0, :2]*[1, -1]
 #        x, y = cor.transpose((2, 0, 1))
 #        # le saque el -1 y el corrimiento y parece que da mejor??
-#        
+#
 #        # take to homogenous plane asuming intrinsic pinhole
 #        dst = concatenate(((x-cameraMatrix[0, 2])/cameraMatrix[0, 0],
 #                           (y-cameraMatrix[1, 2])/cameraMatrix[1, 1],
@@ -143,11 +145,11 @@ def euler(al, be, ga):
 #        # fit homography
 #        H = findHomography(src[:, :2], dst[:, :2], method=0)[0]
 #        Hs.append(H)
-#        
+#
 #        rVec, tVec = homogr2pose(H)
 #        rVecs.append(rVec)
 #        tVecs.append(tVec)
-#    
+#
 #    return [array(rVecs), array(tVecs), array(Hs)]
 
 
@@ -174,6 +176,7 @@ def rotateRodrigues(x, r):
         aux2 = rn.reshape((-1, 1)) * dot(x, rn) * (1 - ct)
         return aux1 + aux2.T
 
+
 def rotoTrasRodri(x, r, t):
     '''
     rototraslates all x points using r and t
@@ -188,6 +191,7 @@ def rotoTrasRodriInverse(x, r, t):
     '''
     t.shape = 3
     return rotateRodrigues(x - t, -r)
+
 
 def rotoTrasHomog(x, r, t):
     '''
@@ -221,6 +225,7 @@ def retrieveParameters(params, model):
         }
     return switcher[model](params)
 
+
 # %% DIRECT PROJECTION
 def hom2ccd(xpp, ypp, cameraMatrix):
     xccd = cameraMatrix[0, 0] * xpp + cameraMatrix[0, 2]
@@ -231,24 +236,24 @@ def hom2ccd(xpp, ypp, cameraMatrix):
 
 # switcher for radial distortion
 distort = {
-    'stereographic' : stereographic.radialDistort,
-    'unified' : unified.radialDistort,
-    'rational' : rational.radialDistort,
-    'poly' : poly.radialDistort,
-    'fisheye' : fisheye.radialDistort
+    'stereographic': stereographic.radialDistort,
+    'unified': unified.radialDistort,
+    'rational': rational.radialDistort,
+    'poly': poly.radialDistort,
+    'fisheye': fisheye.radialDistort
     }
 
 
-def direct(objectPoints, rVec, tVec, cameraMatrix, distCoeffs, model, ocv=False):
+def direct(objectPoints, rVec, tVec, cameraMatrix, distCoeffs, model,
+           ocv=False):
     '''
     performs projection form 3D world into image, is the "direct" distortion
     optionally it uses opencv's function if available
     '''
-
     xHomog = rotoTrasHomog(objectPoints, rVec, tVec)
-    
+
     rp = norm(xHomog, axis=1)
-    
+
     q = distort[model](rp, distCoeffs, quot=True)
     # print(xHomog.shape, q.shape)
     xpp, ypp = xHomog.T * q.reshape(1, -1)
@@ -256,30 +261,30 @@ def direct(objectPoints, rVec, tVec, cameraMatrix, distCoeffs, model, ocv=False)
     # project to ccd
     return hom2ccd(xpp, ypp, cameraMatrix)
 
+
 def residualDirect(params, objectPoints, imagePoints, model):
-    
     switcher = {
-        'stereographic' : stereographic.residualDirect,
-        'unified' : unified.residualDirect,
-        'rational' : rational.residualDirect,
-        'poly' : poly.residualDirect,
-        'fisheye' : fisheye.residualDirect
+        'stereographic': stereographic.residualDirect,
+        'unified': unified.residualDirect,
+        'rational': rational.residualDirect,
+        'poly': poly.residualDirect,
+        'fisheye': fisheye.residualDirect
         }
 
     return switcher[model](params, objectPoints, imagePoints)
 
 
-def calibrateDirect(objectPoints, imagePoints, rVec, tVec, cameraMatrix, distCoeffs, model):
-
+def calibrateDirect(objectPoints, imagePoints, rVec, tVec, cameraMatrix,
+                    distCoeffs, model):
     switcher = {
-        'stereographic' : stereographic.calibrateDirect,
-        'unified' : unified.calibrateDirect,
-        'rational' : rational.calibrateDirect,
-        'poly' : poly.calibrateDirect,
-        'fisheye' : fisheye.calibrateDirect
+        'stereographic': stereographic.calibrateDirect,
+        'unified': unified.calibrateDirect,
+        'rational': rational.calibrateDirect,
+        'poly': poly.calibrateDirect,
+        'fisheye': fisheye.calibrateDirect
         }
-
-    return switcher[model](objectPoints, imagePoints, rVec, tVec, cameraMatrix, distCoeffs)
+    return switcher[model](objectPoints, imagePoints, rVec, tVec,
+                           cameraMatrix, distCoeffs)
 
 
 # %% INVERSE PROJECTION
@@ -319,6 +324,7 @@ def ccd2hom(imagePoints, cameraMatrix, Cccd=None, Cf=None):
 
             return xpp, ypp, Cpp
 
+
 # switcher for radial un-distortion
 undistort = {
     'stereographic': stereographic.radialUndistort,
@@ -339,7 +345,7 @@ def homDist2homUndist(xpp, ypp, distCoeffs, model, Cpp=None, Ck=None):
         # calculate ratio of undistortion
         q, _ = undistort[model](rpp, distCoeffs, quot=True)
 
-        xp = q * xpp # undistort in homogenous coords
+        xp = q * xpp  # undistort in homogenous coords
         yp = q * ypp
 
         return xp, yp
@@ -347,9 +353,10 @@ def homDist2homUndist(xpp, ypp, distCoeffs, model, Cpp=None, Ck=None):
         rpp = norm([xpp, ypp], axis=0)
 
         # calculate ratio of undistorition and it's derivative wrt radius
-        q, _, dqI, dqDk = undistort[model](rpp, distCoeffs, quot=True, der=True)
+        q, _, dqI, dqDk = undistort[model](rpp, distCoeffs, quot=True,
+                                           der=True)
 
-        xp = q * xpp # undistort in homogenous coords
+        xp = q * xpp  # undistort in homogenous coords
         yp = q * ypp
 
         xpp2 = xpp**2
@@ -363,7 +370,8 @@ def homDist2homUndist(xpp, ypp, distCoeffs, model, Cpp=None, Ck=None):
         J[0, 0, :] += q
         J[1, 1, :] += q
 
-        Jk = array([xpp, ypp]).T.reshape(-1, 2, 1) * dqDk.T.reshape(-1, 1, Ck.shape[0])
+        Jk = (array([xpp, ypp]).T.reshape(-1, 2, 1) *
+              dqDk.T.reshape(-1, 1, Ck.shape[0]))
 
         Cp = empty_like(Cpp)
 
@@ -412,7 +420,6 @@ def rototrasCovariance(xp, yp, rV, tV, Cp):
     Cm = array([[C11, C12], [C12, C22]])
 
     return Cm
-
 
 
 def jacobianosHom2Map(xp, yp, rV, tV):
@@ -541,13 +548,12 @@ def jacobianosHom2Map(xp, yp, rV, tV):
     JXm_tV = array([[x36*(x13 - x18 + x20),
                      x33*x36,
                      x36*(x21*xp - x33*yp)],
-                     [x34*x36,
+                    [x34*x36,
                      x36*(x13 - x22 + x27),
                      x36*(x28*yp - x34*xp)]])
 
     return JXm_Xp, JXm_rV, JXm_tV
 
-#
 
 def xypToZplane(xp, yp, rV, tV, Cp=None, Crt=None):
     '''
@@ -590,7 +596,6 @@ def xypToZplane(xp, yp, rV, tV, Cp=None, Crt=None):
             return xm, ym, Cm
 
 
-
 def inverse(imagePoints, rV, tV, cameraMatrix, distCoeffs, model,
             Cccd=None, Cf=None, Ck=None, Crt=None):
     '''
@@ -623,32 +628,30 @@ def inverse(imagePoints, rV, tV, cameraMatrix, distCoeffs, model,
 
 
 def residualInverse(params, objectPoints, imagePoints, model):
-    
     switcher = {
-        'stereographic' : stereographic.residualInverse,
-        'unified' : unified.residualInverse,
-        'rational' : rational.residualInverse,
-        'poly' : poly.residualInverse,
-        'fisheye' : fisheye.residualInverse
+        'stereographic': stereographic.residualInverse,
+        'unified': unified.residualInverse,
+        'rational': rational.residualInverse,
+        'poly': poly.residualInverse,
+        'fisheye': fisheye.residualInverse
         }
-
     return switcher[model](params, objectPoints, imagePoints)
 
 
-def calibrateInverse(objectPoints, imagePoints, rVec, tVec, cameraMatrix, distCoeffs, model):
-
+def calibrateInverse(objectPoints, imagePoints, rVec, tVec, cameraMatrix,
+                     distCoeffs, model):
     switcher = {
-        'stereographic' : stereographic.calibrateInverse,
-        'unified' : unified.calibrateInverse,
-        'rational' : rational.calibrateInverse,
-        'poly' : poly.calibrateInverse,
-        'fisheye' : fisheye.calibrateInverse
+        'stereographic': stereographic.calibrateInverse,
+        'unified': unified.calibrateInverse,
+        'rational': rational.calibrateInverse,
+        'poly': poly.calibrateInverse,
+        'fisheye': fisheye.calibrateInverse
         }
+    return switcher[model](objectPoints, imagePoints, rVec, tVec, cameraMatrix,
+                           distCoeffs)
 
-    return switcher[model](objectPoints, imagePoints, rVec, tVec, cameraMatrix, distCoeffs)
 
 # %% PLOTTING
-
 # plot corners and their projection
 def cornerComparison(img, corners1, corners2=None,
                      label1='Corners', label2='Proyectados'):
@@ -678,6 +681,7 @@ def cornerComparison(img, corners1, corners2=None,
     legend()
     show()
 
+
 # compare fiducial points
 def fiducialComparison(rVec, tVec, fiducial1, fiducial2=None,
                        label1='Calibration points', label2='Projected points'):
@@ -685,27 +689,24 @@ def fiducialComparison(rVec, tVec, fiducial1, fiducial2=None,
     Draw on aplane two sets of fiducial points for comparison, ideally
     calibration and direct projected
     '''
-
-
     fiducial1 = fiducial1.reshape(-1, 3)
-    X1, Y1, _ = fiducial1.T  #[:, 0]
+    X1, Y1, _ = fiducial1.T  # [:, 0]
     # Y1 = fiducial1[:, 1]
 
     figure()
     plot(X1, Y1, 'xr', markersize=10, label=label1)
-
-#    
+#
 #    # set origin of MAP reference frame
 #    xM0 = min(X1)
 #    xM1 = max(X1)
 #    yM0 = min(Y1)
 #    yM1 = max(Y1)
-#    
+#
 #    # get a characteristic scale of the graph
 #    s = max([xM1 - xM0, yM1 - yM0]) / 10
-#    
+#
 #    t = array(tVec).reshape(3)
-#    
+#
 #    # calcular las puntas de los versores
 #    if rVec.shape == (3, 3):
 #        [x, y, z] = s * rVec.T
@@ -714,8 +715,6 @@ def fiducialComparison(rVec, tVec, fiducial1, fiducial2=None,
 #
 #    plot([t[0], t[0] + x[0]], [t[1], t[1] + x[1]], '-r', label='cam X')
 #    plot([t[0], t[0] + y[0]], [t[1], t[1] + y[1]], '-b', label='cam Y')
-
-
     if fiducial2 is not None:
         fiducial2 = fiducial2.reshape(-1, 3)
         X2, Y2, _ = fiducial2.T  # [:, 0]
@@ -728,6 +727,7 @@ def fiducialComparison(rVec, tVec, fiducial1, fiducial2=None,
     legend()
     show()
 
+
 class Arrow3D(FancyArrowPatch):
     def __init__(self, xs, ys, zs, *args, **kwargs):
         FancyArrowPatch.__init__(self, (0, 0), (0, 0), *args, **kwargs)
@@ -739,15 +739,15 @@ class Arrow3D(FancyArrowPatch):
         self.set_positions((xs[0], ys[0]), (xs[1], ys[1]))
         FancyArrowPatch.draw(self, renderer)
 
+
 def fiducialComparison3D(rVec, tVec, fiducial1, fiducial2=None,
-                         label1 = 'Fiducial points', label2 = 'Projected points'):
+                         label1='Fiducial points',
+                         label2='Projected points'):
     '''
     draw in 3D the position of the camera and the fiducial points, also can
     draw an extras et of fiducial points (projected). indicates orienteation
     of camera
-    
     '''
-
     fiducial1 = fiducial1.reshape(-1, 3)
 
     if prod(rVec.shape) == 3:
@@ -760,7 +760,6 @@ def fiducialComparison3D(rVec, tVec, fiducial1, fiducial2=None,
     # get a characteristic scale of the graph
     s = mean(linalg.norm(fiducialCam, axis=0)) / 3
 
-
     # set origin of MAP reference frame
 #    xM0 = min(X1)
 #    xM1 = max(X1)
@@ -768,10 +767,9 @@ def fiducialComparison3D(rVec, tVec, fiducial1, fiducial2=None,
 #    yM1 = max(Y1)
 #    zM0 = min(Z1)
 #    zM1 = max(Z1)
-#    
-#    
+#
 #    t = array(tVec).reshape(3)
-#    
+#
 #    # calcular las puntas de los versores
 #    if rVec.shape is (3, 3):
 #        [x, y, z] = s * rVec
@@ -780,7 +778,7 @@ def fiducialComparison3D(rVec, tVec, fiducial1, fiducial2=None,
 #    # get versors of map in cam coords
 #    [x, y, z] = s * rVec.T
 #
-##print(array([x, y, z]))
+# #print(array([x, y, z]))
 #    [x, y, z] = [x, y, z] + t
 #    #print(t)
 
@@ -790,14 +788,13 @@ def fiducialComparison3D(rVec, tVec, fiducial1, fiducial2=None,
     ax.plot(fiducialCam[0], fiducialCam[1], fiducialCam[2],
             'xr', markersize=10, label=label1)
 
-
 #    # get plot range
 #    if fiducial2 is not None:
 #        fiducial2 = fiducial2.reshape(-1, 3)
 #        X2, Y2, Z2 = fiducial2.T
-#        
+#
 #        ax.plot(X2, Y2, Z2, '+b', markersize=10, label=label2)
-#        
+#
 #        xmin = min([xM0, min(X2), t[0], x[0], y[0], z[0]])
 #        ymin = min([yM0, min(Y2), t[1], x[1], y[1], z[1]])
 #        zmin = min([zM0, min(Z2), t[2], x[2], y[2], z[2]])
@@ -811,11 +808,11 @@ def fiducialComparison3D(rVec, tVec, fiducial1, fiducial2=None,
 #        xmax = max([xM1, t[0], x[0], y[0], z[0]])
 #        ymax = max([yM1, t[1], x[1], y[1], z[1]])
 #        zmax = max([zM1, t[2], x[2], y[2], z[2]])
-    
+
 #    ax.set_xbound(xmin, xmax)
 #    ax.set_ybound(ymin, ymax)
 #    ax.set_zbound(zmin, zmax)
-#    
+#
 #    ejeX = Arrow3D([xM0, xM1],
 #                   [yM0, yM0],
 #                   [zM0, zM0],
@@ -828,7 +825,7 @@ def fiducialComparison3D(rVec, tVec, fiducial1, fiducial2=None,
 #                   [yM0, yM0],
 #                   [zM0, zM1],
 #                   mutation_scale=20, lw=1, arrowstyle="-|>", color="k")
-#    
+#
 #    origen = Arrow3D([xM0, t[0]],
 #                     [yM0, t[1]],
 #                     [zM0, t[2]],
@@ -845,7 +842,6 @@ def fiducialComparison3D(rVec, tVec, fiducial1, fiducial2=None,
 #                   [t[1], z[1]],
 #                   [t[2], z[2]],
 #                   mutation_scale=20, lw=3, arrowstyle="-|>", color="b")
-    
 #    ax.add_artist(ejeX)
 #    ax.add_artist(ejeY)
 #    ax.add_artist(ejeZ)
@@ -853,7 +849,7 @@ def fiducialComparison3D(rVec, tVec, fiducial1, fiducial2=None,
 #    ax.add_artist(ejeXc)
 #    ax.add_artist(ejeYc)
 #    ax.add_artist(ejeZc)
-#    
+#
     ax.legend()
 
     show()
@@ -861,36 +857,33 @@ def fiducialComparison3D(rVec, tVec, fiducial1, fiducial2=None,
 
 def joinPoints(pts1, pts2):
     figure()
-    plot(pts1[:, 0], pts1[:, 1], '+k');
-    plot(pts2[:, 0], pts2[:, 1], 'xr');
+    plot(pts1[:, 0], pts1[:, 1], '+k')
+    plot(pts2[:, 0], pts2[:, 1], 'xr')
 
     # unir con puntos
     for i in range(pts1.shape[0]):
         plot([pts1[i, 0], pts2[i, 0]],
-                 [pts1[i, 1], pts2[i, 1]], '-k');
+             [pts1[i, 1], pts2[i, 1]], '-k')
     return gcf()
 
 
 def plotHomographyToMatch(objectPoints, corners, f, imgSize, images=None):
-
     src = objectPoints[0] + [0, 0, 1]
 
     for i in range(len(corners)):
         # rectify corners and image
         dst = [0, imgSize[0]] + corners[i, :, 0, :2] * [1, -1]
 
-
         figure()
-        if images!=None:
+        if images is not None:
             img = imread(images[i])
-            imshow(flipud(img), origin='lower');
+            imshow(flipud(img), origin='lower')
         aux = src[:, :2] * f + imgSize / 2
         plot(dst[:, 0], dst[:, 1], '+r')
         plot(aux[:, 0], aux[:, 1], 'xk')
         for j in range(src.shape[0]):
             plot([dst[:, 0], aux[:, 0]],
-                 [dst[:, 1], aux[:, 1]], '-k');
-
+                 [dst[:, 1], aux[:, 1]], '-k')
 
 
 def plotForwardHomography(objectPoints, corners, f, imgSize, Hs, images=None):
@@ -907,10 +900,10 @@ def plotForwardHomography(objectPoints, corners, f, imgSize, Hs, images=None):
 
         # plot data
         fig = joinPoints(dst, dstP)
-        if images!=None:
+        if images is not None:
             img = imread(images[i])
             ax = fig.gca()
-            ax.imshow(flipud(img), origin='lower');
+            ax.imshow(flipud(img), origin='lower')
 
 
 def plotBackwardHomography(objectPoints, corners, f, imgSize, Hs):
@@ -923,24 +916,23 @@ def plotBackwardHomography(objectPoints, corners, f, imgSize, Hs):
         dst = [0, imgSize[0]] + corners[i, :, 0, :2] * [1, -1]
         dst = (dst - imgSize / 2) / f  # pinhole
         dst = concatenate((dst, unos), axis=1)
-        
+
         # calculate backward, source "Projected" points
         srcP = array([dot(Hi, ds) for ds in dst])
         srcP = array([srcP[:, 0] / srcP[:, 2],
-                         srcP[:, 1] / srcP[:, 2],
-                         unos[:, 0]]).T
+                      srcP[:, 1] / srcP[:, 2],
+                      unos[:, 0]]).T
 
+        fiducialProjected = (srcP - [0, 0, 1]).reshape(objectPoints.shape)
 
-        fiducialProjected = (srcP-[0, 0, 1]).reshape(objectPoints.shape)
-
-        rVec, tVec = homogr2pose(Hs[i]);
+        rVec, tVec = homogr2pose(Hs[i])
         fiducialComparison3D(rVec, tVec,
                              objectPoints, fiducialProjected,
                              label1="fiducial points",
-                             label2="%d ajuste"%i)
+                             label2="%d ajuste" % i)
+
 
 def plotRationalDist(distCoeffs, imgSize, cameraMatrix):
-
     k = distCoeffs[[0, 1, 4, 5, 6, 7], 0]
     pNum = [0, 1, 0, k[0], 0, k[1], 0, k[2]]
     pDen = [1, 0, k[3], 0, k[4], 0, k[5]]
@@ -994,9 +986,6 @@ def plotEllipse(ax, C, mux, muy, col):
 
     ax.plot(xeli+mux, yeli+muy, c=col, lw=0.5)
 
-#
-
-
 
 # %% INRINSIC CALIBRATION
 switcherIntrinsicFunc = {
@@ -1007,7 +996,7 @@ switcherIntrinsicFunc = {
 
 switcherIntrCalibFlags = {
     # CALIB_ZERO_TANGENT_DIST
-    'poly': 8,  #  (1 << 3)
+    'poly': 8,  # (1 << 3)
     # decided to not fix ppal point, CALIB_FIX_PRINCIPAL_POINT + (1 << 2)
     # CALIB_FIX_ASPECT_RATIO, (1 << 1) +
     # add CALIB_RATIONAL_MODEL
@@ -1019,11 +1008,10 @@ switcherIntrCalibFlags = {
 
 
 switcherIntrCalibD = {
-    'poly' : zeros((1, 5)),  # (1 << 1) + (1 << 3)
-    'rational' : zeros((1, 8)),  # (1 << 1) + (1 << 3) + (1 << 14)
-    'fisheye' : zeros((1, 4))   # (1 << 3)
+    'poly': zeros((1, 5)),  # (1 << 1) + (1 << 3)
+    'rational': zeros((1, 8)),  # (1 << 1) + (1 << 3) + (1 << 14)
+    'fisheye': zeros((1, 4))   # (1 << 3)
     }
-
 
 
 def calibrateIntrinsic(objpoints, imgpoints, imgSize, model, K=None, D=None,
@@ -1031,19 +1019,18 @@ def calibrateIntrinsic(objpoints, imgpoints, imgSize, model, K=None, D=None,
     '''
     only available for rational and fisheye, we use opencv's functions
     exclusively here
-    
+
     parameters defined by me for default use:
         K = [[600.0, 0.0,   imgSize[1]/2],
              0.0,    600.0, imgSize[0]/2],
              0.0,    0.0,        1]]
-        
+
         flags =  no skew and fixed ppal point, seems more apropiate
                           to our camera model
         criteria = (3, int(1e5), 1e-15)
-    
+
     return rms, K, D, rVecs, tVecs
     '''
-
     if K is None:
         K = eye(3)
         K[0, 2] = imgSize[1]/2
@@ -1102,4 +1089,3 @@ def calibrateIntrinsic(objpoints, imgpoints, imgSize, model, K=None, D=None,
 
     return switcherIntrinsicFunc[model](objpoints, imgpoints, imgSize, K, D,
                                         flags=flags, criteria=criteria)
-
