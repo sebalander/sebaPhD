@@ -17,7 +17,8 @@ from importlib import reload
 import scipy.linalg as ln
 from numpy import sqrt, cos, sin
 
-def calculaCovarianza(xM, yM):
+
+def calculaCovarianza(xM, yM,):
     '''
     lso inputs son de tamaño (Nsamples, Mpuntos)
     con Nsamples por cada uno de los Mpuntos puntos
@@ -28,14 +29,14 @@ def calculaCovarianza(xM, yM):
     xMcen = xM.T - muXm.reshape(-1, 1)
     yMcen = yM.T - muYm.reshape(-1, 1)
 
-    CmNum = np.empty_like(Cm)
+    CmNum = np.empty((xM.shape[1], 2, 2), dtype=float)
 
     CmNum[:, 0, 0] = np.sum(xMcen**2, axis=1)
     CmNum[:, 1, 1] = np.sum(yMcen**2, axis=1)
     CmNum[:, 0, 1] = CmNum[:, 1, 0] = np.sum(xMcen*yMcen, axis=1)
     CmNum /= (xM.shape[0] - 1)
 
-    return CmNum
+    return [muXm, muYm], CmNum
 
 
 # %% LOAD DATA
@@ -59,6 +60,7 @@ imagePoints = np.load(cornersFile)
 chessboardModel = np.load(patternFile)
 imgSize = tuple(np.load(imgShapeFile))
 images = glob.glob(imagesFolder+'*.png')
+imagePointsAll = np.load(cornersFile)
 
 nIm, _, nPts, _ = imagePoints.shape  # cantidad de imagenes
 # Parametros de entrada/salida de la calibracion
@@ -75,25 +77,31 @@ cameraMatrix = np.load(linearCoeffsFile)
 rVecs = np.load(rVecsFile)
 tVecs = np.load(tVecsFile)
 
+# %% invento unas covarianzas
+Ci = (1.0**2) * np.array([np.eye(2)]*imagePointsAll.shape[2])
+Cr = np.eye(3) * (np.pi / 180)**2
+Ct = np.eye(3) * 0.1**2
+Crt = [Cr, Ct]
 # covarianza de los parametros intrinsecos de la camara
-Cf = np.eye(4)*(0.1)**2
+Cf = np.eye(4) * 0.1**2
 if model is 'poly':
     Ck = np.diag((distCoeffs[[0, 1, 4]]*0.001)**2)  # 0.1% error distorsion
 if model is 'rational':
-    Ck = np.diag((distCoeffs[[0, 1, 4, 5, 6, 7]]*0.001)**2)  # 0.1% error distorsion
+    Ck = np.diag((distCoeffs[[0, 1, 4, 5, 6, 7]]*0.001)**2)  # 0.1% dist er
 if model is 'fisheye':
     Ck = np.diag((distCoeffs*0.001)**2)  # 0.1% error distorsion
 
-# %% choose 
+N = 1000  # cantidad de realizaciones 
 
-imSearch = '21h58m38s'
+
+# %% choose an image
+imSearch = '22h22m11s'
 for i in range(len(images)):
     if images[i].find(imSearch) is not -1:
         j = i
 
 print('\t imagen', j)
-imagePoints = np.load(cornersFile)
-imagePoints = imagePoints[j, 0]
+imagePoints = imagePointsAll[j, 0]
 npts = imagePoints.shape[0]
 
 img = plt.imread(images[j])
@@ -102,98 +110,111 @@ img = plt.imread(images[j])
 rV = rVecs[j].reshape(-1)
 tV = tVecs[j].reshape(-1)
 
-# invento unas covarianzas
-Ci = (1.0**2) * np.array([np.eye(2)]*imagePoints.shape[0])
-Cr = np.diag((rV*0.001)**2)
-Ct = np.diag((tV*0.001)**2)
-Crt = [Cr, Ct]
 
-# propagate to homogemous
-xpp, ypp, Cpp = cl.ccd2hom(imagePoints, cameraMatrix, Cccd=Ci, Cf=Cf)
+# %% funcion que hace todas las cuentas
+def analyticVsMC(imagePoints, Ci, cameraMatrix, Cf, distCoeffs, Ck, rtV, Crt):
+    rV, tV = rtV
+    
+    # propagate to homogemous
+    xpp, ypp, Cpp = cl.ccd2hom(imagePoints, cameraMatrix, Cccd=Ci, Cf=Cf)
+    
+    # go to undistorted homogenous
+    xp, yp, Cp = cl.homDist2homUndist(xpp, ypp, distCoeffs, model, Cpp=Cpp, Ck=Ck)
+    
+    # project to map
+    xm, ym, Cm = cl.xypToZplane(xp, yp, rV, tV, Cp=Cp, Crt=Crt)
+    
+    # generar puntos y parametros
+    # por suerte todas las pdfs son indep
+    xI = np.random.randn(N, npts, 2).dot(np.sqrt(Ci[0])) + imagePoints
+    rots = np.random.randn(N, 3).dot(np.sqrt(Cr)) + rV
+    tras = np.random.randn(N, 3).dot(np.sqrt(Ct)) + tV
+    kD = np.random.randn(N, Ck.shape[0]).dot(np.sqrt(Ck)) + distCoeffs  # disorsion
+    kL = np.zeros((N, 3, 3), dtype=float)  # lineal
+    kL[:, 2, 2] = 1
+    kL[:, :2, 2] = np.random.randn(N, 2).dot(np.sqrt(Cf[2:, 2:])) + cameraMatrix[:2, 2]
+    kL[:, [0, 1], [0, 1]] = np.random.randn(N, 2).dot(np.sqrt(Cf[:2, :2]))
+    kL[:, [0, 1], [0, 1]] += cameraMatrix[[0, 1], [0, 1]]
+    
+    xPP, yPP, xP, yP, xM, yM = np.empty((6, N, npts), dtype=float)
+    
+    for i in range(N):
+        # % propagate to homogemous
+        xPP[i], yPP[i] = cl.ccd2hom(xI[i], kL[i])
+    
+        # % go to undistorted homogenous
+        xP[i], yP[i] = cl.homDist2homUndist(xPP[i], yPP[i], kD[i], model)
+    
+        # % project to map
+        xM[i], yM[i] = cl.xypToZplane(xP[i], yP[i], rots[i], tras[i])
 
-# go to undistorted homogenous
-xp, yp, Cp = cl.homDist2homUndist(xpp, ypp, distCoeffs, model, Cpp=Cpp, Ck=Ck)
+    muI, CiNum = calculaCovarianza(xI[:, :, 0], xI[:, :, 1])
+    muPP, CppNum = calculaCovarianza(xPP, yPP)
+    muP, CpNum = calculaCovarianza(xP, yP)
+    muM, CmNum = calculaCovarianza(xM, yM)
 
-# project to map
-xm, ym, Cm = cl.xypToZplane(xp, yp, rV, tV, Cp=Cp, Crt=[Cr, Ct])
+    ptsTeo = [imagePoints, [xpp, ypp], [xp, yp], [xm, ym]]
+    ptsNum = [muI, muPP, muP, muM]
 
+    covTeo = [Ci, Cpp, Cp, Cm]
+    covNum = [CiNum, CppNum, CpNum, CmNum]
 
-# %% simulate many
-N = 1000
+    return ptsTeo, ptsNum, covTeo, covNum
 
-# por suerte todas las pdfs son indep
-xI = np.random.randn(N, npts, 2).dot(np.sqrt(Ci[0])) + imagePoints
-rots = np.random.randn(N, 3).dot(np.sqrt(Cr)) + rV
-tras = np.random.randn(N, 3).dot(np.sqrt(Ct)) + tV
-kD = np.random.randn(N, Ck.shape[0]).dot(np.sqrt(Ck)) + distCoeffs  # disorsion
-kL = np.zeros((N, 3, 3), dtype=float)  # lineal
-kL[:, 2, 2] = 1
-kL[:, :2, 2] = np.random.randn(N, 2).dot(np.sqrt(Cf[2:, 2:])) + cameraMatrix[:2, 2]
-kL[:, [0, 1], [0, 1]] = np.random.randn(N, 2).dot(np.sqrt(Cf[:2, :2]))
-kL[:, [0, 1], [0, 1]] += cameraMatrix[[0, 1], [0, 1]]
+# %%
+rtV = [rV, tV]
+ptsTeo, ptsNum, covTeo, covNum = analyticVsMC(imagePoints, Ci, cameraMatrix, Cf, distCoeffs, Ck, rtV, Crt)
 
-xPP, yPP, xP, yP, xM, yM = np.empty((6, N, npts), dtype=float)
+xI, [xpp, ypp], [xp, yp], [xm, ym] = ptsTeo
+muI, muPP, muP, muM = ptsNum
+Ci, Cpp, Cp, Cm = covTeo
+CiNum, CppNum, CpNum, CmNum = covNum
 
-for i in range(N):
-    # % propagate to homogemous
-    xPP[i], yPP[i] = cl.ccd2hom(xI[i], kL[i])
-
-    # % go to undistorted homogenous
-    xP[i], yP[i] = cl.homDist2homUndist(xPP[i], yPP[i], kD[i], model)
-
-    # % project to map
-    xM[i], yM[i] = cl.xypToZplane(xP[i], yP[i], rots[i], tras[i])
-
-
-# %% plot everything
-
-# plot initial uncertanties
-fig1 = plt.figure(1)
-ax1 = fig1.gca()
-ax1.imshow(img)
-#for i in range(nPts):
-#    x, y = imagePoints[i]
-#    cl.plotEllipse(ax1, Ci[i], x, y, 'b')
-
-# propagate to homogemous
-fig2 = plt.figure(2)
-ax2 = fig2.gca()
-#for i in range(nPts):
-#    cl.plotEllipse(ax2, Cpp[i], xpp[i], ypp[i], 'b')
-
-# go to undistorted homogenous
-fig3 = plt.figure(3)
-ax3 = fig3.gca()
-#for i in range(nPts):
-#    cl.plotEllipse(ax3, Cp[i], xp[i], yp[i], 'b')
-
-# project to map
-fig4 = plt.figure(4)
-ax4 = fig4.gca()
-ax4.plot(xm, ym, '+', markersize=2)
-#for i in range(nPts):
-#    cl.plotEllipse(ax4, Cm[i], xm[i], ym[i], 'b')
-
-
-for i in range(N):
-    # plot corners
-    ax1.plot(xI[i, :, 0], xI[i, :, 1], '.k', markersize=0.5)
-
-    # % propagate to homogemous
-    ax2.plot(xPP[i], yPP[i], '.k', markersize=0.5)
-
-    # % go to undistorted homogenous
-    ax3.plot(xP[i], yP[i], '.k', markersize=0.5)
-
-    # % project to map
-    ax4.plot(xM[i], yM[i], '.k', markersize=0.5)
+## %% plot everything
+#
+## plot initial uncertanties
+#fig1 = plt.figure(1)
+#ax1 = fig1.gca()
+#ax1.imshow(img)
+##for i in range(nPts):
+##    x, y = imagePoints[i]
+##    cl.plotEllipse(ax1, Ci[i], x, y, 'b')
+#
+## propagate to homogemous
+#fig2 = plt.figure(2)
+#ax2 = fig2.gca()
+##for i in range(nPts):
+##    cl.plotEllipse(ax2, Cpp[i], xpp[i], ypp[i], 'b')
+#
+## go to undistorted homogenous
+#fig3 = plt.figure(3)
+#ax3 = fig3.gca()
+##for i in range(nPts):
+##    cl.plotEllipse(ax3, Cp[i], xp[i], yp[i], 'b')
+#
+## project to map
+#fig4 = plt.figure(4)
+#ax4 = fig4.gca()
+#ax4.plot(xm, ym, '+', markersize=2)
+##for i in range(nPts):
+##    cl.plotEllipse(ax4, Cm[i], xm[i], ym[i], 'b')
+#
+#
+#for i in range(N):
+#    # plot corners
+#    ax1.plot(xI[i, :, 0], xI[i, :, 1], '.k', markersize=0.5)
+#
+#    # % propagate to homogemous
+#    ax2.plot(xPP[i], yPP[i], '.k', markersize=0.5)
+#
+#    # % go to undistorted homogenous
+#    ax3.plot(xP[i], yP[i], '.k', markersize=0.5)
+#
+#    # % project to map
+#    ax4.plot(xM[i], yM[i], '.k', markersize=0.5)
 
 
 # %% comparo numericamente
-CiNum = calculaCovarianza(xI[:, :, 0], xI[:, :, 1])
-CppNum = calculaCovarianza(xPP, yPP)
-CpNum = calculaCovarianza(xP, yP)
-CmNum = calculaCovarianza(xM, yM)
 
 # calculo las normas de frobenius de cada matriz y de la diferencia
 CiF, CppF, CpF, CmF = [ln.norm(C, axis=(1,2)) for C in [Ci, Cpp, Cp, Cm]]
@@ -202,22 +223,33 @@ CiNF, CppNF, CpNF, CmNF = [ln.norm(C, axis=(1,2)) for C in [CiNum, CppNum, CpNum
 CiDF, CppDF, CpDF, CmDF = [ln.norm(C, axis=(1,2))
     for C in [Ci - CiNum, Cpp - CppNum, Cp - CpNum, Cm - CmNum]]
 
-# %% grafico las normas de las covarianzas
-# radios respecto al centro de distorsion
+li, lpp, lp, lm = np.empty((4,npts,3), dtype=float)
+liN, lppN, lpN, lmN = np.empty((4,npts,3), dtype=float)
+
+# %%
+def sacoValsAng(C):
+    npts = C.shape[0]
+    L = np.empty((npts, 3), dtype=float)
+    # calculo valores singulares y angulo
+    for i in range(npts):
+        l, v = ln.eig(C[i])
+        L[i] = [np.sqrt(l[0].real), np.sqrt(l[1].real), np.arctan(v[0, 1] / v[0, 0])]
+    return L
+
+Li, Lpp, Lp, Lm = [sacoValsAng(C) for C in [Ci, Cpp, Cp, Cm]]
+LiN, LppN, LpN, LmN = [sacoValsAng(C) for C in [CiNum, CppNum, CpNum, CmNum]]
+
+
+# %% "indicadores" de covarianza
 rads = ln.norm(imagePoints - cameraMatrix[:2, 2], axis=1)
 
-plt.figure()
-plt.subplot(221)
-plt.scatter(rads, CiDF / CiF)
+tVm = cl.rotateRodrigues(tV,-rV) # traslation vector in maps frame of ref
+factorVista = ln.norm(chessboardModel[0].T + tVm.reshape(-1,1), axis=0) / tVm[2]
 
-plt.subplot(222)
-plt.scatter(rads, CppDF / CppF)
 
-plt.subplot(223)
-plt.scatter(rads, CpDF / CpF)
 
-plt.subplot(224)
-plt.scatter(rads, CmDF / CmF)
+# %% grafico las normas de las covarianzas
+# radios respecto al centro de distorsion
 
 '''
 ver que la diferencia entre las covarianzas depende del radio y esta diferencia
@@ -233,16 +265,187 @@ el ultimo paso del mapeo.
 plt.figure()
 plt.subplot(221)
 plt.scatter(rads, CiF)
+plt.scatter(rads, CiNF)
 
 plt.subplot(222)
 plt.scatter(rads, CppF)
+plt.scatter(rads, CppNF)
 
 plt.subplot(223)
 plt.scatter(rads, CpF)
+plt.scatter(rads, CpNF)
 
 plt.subplot(224)
 plt.scatter(rads, CmF)
+plt.scatter(rads, CmNF)
 
+
+# %%
+rads = factorVista
+plt.figure()
+
+var = 0
+plt.subplot(341)
+plt.scatter(rads, Li[:, var])
+plt.scatter(rads, LiN[:, var])
+
+plt.subplot(342)
+plt.scatter(rads, Lpp[:, var])
+plt.scatter(rads, LppN[:, var])
+
+plt.subplot(343)
+plt.scatter(rads, Lp[:, var])
+plt.scatter(rads, LpN[:, var])
+
+plt.subplot(344)
+plt.scatter(rads, Lm[:, var])
+plt.scatter(rads, LmN[:, var])
+
+var = 1
+plt.subplot(345)
+plt.scatter(rads, Li[:, var])
+plt.scatter(rads, LiN[:, var])
+
+plt.subplot(346)
+plt.scatter(rads, Lpp[:, var])
+plt.scatter(rads, LppN[:, var])
+
+plt.subplot(347)
+plt.scatter(rads, Lp[:, var])
+plt.scatter(rads, LpN[:, var])
+
+plt.subplot(348)
+plt.scatter(rads, Lm[:, var])
+plt.scatter(rads, LmN[:, var])
+
+
+var = 2
+plt.subplot(349)
+plt.scatter(rads, Li[:, var])
+plt.scatter(rads, LiN[:, var])
+
+plt.subplot(3,4,10)
+plt.scatter(rads, Lpp[:, var])
+plt.scatter(rads, LppN[:, var])
+
+plt.subplot(3,4,11)
+plt.scatter(rads, Lp[:, var])
+plt.scatter(rads, LpN[:, var])
+
+plt.subplot(3,4,12)
+plt.scatter(rads, Lm[:, var])
+plt.scatter(rads, LmN[:, var])
+
+# %%
+plt.figure()
+
+var = 0
+plt.subplot(341)
+plt.scatter(Li[:, var], LiN[:, var])
+plt.plot([np.min(Li[:, var]), np.max(Li[:, var])],
+          [np.min(LiN[:, var]), np.max(LiN[:, var])], '-k')
+
+plt.subplot(342)
+plt.scatter(Lpp[:, var], LppN[:, var])
+plt.plot([np.min(Lpp[:, var]), np.max(Lpp[:, var])],
+          [np.min(LppN[:, var]), np.max(LppN[:, var])], '-k')
+
+plt.subplot(343)
+plt.scatter(Lp[:, var], LpN[:, var])
+plt.plot([np.min(Lp[:, var]), np.max(Lp[:, var])],
+          [np.min(LpN[:, var]), np.max(LpN[:, var])], '-k')
+
+plt.subplot(344)
+plt.scatter(Lm[:, var], LmN[:, var])
+plt.plot([np.min(Lm[:, var]), np.max(Lm[:, var])],
+          [np.min(LmN[:, var]), np.max(LmN[:, var])], '-k')
+
+var = 1
+plt.subplot(345)
+plt.scatter(Li[:, var], LiN[:, var])
+plt.plot([np.min(Li[:, var]), np.max(Li[:, var])],
+          [np.min(LiN[:, var]), np.max(LiN[:, var])], '-k')
+
+plt.subplot(346)
+plt.scatter(Lpp[:, var], LppN[:, var])
+plt.plot([np.min(Lpp[:, var]), np.max(Lpp[:, var])],
+          [np.min(LppN[:, var]), np.max(LppN[:, var])], '-k')
+
+plt.subplot(347)
+plt.scatter(Lp[:, var], LpN[:, var])
+plt.plot([np.min(Lp[:, var]), np.max(Lp[:, var])],
+          [np.min(LpN[:, var]), np.max(LpN[:, var])], '-k')
+
+plt.subplot(348)
+plt.scatter(Lm[:, var], LmN[:, var])
+plt.plot([np.min(Lm[:, var]), np.max(Lm[:, var])],
+          [np.min(LmN[:, var]), np.max(LmN[:, var])], '-k')
+
+var = 2
+plt.subplot(349)
+plt.scatter(rads, Li[:, var], LiN[:, var])
+plt.plot([np.min(Li[:, var]), np.max(Li[:, var])],
+          [np.min(LiN[:, var]), np.max(LiN[:, var])], '-k')
+
+plt.subplot(3,4,10)
+plt.scatter(Lpp[:, var], LppN[:, var])
+plt.plot([np.min(Lpp[:, var]), np.max(Lpp[:, var])],
+          [np.min(LppN[:, var]), np.max(LppN[:, var])], '-k')
+
+plt.subplot(3,4,11)
+plt.scatter(Lp[:, var], LpN[:, var])
+plt.plot([np.min(Lp[:, var]), np.max(Lp[:, var])],
+          [np.min(LpN[:, var]), np.max(LpN[:, var])], '-k')
+
+plt.subplot(3,4,12)
+plt.scatter(Lm[:, var], LmN[:, var])
+plt.plot([np.min(Lm[:, var]), np.max(Lm[:, var])],
+          [np.min(LmN[:, var]), np.max(LmN[:, var])], '-k')
+
+
+# %% saco de todos los puntos las desvests y angulo
+
+L = list()
+LN = list()
+Rads = list()
+
+for i in range(len(images)):
+    print('\t imagen', i)
+    imagePoints = imagePointsAll[i, 0]
+    npts = imagePoints.shape[0]
+
+    # cargo la rototraslacion
+    rV = rVecs[i].reshape(-1)
+    tV = tVecs[i].reshape(-1)
+
+    rtV = [rV, tV]
+    ptsTeo, ptsNum, covTeo, covNum = analyticVsMC(imagePoints, Ci,
+                                                  cameraMatrix, Cf, distCoeffs,
+                                                  Ck, rtV, Crt)
+
+    L.append(sacoValsAng(covTeo[3]))
+    LN.append(sacoValsAng(covNum[3]))
+    Rads.append(ln.norm(imagePoints, axis=1))
+
+
+# %%
+
+for i in range(len(L)):
+    for j in range(3):
+        plt.subplot(2,3,j+1)
+        plt.scatter(L[i][:,j], LN[i][:,j])
+
+        plt.subplot(2,3,j+4)
+        plt.scatter(Rads[i], L[i][:,j])
+        plt.scatter(Rads[i], LN[i][:,j])
+
+
+for j in range(2):
+    plt.subplot(2,3,j+1)
+    plt.plot([0, 0.5], [0, 0.5], 'k-')
+
+plt.subplot(2,3,3)
+plt.plot([-1, 1], [-1, 1], 'k-')
 
 # %%
 from scipy.special import chdtri
