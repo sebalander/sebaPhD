@@ -966,25 +966,41 @@ def plotRationalDist(distCoeffs, imgSize, cameraMatrix):
 
 
 # %%
-fi = linspace(0, 2*pi, 50)
+fi = linspace(0, 2*np.pi, 100)
 r = sqrt(chdtri(2, 0.1))  # radio para que 90% caigan adentro
+# r = 1
 Xcirc = array([cos(fi), sin(fi)]) * r
+
+
+def unit2CovTransf(C):
+    '''
+    returns the matrix that transforms points from unit normal pdf to a normal
+    pdf of covariance C. so that
+    Xnorm = np.random.randn(2,n)  # generate random points in 2D
+    T = unit2CovTransf(C)  # calculate transform matriz
+    X = np.dot(T, Xnorm)  # points that follow normal pdf of cov C
+    '''
+    l, v = eig(C)
+
+    # matrix such that A.dot(A.T)==C
+    T =  sqrt(l.real) * v
+
+    return T
 
 
 def plotEllipse(ax, C, mux, muy, col):
     '''
     se grafica una elipse asociada a la covarianza c, centrada en mux, muy
     '''
-    Ci = inv(C)
-
-    l, v = eig(Ci)
-
-    # matrix such that A.dot(A.T)==Ci
-    A = sqrt(l.real) * v
-    # roto eescaleo para llevae al cicuulo a la elipse
-    xeli, yeli = dot(Xcirc.T, inv(A)).T
+    
+    T = unit2CovTransf(C)
+    # roto reescaleo para lleve del circulo a la elipse
+    xeli, yeli = dot(T, Xcirc)
 
     ax.plot(xeli+mux, yeli+muy, c=col, lw=0.5)
+    v1, v2 = r * T.T
+    ax.plot([mux, mux + v1[0]], [muy, muy + v1[1]], c=col, lw=0.5)
+    ax.plot([mux, mux + v2[0]], [muy, muy + v2[1]], c=col, lw=0.5)
 
 
 # %% INRINSIC CALIBRATION
