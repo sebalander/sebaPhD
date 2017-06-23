@@ -966,7 +966,7 @@ def plotRationalDist(distCoeffs, imgSize, cameraMatrix):
 
 
 # %%
-fi = linspace(0, 2*np.pi, 100)
+fi = linspace(0, 2 * pi, 100)
 r = sqrt(chdtri(2, 0.1))  # radio para que 90% caigan adentro
 # r = 1
 Xcirc = array([cos(fi), sin(fi)]) * r
