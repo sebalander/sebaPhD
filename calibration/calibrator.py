@@ -401,7 +401,7 @@ def rototrasCovariance(xp, yp, rV, tV, Cp):
     x0, x1, x2, x3, x4, x8, x9, x10, x11, x12, x13, x14 = 2*array([
             br11, amx*r11, bmx*r21, br11*my, cmy*r21, bmx*my, b*r12, amx*r12,
             bmx*r22, b*my*r12, cmy*r22, r31*r32])
-    x5, mx2, my2, x15 = array(r31, mx, my, r32)**2
+    x5, mx2, my2, x15 = array([r31, mx, my, r32])**2
     x6 = a*mx2
     x7 = c*my2
 
@@ -535,7 +535,7 @@ def jacobianosHom2Map(xp, yp, rV, tV):
                      x36*(-tz*x33 - x17*x39) + x41*x42],
                     [x36*(-tz*x34 - x0*x37) + x38*x43,
                      x36*(tz*x28 + x37*x39) + x42*x43]])
-
+ bueno bueno
     # jacobiano respecto al vector de rodriguez
     JXm_rV = array([[x36*(x0*x65 - x39*x58) + x41*x75,
                      x36*(x0*x85 - x39*x80) + x41*x91,

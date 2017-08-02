@@ -48,11 +48,19 @@ imgShapeFile =     imagesFolder + camera + "Shape.npy"
 
 # load data
 imagePoints = np.load(cornersFile)
+n = len(imagePoints)  # cantidad de imagenes
+indexes = np.arange(n)
+
+np.random.shuffle(indexes)
+indexes = indexes[:5]
+
+imagePoints = imagePoints[indexes]
+n = len(imagePoints)  # cantidad de imagenes
+
 chessboardModel = np.load(patternFile)
 imgSize = tuple(np.load(imgShapeFile))
-images = glob.glob(imagesFolder+'*.png')
+#images = glob.glob(imagesFolder+'*.png')
 
-n = len(imagePoints)  # cantidad de imagenes
 # Parametros de entrada/salida de la calibracion
 objpoints = np.array([chessboardModel]*n)
 m = chessboardModel.shape[1]  # cantidad de puntos
@@ -66,8 +74,8 @@ rVecsFile =        imagesFolder + camera + model + "Rvecs.npy"
 # load model specific data
 distCoeffs = np.load(distCoeffsFile)
 cameraMatrix = np.load(linearCoeffsFile)
-rVecs = np.load(rVecsFile)
-tVecs = np.load(tVecsFile)
+rVecs = np.load(rVecsFile)[indexes]
+tVecs = np.load(tVecsFile)[indexes]
 
 # %% funcion error
 # MAP TO HOMOGENOUS PLANE TO GET RADIUS
@@ -303,6 +311,7 @@ if testearFunc:
     # pruebo de evaluar jacobianos y hessianos
     jInt, hInt, jExt, hExt = jacobianos(Xint, Ns, XextList, params)
     plt.matshow(hInt)
+    [plt.matshow(h) for h in hExt]
     print(ln.det(hInt))
 
 
@@ -314,7 +323,7 @@ params = [n, m, imagePoints, model, chessboardModel]
 Xint, Ns = int2flat(cameraMatrix, distCoeffs)
 XextList = [ext2flat(rVecs[i], tVecs[i])for i in range(n)]
 
-def newtonOptE2(cameraMatrix, distCoeffs, rVecs, tVecs, Ns, params, ep=1e-20):
+def newtonOptE2(cameraMatrix, distCoeffs, rVecs, tVecs, Ns, params, ep=1e-10):
     n = params[0]
     
     errores = list()
@@ -325,42 +334,64 @@ def newtonOptE2(cameraMatrix, distCoeffs, rVecs, tVecs, Ns, params, ep=1e-20):
     
     
     errores.append(errorCuadraticoInt(Xint0, Ns, XextList0, params))
-    print(errores[-1])
+    print('error es ', errores[-1])
 
     # hago un paso
     # jacobianos y hessianos
+    print('jacobianos')
     jInt, hInt, jExt, hExt = jacobianos(Xint0, Ns, XextList0, params)
     
+    
+    print('inicio correcciones')
     # corrijo intrinseco
+    l = ln.svd(hInt)[1]**2
+    print('autovals ', np.max(l), np.min(l))
     dX = - ln.inv(hInt).dot(jInt.T)
     Xint1 = Xint0 + dX[:,0]
     XextList1 = np.empty_like(XextList0)
     # corrijo extrinseco
     for i in range(n):
-            dX = - ln.inv(hExt[i]).dot(jExt[i].T)
-            XextList1[i] = XextList0[i] + dX[:,0]
+        l = ln.svd(hExt[i])[1]**2
+        print('autovals ', np.max(l), np.min(l))
+        dX = - ln.inv(hExt[i]).dot(jExt[i].T)
+        XextList1[i] = XextList0[i] + dX[:,0]
     
     errores.append(errorCuadraticoInt(Xint1, Ns, XextList1, params))
+    print('error es ', errores[-1])
+    
+    e = np.max([np.max(np.abs(Xint1 - Xint0)),
+                np.max(np.abs(XextList1 - XextList0))])
+    print('correccion hecha ', e)
     
     # mientras las correcciones sean mayores a un umbral
-    while np.max([np.max(np.abs(Xint1 - Xint0)),
-                  np.max(np.abs(XextList1 - XextList0))]) > ep:
+    while e > ep:
         Xint0[:] = Xint1
         XextList0[:] = XextList1
         
         # jacobianos y hessianos
+        print('jacobianos')
         jInt, hInt, jExt, hExt = jacobianos(Xint0, Ns, XextList0, params)
         
+        print('inicio correcciones')
         # corrijo intrinseco
+        l = ln.svd(hInt)[0]**2
+        print('autovals ', np.max(l), np.min(l))
         dX = - ln.inv(hInt).dot(jInt.T)
         Xint1 = Xint0 + dX[:,0]
         XextList1 = np.empty_like(XextList0)
         # corrijo extrinseco
         for i in range(n):
-                dX = - ln.inv(hExt[i]).dot(jExt[i.T])
-                XextList1[i] = XextList0[i] + dX[:,0]
+            l = ln.svd(hExt[i])[0]**2
+            print('autovals ', np.max(l), np.min(l))
+            dX = - ln.inv(hExt[i]).dot(jExt[i].T)
+            XextList1[i] = XextList0[i] + dX[:,0]
         
+        e = np.max([np.max(np.abs(Xint1 - Xint0)),
+                    np.max(np.abs(XextList1 - XextList0))])
+        print('correccion hecha ', e)
+
         errores.append(errorCuadraticoInt(Xint1, Ns, XextList1, params))
+        print('error es ', errores[-1])
     
     return flat2int(XextList1, Ns), [ext2flat(x)for x in XextList1], errores
 

@@ -66,7 +66,7 @@ for picture in images:
         
         if hayquegraficar:
             plt.figure()
-            plt.imshow(img)
+            plt.imshow(cv2.imread(picture)[:,:,::-1])
             plt.scatter(corners[:,0,0], corners[:,0,1])
     
     else:
