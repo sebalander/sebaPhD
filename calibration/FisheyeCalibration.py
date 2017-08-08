@@ -156,13 +156,13 @@ def radialUndistort(rpp, k, quot=False, der=False):
     
     thetap = empty_like(rpp)
     
-    if any(-retVal): # if at least one case of non solution
+    if any(~retVal): # if at least one case of non solution
         # calculate extrema of polyniomial
         thExtrema = roots([9*k[3], 0, 7*k[2], 0, 5*k[1], 0, 3*k[0], 0, 1])
         # select real extrema in positive side, keep smallest
         thRealPos = min(thExtrema.real[isreal(thExtrema) & (0<=thExtrema.real)])
         # assign to problematic values
-        thetap[-retVal] = thRealPos
+        thetap[~retVal] = thRealPos
     
     # choose minimum positive roots
     thetap[retVal] = [min(rootsPoly[i, rPRB[i]].real)

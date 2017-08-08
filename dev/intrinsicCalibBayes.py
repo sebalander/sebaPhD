@@ -19,13 +19,13 @@ parámetros optimos dado los datos de test
 """
 
 # %%
-import glob
+#import glob
 import numpy as np
 import scipy.linalg as ln
 from calibration import calibrator as cl
 import matplotlib.pyplot as plt
-from importlib import reload
-from copy import deepcopy as dc
+#from importlib import reload
+#from copy import deepcopy as dc
 
 import numdifftools as ndf
 
@@ -41,7 +41,7 @@ camera = 'vcaWide'
 modelos = ['poly', 'rational', 'fisheye']
 model = modelos[2]
 
-imagesFolder = "./resources/intrinsicCalib/" + camera + "/"
+imagesFolder = "/home/sebalander/Desktop/Code/sebaPhD/resources/intrinsicCalib/" + camera + "/"
 cornersFile =      imagesFolder + camera + "Corners.npy"
 patternFile =      imagesFolder + camera + "ChessPattern.npy"
 imgShapeFile =     imagesFolder + camera + "Shape.npy"
@@ -52,7 +52,7 @@ n = len(imagePoints)  # cantidad de imagenes
 indexes = np.arange(n)
 
 np.random.shuffle(indexes)
-indexes = indexes[:5]
+indexes = indexes[:15]
 
 imagePoints = imagePoints[indexes]
 n = len(imagePoints)  # cantidad de imagenes
@@ -82,7 +82,7 @@ tVecs = np.load(tVecsFile)[indexes]
 
 def int2flat(cameraMatrix, distCoeffs):
     '''
-    parametros intrinsecos concatenados
+    parametros intrinsecos concatenados como un solo vector
     '''
     kFlat = cameraMatrix[[0,1,0,1],[0,1,2,2]]
     dFlat = np.reshape(distCoeffs, -1)
@@ -249,71 +249,102 @@ if testearFunc:
 
 
 # %%
-def jacobianos(Xint, Ns, XextList, params):
+def jacobianos(Xint, Ns, XextList, params, hessianos=True):
     '''
     funcion que calcula los jacobianos y hessianos de las variables intrinsecas
     y extrinsecas. hace un hilo para cada cuenta
     '''
     # donde guardar resultado de derivadas de params internos
     jInt = Queue()
-    hInt = Queue()
+    if hessianos:
+        hInt = Queue()
     
     # creo e inicializo los threads
-    print('cuentas intrinsecas, 2 processos')
+    if hessianos:
+        print('cuentas intrinsecas, 2 processos')
+        pHInt = Process(target=procHint, args=(Xint, Ns, XextList,
+                                               params, hInt))
+        pHInt.start()
+    else:
+        print('cuentas intrinsecas, 1 processo')
+    
     pJInt = Process(target=procJint, args=(Xint, Ns, XextList, params, jInt))
-    pHInt = Process(target=procHint, args=(Xint, Ns, XextList, params, hInt))
     
     pJInt.start()  # inicio procesos
-    pHInt.start()
-    
     
     # donde guardar resultados de jaco y hess externos
     jExt = np.zeros((n, 1, 6), dtype=float)
-    hExt = np.zeros((n, 6, 6), dtype=float)
     qJext = [Queue()]*n
-    qHext = [Queue()]*n
+
+    if hessianos:
+        hExt = np.zeros((n, 6, 6), dtype=float)
+        qHext = [Queue()]*n
     
     # lista de threads
     proJ = list()
-    proH = list()
+    if hessianos:
+        proH = list()
     
     # creo e inicializo los threads
     for i in range(n):
-        print('starting par de processos ', i+3)
+        # print('starting par de processos ', i + 3)
         pJ = Process(target=procJext, args=(XextList[i], Xint, Ns,
                                             params, i, qJext[i]))
-        pH = Process(target=procHext, args=(XextList[i], Xint, Ns,
-                                            params, i, qHext[i]))
         proJ.append(pJ)
-        proH.append(pH)
+        
+        if hessianos:
+            pH = Process(target=procHext, args=(XextList[i], Xint, Ns,
+                                                params, i, qHext[i]))
+            proH.append(pH)
         
         pJ.start()  # inicio procesos
-        pH.start()
-        
+        if hessianos:
+            pH.start()
+    
     jInt = jInt.get()  # saco los resultados
-    hInt = hInt.get()
+    if hessianos:
+        hInt = hInt.get()
+    
     for i in range(n):
         jExt[i] = qJext[i].get()  # guardo resultados
-        hExt[i] = qHext[i].get()
+        if hessianos:
+            hExt[i] = qHext[i].get()
     
     
     pJInt.join()  # espero a que todos terminen
-    pHInt.join()
-    [p.join() for p in proJ]
-    [p.join() for p in proH]
     
-    return jInt, hInt, jExt, hExt
+    if hessianos:
+        pHInt.join()
+    
+    [p.join() for p in proJ]
+    
+    if hessianos:
+        [p.join() for p in proH]
+    
+    if hessianos:
+        return jInt, hInt, jExt, hExt
+    else:
+        return jInt, jExt
 
-
+# %%
 testearFunc = True
-
 if testearFunc:
     # pruebo de evaluar jacobianos y hessianos
     jInt, hInt, jExt, hExt = jacobianos(Xint, Ns, XextList, params)
     plt.matshow(hInt)
     [plt.matshow(h) for h in hExt]
     print(ln.det(hInt))
+    plt.figure()
+    plt.plot(jInt[0], 'b+-')
+    plt.figure()
+    [plt.plot(j[0], '-+') for j in jExt]
 
+    # pruebo solo con los jacobianos
+    jInt,  jExt = jacobianos(Xint, Ns, XextList, params, hessianos=False)
+    plt.figure()
+    plt.plot(jInt[0], 'b+-')
+    plt.figure()
+    [plt.plot(j[0], '-+') for j in jExt]
 
 # %%
 # parametros auxiliares
@@ -323,7 +354,7 @@ params = [n, m, imagePoints, model, chessboardModel]
 Xint, Ns = int2flat(cameraMatrix, distCoeffs)
 XextList = [ext2flat(rVecs[i], tVecs[i])for i in range(n)]
 
-def newtonOptE2(cameraMatrix, distCoeffs, rVecs, tVecs, Ns, params, ep=1e-10):
+def newtonOptE2(cameraMatrix, distCoeffs, rVecs, tVecs, Ns, params, ep=1e-3):
     n = params[0]
     
     errores = list()
@@ -359,8 +390,8 @@ def newtonOptE2(cameraMatrix, distCoeffs, rVecs, tVecs, Ns, params, ep=1e-10):
     errores.append(errorCuadraticoInt(Xint1, Ns, XextList1, params))
     print('error es ', errores[-1])
     
-    e = np.max([np.max(np.abs(Xint1 - Xint0)),
-                np.max(np.abs(XextList1 - XextList0))])
+    e = np.max([np.max(np.abs((Xint1 - Xint0) / Xint0)),
+                np.max(np.abs((XextList1 - XextList0) / XextList0))])
     print('correccion hecha ', e)
     
     # mientras las correcciones sean mayores a un umbral
@@ -386,8 +417,8 @@ def newtonOptE2(cameraMatrix, distCoeffs, rVecs, tVecs, Ns, params, ep=1e-10):
             dX = - ln.inv(hExt[i]).dot(jExt[i].T)
             XextList1[i] = XextList0[i] + dX[:,0]
         
-        e = np.max([np.max(np.abs(Xint1 - Xint0)),
-                    np.max(np.abs(XextList1 - XextList0))])
+        e = np.max([np.max(np.abs((Xint1 - Xint0) / Xint0)),
+                    np.max(np.abs((XextList1 - XextList0) / XextList0))])
         print('correccion hecha ', e)
 
         errores.append(errorCuadraticoInt(Xint1, Ns, XextList1, params))
@@ -397,6 +428,172 @@ def newtonOptE2(cameraMatrix, distCoeffs, rVecs, tVecs, Ns, params, ep=1e-10):
 
 # %%
 intr, extr, ers = newtonOptE2(cameraMatrix, distCoeffs, rVecs, tVecs, Ns, params)
+
+
+# %% solo gradiente descendente
+# parametros auxiliares
+params = [n, m, imagePoints, model, chessboardModel]
+
+# pongo en forma flat los valores iniciales
+Xint, Ns = int2flat(cameraMatrix, distCoeffs)
+XextList = [ext2flat(rVecs[i], tVecs[i])for i in range(n)]
+
+
+def gradDescE2(cameraMatrix, distCoeffs, rVecs, tVecs, Ns, params, ep=1e-4, eta=0.01):
+    n = params[0]
+    
+    errores = list()
+    
+    # pongo las variables en flat, son las cond iniciales
+    Xint0, Ns = int2flat(cameraMatrix, distCoeffs)
+    XextList0 = np.array([ext2flat(rVecs[i], tVecs[i]) for i in range(n)])
+    
+    
+    errores.append(errorCuadraticoInt(Xint0, Ns, XextList0, params))
+    print('error es ', errores[-1])
+
+    # hago un paso
+    # jacobianos y hessianos
+    print('jacobianos')
+    jInt, jExt = jacobianos(Xint0, Ns, XextList0, params, hessianos=False)
+    
+    
+    print('inicio correcciones')
+    # corrijo intrinseco
+    dX = - eta * jInt #  ln.inv(hInt).dot(jInt.T)
+    Xint1 = Xint0 + dX[:,0]
+    XextList1 = np.empty_like(XextList0)
+    # corrijo extrinseco
+    for i in range(n):
+        dX = - eta * jExt[i]#  ln.inv(hExt[i]).dot(jExt[i].T)
+        XextList1[i] = XextList0[i] + dX[:,0]
+    
+    errores.append(errorCuadraticoInt(Xint1, Ns, XextList1, params))
+    print('error es ', errores[-1])
+    
+    e = np.max([np.max(np.abs((Xint1 - Xint0) / Xint0)),
+                np.max(np.abs((XextList1 - XextList0) / XextList0))])
+    print('correccion hecha ', e)
+    
+    # mientras las correcciones sean mayores a un umbral
+    while e > ep:
+        Xint0[:] = Xint1
+        XextList0[:] = XextList1
+        
+        # jacobianos y hessianos
+        print('jacobianos')
+        jInt, jExt = jacobianos(Xint0, Ns, XextList0, params, hessianos=False)
+        
+        print('inicio correcciones')
+        # corrijo intrinseco
+        dX = - eta * jInt #  ln.inv(hInt).dot(jInt.T)
+        Xint1 = Xint0 + dX[:,0]
+        XextList1 = np.empty_like(XextList0)
+        # corrijo extrinseco
+        for i in range(n):
+            dX = - eta * jExt[i] #  ln.inv(hExt[i]).dot(jExt[i].T)
+            XextList1[i] = XextList0[i] + dX[:,0]
+        
+        e = np.max([np.max(np.abs((Xint1 - Xint0) / Xint0)),
+                    np.max(np.abs((XextList1 - XextList0) / XextList0))])
+        print('correccion hecha ', e)
+
+        errores.append(errorCuadraticoInt(Xint1, Ns, XextList1, params))
+        print('error es', errores[-1],
+              '. respecto anterior: %.3g'%(errores[-1] - errores[-2]))
+    
+    return flat2int(XextList1, Ns), [ext2flat(x)for x in XextList1], errores
+
+# %%
+intr, extr, ers = gradDescE2(cameraMatrix, distCoeffs, rVecs, tVecs, Ns,
+                             params, eta=1e-5)
+
+# %%
+# parametros auxiliares
+params = [n, m, imagePoints, model, chessboardModel]
+
+# pongo en forma flat los valores iniciales
+Xint0, Ns = int2flat(cameraMatrix, distCoeffs)
+XextList0 = [ext2flat(rVecs[i], tVecs[i])for i in range(n)]
+e0 = errorCuadraticoInt(Xint0, Ns, XextList0, params)
+
+# saco los jacobianos y hessianos para analizar con cuidado cada paso
+jInt, hInt, jExt, hExt = jacobianos(Xint0, Ns, XextList0, params)
+
+
+# %% analizamos lo que pasa con la correccion en los intrinsecos
+etasI = np.concatenate((np.linspace(-0.1, -0.0002, 30),
+                       np.linspace(-0.0002, 0.001, 500),
+                       np.linspace(0.001, 0.1, 30)))
+npts = etasI.shape[0]
+errsI = np.empty(npts, dtype=float)
+
+deltaX = - np.array([jInt]*npts)[:,0,:] * etasI.reshape((-1,1))
+Xmod = deltaX + Xint0  # modified parameters
+
+for i in range(npts):
+    errsI[i] = errorCuadraticoInt(Xmod[i], Ns, XextList0, params)
+
+plt.figure()
+plt.plot(etasI, errsI)
+
+
+# %% analizamos lo que pasa con la correccion extrinseca
+#etas =np.linspace(-0.1, 0.1, 30)
+
+etasE = np.concatenate((np.linspace(-0.1, -0.001, 30),
+                       np.linspace(-0.001, 0.001, 50),
+                       np.linspace(0.001, 0.1, 30)))
+
+npts = etasE.shape[0]
+errsE = np.empty(npts, dtype=float)
+
+Xext0 = np.hstack(XextList0)
+jacob = np.hstack(jExt[:,0,:])
+
+deltaX = - np.array([jacob]*npts) * etasE.reshape((-1,1))
+Xmod = deltaX + Xext0  # modified parameters
+Xmod = Xmod.reshape(npts, -1, 6)
+
+for i in range(npts):
+    listExt = [x for x in Xmod[i]]
+    errsE[i] = errorCuadraticoInt(Xint0, Ns, listExt, params)
+
+plt.figure()
+plt.plot(etasE, errsE)
+
+# %% pruebo con muchos valores de parametros alrededor del que tenemos para
+# ver si es el optimo
+
+npts = 100
+# pongo los params extr como una gran lista
+Xext0 = np.hstack(XextList0)
+
+perturbInt = np.random.rand(npts, Xint0.shape[0]) * 0.02 - 0.01
+perturbExt = np.random.rand(npts, Xext0.shape[0]) * 0.02 - 0.01
+
+IntMod = perturbInt + Xint0
+ExtMod = perturbExt + Xext0
+ExtMod = ExtMod.reshape(npts, -1, 6)
+
+dists = np.empty(npts,3)
+
+for i in range(npts):
+    listExt = [x for x in ExtMod[i]]
+    errsE[i] = errorCuadraticoInt(IntMod[i], Ns, listExt, params)
+
+# elijo el que tiene error mas chico de todos
+emin = np.min(errsE)
+if e0 < emin:
+    # el optimo es la cond inicial
+    
+    
+    
+
+
+
+
+
 
 
 
