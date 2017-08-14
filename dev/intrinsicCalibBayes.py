@@ -25,7 +25,7 @@ import scipy.linalg as ln
 from calibration import calibrator as cl
 import matplotlib.pyplot as plt
 #from importlib import reload
-#from copy import deepcopy as dc
+from copy import deepcopy as dc
 
 import numdifftools as ndf
 
@@ -52,7 +52,7 @@ n = len(imagePoints)  # cantidad de imagenes
 indexes = np.arange(n)
 
 np.random.shuffle(indexes)
-indexes = indexes[:15]
+indexes = indexes
 
 imagePoints = imagePoints[indexes]
 n = len(imagePoints)  # cantidad de imagenes
@@ -261,12 +261,12 @@ def jacobianos(Xint, Ns, XextList, params, hessianos=True):
     
     # creo e inicializo los threads
     if hessianos:
-        print('cuentas intrinsecas, 2 processos')
+        # print('cuentas intrinsecas, 2 processos')
         pHInt = Process(target=procHint, args=(Xint, Ns, XextList,
                                                params, hInt))
         pHInt.start()
-    else:
-        print('cuentas intrinsecas, 1 processo')
+    #else:
+        # print('cuentas intrinsecas, 1 processo')
     
     pJInt = Process(target=procJint, args=(Xint, Ns, XextList, params, jInt))
     
@@ -427,8 +427,11 @@ def newtonOptE2(cameraMatrix, distCoeffs, rVecs, tVecs, Ns, params, ep=1e-3):
     return flat2int(XextList1, Ns), [ext2flat(x)for x in XextList1], errores
 
 # %%
-intr, extr, ers = newtonOptE2(cameraMatrix, distCoeffs, rVecs, tVecs, Ns, params)
-
+intr, extr, ers = newtonOptE2(cameraMatrix, distCoeffs*1.001, rVecs, tVecs, Ns, params)
+'''
+este metodo no esta funcionando para esto. anduvo para la trilateracion pero
+se ve que esta funcion de perdida es mas complicada y tiene cosas muy raras
+'''
 
 # %% solo gradiente descendente
 # parametros auxiliares
@@ -505,8 +508,23 @@ def gradDescE2(cameraMatrix, distCoeffs, rVecs, tVecs, Ns, params, ep=1e-4, eta=
     return flat2int(XextList1, Ns), [ext2flat(x)for x in XextList1], errores
 
 # %%
+
+def relativeNoise(x, l=0.05):
+    '''
+    returns an array like x but with a uniform noise that perturbs it's values
+    by a fraction l
+    '''
+    s = x.shape
+    n = np.prod(s)
+    y = np.random.rand(n) * 2 - 1
+    y = y.reshape(s)
+    
+    return x * (l * y + 1)
+
+
+# %%
 intr, extr, ers = gradDescE2(cameraMatrix, distCoeffs, rVecs, tVecs, Ns,
-                             params, eta=1e-5)
+                             params, eta=1e-6)
 
 # %%
 # parametros auxiliares
@@ -522,21 +540,55 @@ jInt, hInt, jExt, hExt = jacobianos(Xint0, Ns, XextList0, params)
 
 
 # %% analizamos lo que pasa con la correccion en los intrinsecos
-etasI = np.concatenate((np.linspace(-0.1, -0.0002, 30),
-                       np.linspace(-0.0002, 0.001, 500),
-                       np.linspace(0.001, 0.1, 30)))
+#etasI = np.concatenate((np.linspace(-0.1, -0.001, 30),
+#                       np.linspace(-0.001, -2e-6, 100),
+#                       np.linspace(-2e-6, 2e-6, 100),
+#                       np.linspace(2e-6, 0.001, 100),
+#                       np.linspace(0.001, 0.1, 30)))
+
+rangos = [,,1e-5]
+
+
+u, s, v = np.linalg.svd(hInt)
+
+# %% testeo en las diferentes direcciones segun el hesiano
+etasI = np.linspace(-5e-8, 4e-8, int(5e2))
+
 npts = etasI.shape[0]
 errsI = np.empty(npts, dtype=float)
 
-deltaX = - np.array([jInt]*npts)[:,0,:] * etasI.reshape((-1,1))
+i = 0
+direc = v[i] * s[i]
+deltaX = - np.array([direc]*npts) * etasI.reshape((-1,1))
 Xmod = deltaX + Xint0  # modified parameters
 
 for i in range(npts):
+    print(i)
     errsI[i] = errorCuadraticoInt(Xmod[i], Ns, XextList0, params)
 
 plt.figure()
-plt.plot(etasI, errsI)
+plt.plot(etasI, errsI, '-*')
+plt.plot([etasI[0], etasI[-1]],[e0, e0], '-r')
 
+# %%
+et = np.hstack([et, etasI])
+er = np.hstack([er, errsI])
+
+insort = np.argsort(et)
+
+et = et[insort]
+er = er[insort]
+
+plt.figure()
+plt.plot(et, er, '-*')
+plt.plot([et[0], et[-1]],[e0, e0], '-r')
+
+'''
+ver aca para plotear mejor
+https://stackoverflow.com/questions/14084634/adaptive-plotting-of-a-function-in-python/14084715#14084715
+'''
+
+# np.savetxt('curvaerrorEig1.txt', [et, er])
 
 # %% analizamos lo que pasa con la correccion extrinseca
 #etas =np.linspace(-0.1, 0.1, 30)
@@ -562,39 +614,55 @@ for i in range(npts):
 plt.figure()
 plt.plot(etasE, errsE)
 
-# %% pruebo con muchos valores de parametros alrededor del que tenemos para
-# ver si es el optimo
+# %% pruebo de moverme en cada direccion para ver si efetivamente estamos en
+# un minimo
 
-npts = 100
-# pongo los params extr como una gran lista
-Xext0 = np.hstack(XextList0)
+# tengo XextList0 y Xint0 como cond iniciales
+e0 = errorCuadraticoInt(Xint0, Ns, XextList0, params)
 
-perturbInt = np.random.rand(npts, Xint0.shape[0]) * 0.02 - 0.01
-perturbExt = np.random.rand(npts, Xext0.shape[0]) * 0.02 - 0.01
+ers = []
+axis = []
 
-IntMod = perturbInt + Xint0
-ExtMod = perturbExt + Xext0
-ExtMod = ExtMod.reshape(npts, -1, 6)
+nPorc = 20
+porc = np.linspace(0.99,1.01,nPorc)
 
-dists = np.empty(npts,3)
-
-for i in range(npts):
-    listExt = [x for x in ExtMod[i]]
-    errsE[i] = errorCuadraticoInt(IntMod[i], Ns, listExt, params)
-
-# elijo el que tiene error mas chico de todos
-emin = np.min(errsE)
-if e0 < emin:
-    # el optimo es la cond inicial
+# recorro cada param interno
+for i in range(Xint0.shape[0]):
+    # genero la version modif de ese param
+    xPar = Xint0[i] * porc
+    Xmod = dc(Xint0)
     
+    axis.append(xPar - Xint0[i])
+    ers.append(np.empty_like(axis[-1]))
     
-    
+    for j in range(nPorc):
+        Xmod[i] = xPar[j]  # pongo en el parametro i esimo el valor j esimo
+        
+        ers[-1][j] = errorCuadraticoInt(Xmod, Ns, XextList0, params)
 
+# recorro cada param externo
+for k in range(len(XextList0)):
+    for i in range(6):
+        # genero la version modif de ese param
+        xPar = XextList0[k][i] * porc  # los valores donde voy a evaluar
+        XlistMod = dc(XextList0) # la lista donde ir poniedo valores auxiliares
+        
+        axis.append(xPar - XextList0[k][i])  # discrepancia respecto al minimo
+        ers.append(np.empty_like(axis[-1]))  # donde guardar los errores
+        
+        for j in range(nPorc):
+            XlistMod[k][i] = xPar[j]  # pongo en el parametro i esimo el valor j esimo
+            
+            ers[-1][j] = errorCuadraticoInt(Xint0, Ns, XextList0, params)
 
+axx = np.array(axis).T
+erx = np.array(ers).T
 
+# los normalizo para que se puedan ver en la grafica
+axxNor = axx / axx.max(0)
+erMin = erx.min(0)
+erMax = erx.max(0)
+erxNor = (erx - e0) / (erMax - e0)
 
-
-
-
-
+plt.plot(axxNor, erxNor)
 
