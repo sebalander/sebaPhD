@@ -12,12 +12,12 @@ from cv2 import Rodrigues  # , homogr2pose
 from numpy import max, zeros, array, sqrt, roots
 from numpy import sin, cos, cross, ones, concatenate, flipud, dot, isreal
 from numpy import linspace, polyval, eye, linalg, mean, prod, vstack
-from numpy import empty_like, ones_like, zeros_like, pi
+from numpy import empty_like, ones_like, zeros_like, pi, empty
 from scipy.linalg import norm, inv, eig
 from scipy.special import chdtri
 from matplotlib.patches import FancyArrowPatch
 from mpl_toolkits.mplot3d import proj3d
-from copy import deepcopy as dc
+# from copy import deepcopy as dc
 from importlib import reload
 
 from calibration import StereographicCalibration as stereographic
@@ -296,19 +296,20 @@ def ccd2hom(imagePoints, cameraMatrix, Cccd=None, Cf=None):
     xpp = (imagePoints[:, 0] - cameraMatrix[0, 2]) / cameraMatrix[0, 0]
     ypp = (imagePoints[:, 1] - cameraMatrix[1, 2]) / cameraMatrix[1, 1]
 
-    if Cccd is None:
-        return xpp, ypp
-    else:
-        Cpp = dc(Cccd)
-        Cpp[:, 0, 0] /= cameraMatrix[0, 0]**2
-        Cpp[:, 1, 1] /= cameraMatrix[1, 1]**2
-        fxfy = cameraMatrix[0, 0] * cameraMatrix[1, 1]
-        Cpp[:, 0, 1] /= fxfy
-        Cpp[:, 1, 0] /= fxfy
+    if Cccd is None and Cf is None:
+        Cpp = None  # return without covariance matrix
 
-        if Cf is None:
-            return xpp, ypp, Cpp
-        else:
+    else:
+        Cpp = zeros((xpp.shape[0],2,2))  # create covariance matrix
+
+        if Cccd is not None:
+            Cpp[:, 0, 0] += Cccd[:, 0, 0] / cameraMatrix[0, 0]**2
+            Cpp[:, 1, 1] += Cccd[:, 1, 1] / cameraMatrix[1, 1]**2
+            fxfy = cameraMatrix[0, 0] * cameraMatrix[1, 1]
+            Cpp[:, 0, 1] += Cccd[:, 0, 1] / fxfy
+            Cpp[:, 1, 0] += Cccd[:, 1, 0] / fxfy
+
+        if Cf is not None:
             unos = ones_like(imagePoints[:, 0])
             ceros = zeros_like(unos)
             a = - unos / cameraMatrix[0, 0]
@@ -322,7 +323,8 @@ def ccd2hom(imagePoints, cameraMatrix, Cccd=None, Cf=None):
             for i in range(unos.shape[0]):
                 Cpp[i] += J[i].dot(Cf).dot(J[i].T)
 
-            return xpp, ypp, Cpp
+    return xpp, ypp, Cpp
+
 
 
 # switcher for radial un-distortion
@@ -339,51 +341,66 @@ def homDist2homUndist(xpp, ypp, distCoeffs, model, Cpp=None, Ck=None):
     '''
     takes ccd cordinates and projects to homogenpus coords and undistorts
     '''
-    if Cpp is None:
-        rpp = norm([xpp, ypp], axis=0)
+    rpp = norm([xpp, ypp], axis=0)
 
+    if Cpp is None and Ck is None:  # no hay incertezas Ck ni Cpp
         # calculate ratio of undistortion
         q, _ = undistort[model](rpp, distCoeffs, quot=True)
-
+        
         xp = q * xpp  # undistort in homogenous coords
         yp = q * ypp
+        Cp = None
 
-        return xp, yp
     else:
-        rpp = norm([xpp, ypp], axis=0)
-
         # calculate ratio of undistorition and it's derivative wrt radius
         q, _, dqI, dqDk = undistort[model](rpp, distCoeffs, quot=True,
                                            der=True)
-
         xp = q * xpp  # undistort in homogenous coords
         yp = q * ypp
-
+        
+        # auxiliares para el jacobiano
         xpp2 = xpp**2
         ypp2 = ypp**2
         xypp = xpp * ypp
         dqIrpp = dqI / rpp
 
-        # calculo jacobiano
+        # calculo jacobiano respecto a coord distorsioandas
         J = array([[xpp2, xypp], [xypp, ypp2]])
         J *= dqIrpp.reshape(1, 1, -1)
         J[0, 0, :] += q
         J[1, 1, :] += q
 
-        Jk = (array([xpp, ypp]).T.reshape(-1, 2, 1) *
-              dqDk.T.reshape(-1, 1, Ck.shape[0]))
+        Cp = empty((len(xp),2,2))
 
-        Cp = empty_like(Cpp)
+        if Ck is None:  # incerteza Cpp unicamente
+            for i in range(len(xp)):
+                Cp[i] = J[:, :, i].dot(Cpp[i]).dot(J[:, :, i].T)
 
-        for i in range(len(xp)):
-            Caux = Cpp[i] + Jk[i].dot(Ck).dot(Jk[i].T)
-            Cp[i] = J[:, :, i].dot(Caux).dot(J[:, :, i].T)
+        else:
+            # jacobiano respecto a parametros
+            Jk = (array([xpp, ypp]).T.reshape(-1, 2, 1) *
+                      dqDk.T.reshape(-1, 1, Ck.shape[0]))
 
-        return xp, yp, Cp
+            if Cpp is None:  # incerteza Ck unicamente
+                for i in range(len(xp)):  # propagate trough both
+                    Caux = Jk[i].dot(Ck).dot(Jk[i].T)
+                    Cp[i] = J[:, :, i].dot(Caux).dot(J[:, :, i].T)
+
+            else: # incertezas Ck y Cpp
+                for i in range(len(xp)):  # propagate trough both
+                    Caux = Cpp[i] + Jk[i].dot(Ck).dot(Jk[i].T)
+                    Cp[i] = J[:, :, i].dot(Caux).dot(J[:, :, i].T)
+
+    return xp, yp, Cp
+
 
 
 def rototrasCovariance(xp, yp, rV, tV, Cp):
     '''
+    DEPRECATED, it is not an aproximation it's non linear, so the projected
+    ellipse will not be the projected gaussian via linear aproximation. the
+    error this encompases is hard to deal with
+    
     propaga la elipse proyectada por el conoide soble el plano del mapa
     solo toma en cuenta la incerteza en xp, yp
     '''
@@ -574,26 +591,45 @@ def xypToZplane(xp, yp, rV, tV, Cp=None, Crt=None):
     xm = (f*b - c*e) / q
     ym = (c*d - f*a) / q
 
-    if Cp is None:
-        return xm, ym
-    else:
-        if Crt is None:
-            # calculo con el conoide
-            Cm = rototrasCovariance(xp, yp, rV, tV, Cp)
-            return xm, ym, Cm
+#    if Cp is None:
+#        return xm, ym
+#    else:
+#        if Crt is None:
+#            # calculo con el conoide
+#            Cm = rototrasCovariance(xp, yp, rV, tV, Cp)
+#            return xm, ym, Cm
 
-        else:
+#        else:
+
+    if Cp is None and Crt is None:  # no hay incertezas
+        Cp = None
+
+    else:
+        Cm = empty((xm.shape[0],2,2))
+        # calculo jacobianos
+        JXm_Xp, JXm_rV, JXm_tV = jacobianosHom2Map(xp, yp, rV, tV)
+
+        if Cp is None:  # incerteza Crt unicamente
             Cr, Ct = Crt
-            # calculo jacobianos
-            JXm_Xp, JXm_rV, JXm_tV = jacobianosHom2Map(xp, yp, rV, tV)
-            # propago las matrices de incerteza
-            Cm = empty_like(Cp)
             for i in range(len(xp)):
-                Cm[i] = JXm_Xp[:, :, i].dot(Cp[i]).dot(JXm_Xp[:, :, i].T)
-                Cm[i] += JXm_rV[:, :, i].dot(Cr).dot(JXm_rV[:, :, i].T)
+                Cm[i] = JXm_rV[:, :, i].dot(Cr).dot(JXm_rV[:, :, i].T)
                 Cm[i] += JXm_tV[:, :, i].dot(Ct).dot(JXm_tV[:, :, i].T)
 
-            return xm, ym, Cm
+        else:
+            if Crt is None:  # incerteza Cp unicamente
+                for i in range(len(xp)):
+                    Cm[i] = JXm_Xp[:, :, i].dot(Cp[i]).dot(JXm_Xp[:, :, i].T)
+
+            else: # incertezas Ck y Cpp
+                Cr, Ct = Crt
+                for i in range(len(xp)):
+                    Cm[i] = JXm_Xp[:, :, i].dot(Cp[i]).dot(JXm_Xp[:, :, i].T)
+                    Cm[i] += JXm_rV[:, :, i].dot(Cr).dot(JXm_rV[:, :, i].T)
+                    Cm[i] += JXm_tV[:, :, i].dot(Ct).dot(JXm_tV[:, :, i].T)
+
+    return xp, yp, Cp
+
+
 
 
 def inverse(imagePoints, rV, tV, cameraMatrix, distCoeffs, model,
@@ -609,22 +645,13 @@ def inverse(imagePoints, rV, tV, cameraMatrix, distCoeffs, model,
     propagates covariance uncertainty
     '''
 
-    if Cccd is None:
-        # project to homogenous distorted
-        xpp, ypp = ccd2hom(imagePoints, cameraMatrix)
-        # undistort
-        xp, yp = homDist2homUndist(xpp, ypp, distCoeffs, model)
-        # project to plane z=0 from homogenous
-        xm, ym = xypToZplane(xp, yp, rV, tV)
-        return xm, ym
-    else:
-        # project to homogenous distorted
-        xpp, ypp, Cpp = ccd2hom(imagePoints, cameraMatrix, Cccd, Cf)
-        # undistort
-        xp, yp, Cp = homDist2homUndist(xpp, ypp, distCoeffs, model, Cpp, Ck)
-        # project to plane z=0 from homogenous
-        xm, ym, Cm = xypToZplane(xp, yp, rV, tV, Cp, Crt)
-        return xm, ym, Cm
+    # project to homogenous distorted
+    xpp, ypp, Cpp = ccd2hom(imagePoints, cameraMatrix, Cccd, Cf)
+    # undistort
+    xp, yp, Cp = homDist2homUndist(xpp, ypp, distCoeffs, model, Cpp, Ck)
+    # project to plane z=0 from homogenous
+    xm, ym, Cm = xypToZplane(xp, yp, rV, tV, Cp, Crt)
+    return xm, ym, Cm
 
 
 def residualInverse(params, objectPoints, imagePoints, model):

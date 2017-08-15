@@ -105,6 +105,12 @@ def ext2flat(rVec, tVec):
     
     return X
 
+def fat2CamMAtrix(kFlat):
+    cameraMatrix = np.zeros((3,3), dtype=float)
+    cameraMatrix[[0,1,0,1],[0,1,2,2]] = kFlat
+    cameraMatrix[2,2] = 1
+    
+    return cameraMatrix
 
 def flat2int(X, Ns):
     '''
@@ -113,10 +119,7 @@ def flat2int(X, Ns):
     kFlat = X[0:Ns[0]]
     dFlat = X[Ns[0]:Ns[1]]
     
-    cameraMatrix = np.zeros((3,3), dtype=float)
-    cameraMatrix[[0,1,0,1],[0,1,2,2]] = kFlat
-    cameraMatrix[2,2] = 1
-    
+    cameraMatrix = fat2CamMAtrix(kFlat)
     distCoeffs = dFlat
     
     return cameraMatrix, distCoeffs
@@ -144,14 +147,30 @@ def errorCuadraticoImagen(Xext, Xint, Ns, params, j):
     cameraMatrix, distCoeffs = flat2int(Xint, Ns)
     rvec, tvec = flat2ext(Xext)
     # saco los parametros auxiliares
-    n, m, imagePoints, model, chessboardModel = params
+    n, m, imagePoints, model, chessboardModel, Ci = params
+    
+    try: # check if there is covariance for this image
+        Cov = Ci[j]
+    except:
+        Cov = None
+    
     # hago la proyeccion
-    objectPointsProjected = cl.inverse(imagePoints[j,0], rvec, tvec,
-                                        cameraMatrix, distCoeffs, model)
+    xm, ym, Cm = cl.inverse(imagePoints[j,0], rvec, tvec, cameraMatrix,
+                            distCoeffs, model, Cccd=Cov)
+    
     # error
-    er = objectPointsProjected - chessboardModel[0,:,:2].T
-    # devuelvo error cuadratico
-    return np.sum(er**2)
+    er = [xm, ym] - chessboardModel[0,:,:2].T
+    
+    if Cm is None:
+        # error cuadratico pelado
+        Er = np.sum(er**2, 0)
+    else:
+        # devuelvo error cuadratico pesado por las covarianzas
+        S = np.linalg.inv(Cm)  # inverse of covariance matrix
+        q1 = [np.sum(Cm[:,:,0]*er.T,1), np.sum(S[:,:,1]*er.T,1)];
+        Er = np.sum(q1*er,0)
+    
+    return Er
 
 
 
@@ -160,30 +179,23 @@ def errorCuadraticoInt(Xint, Ns, XextList, params):
     el error asociado a todas la imagenes, es para optimizar respecto a los
     parametros intrinsecos
     '''
-    # saco los parametros de flat para que los use la func de projection
-    cameraMatrix, distCoeffs = flat2int(Xint, Ns)
-    # saco los parametros auxiliares
-    n, m, imagePoints, model, chessboardModel = params
     # reservo lugar para el error
-    er = np.zeros((2 * n, m), dtype=float)
+    er = list()
     
     for j in range(n):
-        # descomprimos los valores de pose para que los use la funcion
-        rvec, tvec = flat2ext(XextList[j])
-        # hago la proyeccion
-        objectPointsProjected = cl.inverse(imagePoints[j,0], rvec, tvec,
-                                            cameraMatrix, distCoeffs, model)
-        # calculo del error
-        er[2*j:2*j+2] = objectPointsProjected - chessboardModel[0,:,:2].T
-    # devuelvo el error cuadratico total
-    return np.sum(er**2)
+        er.append(errorCuadraticoImagen(XextList[j], Xint, Ns, params, j))
+    
+    Er = np.hstack(er)
+    return Er
 
 
 # %%
 testearFunc = True
 if testearFunc:
     # parametros auxiliares
-    params = [n, m, imagePoints, model, chessboardModel]
+    # Ci = None
+    Ci = np.repeat([np.eye(2)],n*m, axis=0).reshape(n,m,2,2)
+    params = [n, m, imagePoints, model, chessboardModel, Ci]
     
     # pongo en forma flat los valores iniciales
     Xint, Ns = int2flat(cameraMatrix, distCoeffs)
@@ -192,7 +204,8 @@ if testearFunc:
     # pruebo con una imagen
     j=0
     Xext = XextList[0]
-    errorCuadraticoImagen(Xext, Xint, Ns, params, j)
+    print(errorCuadraticoImagen(Xext, Xint, Ns, params, j))
+    
     # pruebo el error total
     errorCuadraticoInt(Xint, Ns, XextList, params)
 
@@ -539,17 +552,17 @@ e0 = errorCuadraticoInt(Xint0, Ns, XextList0, params)
 jInt, hInt, jExt, hExt = jacobianos(Xint0, Ns, XextList0, params)
 
 
-# %% analizamos lo que pasa con la correccion en los intrinsecos
-#etasI = np.concatenate((np.linspace(-0.1, -0.001, 30),
-#                       np.linspace(-0.001, -2e-6, 100),
-#                       np.linspace(-2e-6, 2e-6, 100),
-#                       np.linspace(2e-6, 0.001, 100),
-#                       np.linspace(0.001, 0.1, 30)))
-
-rangos = [,,1e-5]
-
-
-u, s, v = np.linalg.svd(hInt)
+## %% analizamos lo que pasa con la correccion en los intrinsecos
+##etasI = np.concatenate((np.linspace(-0.1, -0.001, 30),
+##                       np.linspace(-0.001, -2e-6, 100),
+##                       np.linspace(-2e-6, 2e-6, 100),
+##                       np.linspace(2e-6, 0.001, 100),
+##                       np.linspace(0.001, 0.1, 30)))
+#
+#rangos = [,,1e-5]
+#
+#
+#u, s, v = np.linalg.svd(hInt)
 
 # %% testeo en las diferentes direcciones segun el hesiano
 etasI = np.linspace(-5e-8, 4e-8, int(5e2))
