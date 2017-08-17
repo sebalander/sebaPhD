@@ -189,7 +189,7 @@ def radialDistort(rp, k, quot=False, der=False):
 
 
 # %% ========== ========== INVERSE RATIONAL ========== ==========
-def radialUndistort(rpp, k, quot=False, der=True):
+def radialUndistort(rpp, k, quot=False, der=False):
     '''
     takes distorted radius and returns the radius undistorted
     optioally it returns the undistortion quotient rp = rpp * q
@@ -217,7 +217,7 @@ def radialUndistort(rpp, k, quot=False, der=True):
     
     rp = empty_like(rpp)
     
-    if any(-retVal): # if at least one case of non solution
+    if any(~ retVal): # if at least one case of non solution
         # calculate extrema of polyniomial
         rExtrema = roots([7*k[4], 0, 5*k[1], 0, 3*k[0], 0, 1])
         # select real extrema in positive side, keep smallest

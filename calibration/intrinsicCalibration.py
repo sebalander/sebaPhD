@@ -21,7 +21,7 @@ camera = 'vcaWide'
 # puede ser ['rational', 'fisheye', 'poly']
 modelos = ['poly', 'rational', 'fisheye']
 model = modelos[2]
-plotCorners = False
+plotCorners = True
 
 
 imagesFolder = "./resources/intrinsicCalib/" + camera + "/"
@@ -74,7 +74,7 @@ if plotCorners:
         cl.fiducialComparison3D(rVec, tVec, fiducial1)
 #
 
-# %% TEST MAPPING (DISTORTION MODEL)
+# %% TEST DIRECT MAPPING (DISTORTION MODEL)
 # pruebo con la imagen j-esima
 
 if plotCorners:
@@ -98,6 +98,25 @@ if plotCorners:
         plt.plot(xPos, yPos, '+b', markersize=10)
         #fig.savefig("distortedPoints3.png")
 #
+
+
+# %% TEST INVERSE MAPPING (DISTORTION MODEL)
+# pruebo con la imagen j-esima
+
+if plotCorners:
+    plt.figure()
+    plt.plot(chessboardModel[:,0], chessboardModel[:,1], 'xr', markersize=10)
+
+    for j in range(n):  # range(len(imgpoints)):
+        rvec = rVecs[j]
+        tvec = tVecs[j]
+    
+        xPos, yPos, cc = cl.inverse(imgpoints[j, 0], rvec, tvec, K, D, model)
+    
+        im = plt.imread(images[j])
+        plt.plot(xPos, yPos, '+b', markersize=10)
+
+
 
 # %% SAVE CALIBRATION
 np.save(distCoeffsFile, D)

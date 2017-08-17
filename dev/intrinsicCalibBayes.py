@@ -49,13 +49,13 @@ imgShapeFile =     imagesFolder + camera + "Shape.npy"
 # load data
 imagePoints = np.load(cornersFile)
 n = len(imagePoints)  # cantidad de imagenes
-indexes = np.arange(n)
-
-np.random.shuffle(indexes)
-indexes = indexes
-
-imagePoints = imagePoints[indexes]
-n = len(imagePoints)  # cantidad de imagenes
+#indexes = np.arange(n)
+#
+#np.random.shuffle(indexes)
+#indexes = indexes
+#
+#imagePoints = imagePoints[indexes]
+#n = len(imagePoints)  # cantidad de imagenes
 
 chessboardModel = np.load(patternFile)
 imgSize = tuple(np.load(imgShapeFile))
@@ -74,8 +74,8 @@ rVecsFile =        imagesFolder + camera + model + "Rvecs.npy"
 # load model specific data
 distCoeffs = np.load(distCoeffsFile)
 cameraMatrix = np.load(linearCoeffsFile)
-rVecs = np.load(rVecsFile)[indexes]
-tVecs = np.load(tVecsFile)[indexes]
+rVecs = np.load(rVecsFile)#[indexes]
+tVecs = np.load(tVecsFile)#[indexes]
 
 # %% funcion error
 # MAP TO HOMOGENOUS PLANE TO GET RADIUS
@@ -157,18 +157,19 @@ def errorCuadraticoImagen(Xext, Xint, Ns, params, j):
     # hago la proyeccion
     xm, ym, Cm = cl.inverse(imagePoints[j,0], rvec, tvec, cameraMatrix,
                             distCoeffs, model, Cccd=Cov)
-    
+    print(Cm)
     # error
     er = [xm, ym] - chessboardModel[0,:,:2].T
     
     if Cm is None:
-        # error cuadratico pelado
-        Er = np.sum(er**2, 0)
+        # error cuadratico pelado, escalar
+        Er = np.sum(er**2)
     else:
         # devuelvo error cuadratico pesado por las covarianzas
         S = np.linalg.inv(Cm)  # inverse of covariance matrix
-        q1 = [np.sum(Cm[:,:,0]*er.T,1), np.sum(S[:,:,1]*er.T,1)];
-        Er = np.sum(q1*er,0)
+        q1 = [np.sum(S[:, :, 0] * er.T, 1),  # fastest way I found to do product
+              np.sum(S[:, :, 1] * er.T, 1)];
+        Er = np.sum(q1 * er)
     
     return Er
 
@@ -179,13 +180,13 @@ def errorCuadraticoInt(Xint, Ns, XextList, params):
     el error asociado a todas la imagenes, es para optimizar respecto a los
     parametros intrinsecos
     '''
-    # reservo lugar para el error
-    er = list()
+    # error
+    Er = 0
     
     for j in range(n):
-        er.append(errorCuadraticoImagen(XextList[j], Xint, Ns, params, j))
+        print(j)
+        Er += errorCuadraticoImagen(XextList[j], Xint, Ns, params, j)
     
-    Er = np.hstack(er)
     return Er
 
 
@@ -207,7 +208,7 @@ if testearFunc:
     print(errorCuadraticoImagen(Xext, Xint, Ns, params, j))
     
     # pruebo el error total
-    errorCuadraticoInt(Xint, Ns, XextList, params)
+    print(errorCuadraticoInt(Xint, Ns, XextList, params))
 
 # %% funciones para calcular jacobiano y hessiano in y externo
 Jint = ndf.Jacobian(errorCuadraticoInt)  # (Ns,)
@@ -229,7 +230,7 @@ def procHext(Xext, Xint, Ns, params, j, ret):
     ret.put(Hext(Xext, Xint, Ns, params, j))
 
 
-# pruebo evaluar las funciones para los processos
+# %% pruebo evaluar las funciones para los processos
 testearFunc = True
 if testearFunc:
     jInt = Queue()  # np.zeros((Ns[-1]), dtype=float)
@@ -243,8 +244,9 @@ if testearFunc:
     jExt = Queue()  # np.zeros(6, dtype=float)
     hExt = Queue()  # np.zeros((6, 6), dtype=float)
     
-    pp.append(Process(target=procJext, args=(Xext, Xint, Ns, params, 0, jExt)))
-    pp.append(Process(target=procHext, args=(Xext, Xint, Ns, params, 0, hExt)))
+    j = 23
+    pp.append(Process(target=procJext, args=(Xext, Xint, Ns, params, j, jExt)))
+    pp.append(Process(target=procHext, args=(Xext, Xint, Ns, params, j, hExt)))
     
     [p.start() for p in pp]
     
@@ -358,6 +360,42 @@ if testearFunc:
     plt.plot(jInt[0], 'b+-')
     plt.figure()
     [plt.plot(j[0], '-+') for j in jExt]
+
+# %% grafico la función error en las direcciones de los autovalores del hessiano
+
+# parametros auxiliares
+params = [n, m, imagePoints, model, chessboardModel, Ci]
+
+# pongo en forma flat los valores iniciales
+Xint0, Ns = int2flat(cameraMatrix, distCoeffs)
+XextList0 = [ext2flat(rVecs[i], tVecs[i])for i in range(n)]
+e0 = errorCuadraticoInt(Xint0, Ns, XextList0, params)
+
+# saco los hessianos
+jInt, hInt, jExt, hExt = jacobianos(Xint, Ns, XextList, params)
+
+# get eigenvectors
+u, s, v = np.linalg.svd(hInt)
+
+
+etasI = np.linspace(-1, 1, 100)
+
+npts = etasI.shape[0]
+errsI = np.empty(npts, dtype=float)
+
+direction = 0
+direc = v[direction] * s[direction]
+deltaX = - np.array([direc]*npts) * etasI.reshape((-1,1))
+Xmod = deltaX + Xint0  # modified parameters
+
+for i in range(npts):
+    print(i)
+    errsI[i] = errorCuadraticoInt(Xmod[i], Ns, XextList0, params)
+
+plt.figure()
+plt.plot(etasI, errsI, '-*')
+plt.plot([etasI[0], etasI[-1]],[e0, e0], '-r')
+
 
 # %%
 # parametros auxiliares
@@ -541,7 +579,7 @@ intr, extr, ers = gradDescE2(cameraMatrix, distCoeffs, rVecs, tVecs, Ns,
 
 # %%
 # parametros auxiliares
-params = [n, m, imagePoints, model, chessboardModel]
+params = [n, m, imagePoints, model, chessboardModel, Ci]
 
 # pongo en forma flat los valores iniciales
 Xint0, Ns = int2flat(cameraMatrix, distCoeffs)
@@ -562,7 +600,7 @@ jInt, hInt, jExt, hExt = jacobianos(Xint0, Ns, XextList0, params)
 #rangos = [,,1e-5]
 #
 #
-#u, s, v = np.linalg.svd(hInt)
+u, s, v = np.linalg.svd(hInt)
 
 # %% testeo en las diferentes direcciones segun el hesiano
 etasI = np.linspace(-5e-8, 4e-8, int(5e2))
@@ -626,6 +664,7 @@ for i in range(npts):
 
 plt.figure()
 plt.plot(etasE, errsE)
+
 
 # %% pruebo de moverme en cada direccion para ver si efetivamente estamos en
 # un minimo

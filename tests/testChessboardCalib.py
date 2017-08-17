@@ -16,15 +16,25 @@ import glob
 # ============================================================================
 # ============================ FE WIDE LENS TEST =============================
 # %% LOAD DATA
-imagesFolder = "./resources/fishChessboard/"
-cornersFile = "./resources/fishChessboard/fishCorners.npy"
-patternFile = "./resources/fishChessboard/chessPattern.npy"
-imgShapeFile = "./resources/fishChessboard/fishImgShape.npy"
-distCoeffsFile = "./resources/fishChessboard/fishDistCoeffs.npy"
-linearCoeffsFile = "./resources/fishChessboard/fishLinearCoeffs.npy"
-rvecsFile = "./resources/fishChessboard/fishRvecs.npy"
-tvecsFile = "./resources/fishChessboard/fishTvecs.npy"
 
+# cam puede ser ['vca', 'vcaWide', 'ptz'] son los datos que se tienen
+camera = 'vcaWide'
+# puede ser ['rational', 'fisheye', 'poly']
+modelos = ['poly', 'rational', 'fisheye']
+model = modelos[1]
+
+imagesFolder = "/home/sebalander/Desktop/Code/sebaPhD/resources/intrinsicCalib/" + camera + "/"
+cornersFile =      imagesFolder + camera + "Corners.npy"
+patternFile =      imagesFolder + camera + "ChessPattern.npy"
+imgShapeFile =     imagesFolder + camera + "Shape.npy"
+
+# model data files
+distCoeffsFile =   imagesFolder + camera + model + "DistCoeffs.npy"
+linearCoeffsFile = imagesFolder + camera + model + "LinearCoeffs.npy"
+tVecsFile =        imagesFolder + camera + model + "Tvecs.npy"
+rVecsFile =        imagesFolder + camera + model + "Rvecs.npy"
+
+# load model specific data
 imgpoints = np.load(cornersFile)
 chessboardModel = np.load(patternFile)
 imgSize = tuple(np.load(imgShapeFile))
@@ -33,8 +43,8 @@ images = glob.glob(imagesFolder+'*.png')
 distCoeffs = np.load(distCoeffsFile)
 cameraMatrix = np.load(linearCoeffsFile)
 
-rvecs = np.load(rvecsFile)
-tvecs = np.load(tvecsFile)
+rvecs = np.load(rVecsFile)
+tvecs = np.load(tVecsFile)
 
     # %% TEST MAPPING (DISTORTION MODEL)
 

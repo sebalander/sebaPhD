@@ -345,7 +345,7 @@ def homDist2homUndist(xpp, ypp, distCoeffs, model, Cpp=None, Ck=None):
 
     if Cpp is None and Ck is None:  # no hay incertezas Ck ni Cpp
         # calculate ratio of undistortion
-        q, _ = undistort[model](rpp, distCoeffs, quot=True)
+        q, _ = undistort[model](rpp, distCoeffs, quot=True, der=False)
         
         xp = q * xpp  # undistort in homogenous coords
         yp = q * ypp
@@ -602,7 +602,7 @@ def xypToZplane(xp, yp, rV, tV, Cp=None, Crt=None):
 #        else:
 
     if Cp is None and Crt is None:  # no hay incertezas
-        Cp = None
+        Cm = None
 
     else:
         Cm = empty((xm.shape[0],2,2))
@@ -627,7 +627,7 @@ def xypToZplane(xp, yp, rV, tV, Cp=None, Crt=None):
                     Cm[i] += JXm_rV[:, :, i].dot(Cr).dot(JXm_rV[:, :, i].T)
                     Cm[i] += JXm_tV[:, :, i].dot(Ct).dot(JXm_tV[:, :, i].T)
 
-    return xp, yp, Cp
+    return xm, ym, Cm
 
 
 
@@ -1028,6 +1028,15 @@ def plotEllipse(ax, C, mux, muy, col):
     v1, v2 = r * T.T
     ax.plot([mux, mux + v1[0]], [muy, muy + v1[1]], c=col, lw=0.5)
     ax.plot([mux, mux + v2[0]], [muy, muy + v2[1]], c=col, lw=0.5)
+
+
+def plotPointsUncert(ax, C, mux, muy, col):
+    '''
+    se grafican los puntos centrados en mux, muy con covarianzas C (una lista)
+    '''
+    
+    for i in range(len(mux)):
+        plotEllipse(ax, C[i], mux[i], muy[i], col)
 
 
 # %% INRINSIC CALIBRATION

@@ -13,8 +13,18 @@ import timeit
 
 from importlib import reload
 reload(cl)
+# %% simplest test
+j = 0
+for j in range(0,n,3):
+    xm, ym, Cm = cl.inverse(imagePoints[j,0], rVecs[j], tVecs[j],                                        
+                            cameraMatrix, distCoeffs, model)
+    
+    plt.figure()
+    plt.scatter(chessboardModel[0,:,0], chessboardModel[0,:,1])
+    plt.scatter(xm, ym)
+
+
 # %%
-j=0
 ep = 0.05  # standar deviation in parameters
 
 # matriz de incerteza de deteccion en pixeles
@@ -44,6 +54,13 @@ Caux = Cm
 xm, ym, Cm = cl.inverse(imagePoints[j,0], rVecs[j], tVecs[j],                                        
                         cameraMatrix, distCoeffs, model,
                         Cccd, Cf, Ck, Crt)
+
+fig = plt.figure()
+ax = fig.gca()
+ax.scatter(chessboardModel[0,:,0], chessboardModel[0,:,1])
+cl.plotPointsUncert(ax, Cm, xm, ym, 'k')
+
+
 
 er = [xm, ym] - chessboardModel[0,:,:2].T
 

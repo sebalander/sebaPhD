@@ -475,7 +475,7 @@ def calibrateIntrinsic(objpoints, imgpoints, imgSize, K, D,
     '''
     if D is None:
         D = zeros((1, 8))
-    print('raional calibrating', flags, D)
+    #print('rational calibrating', flags, D)
 
     rms, K, D, rVecs, tVecs = cali(objpoints, imgpoints,
                                    imgSize, K, D,
