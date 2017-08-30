@@ -8,11 +8,11 @@ test functions that propagate uncertanty
 @author: sebalander
 """
 # %%
-import time
-import timeit
+#import time
+#import timeit
 
 import numpy as np
-import scipy.linalg as ln
+#import scipy.linalg as ln
 from calibration import calibrator as cl
 import matplotlib.pyplot as plt
 
@@ -64,99 +64,196 @@ cameraMatrix = np.load(linearCoeffsFile)
 rVecs = np.load(rVecsFile)#[indexes]
 tVecs = np.load(tVecsFile)#[indexes]
 
+#
+#
+## %% simplest test
+#j = 0
+#
+#plt.figure()
+#plt.scatter(chessboardModel[0,:,0], chessboardModel[0,:,1],
+#            marker='+', c='k', s=100)
+#
+#for j in range(0,n):
+#    xm, ym, Cm = cl.inverse(imagePoints[j,0], rVecs[j], tVecs[j],                                        
+#                            cameraMatrix, distCoeffs, model)
+#    
+#    plt.scatter(xm, ym, marker='x', c='b')
+#
+#
+## %%
+#ep = 0.01  # realtive standard deviation in parameters
+#
+## matriz de incerteza de deteccion en pixeles
+#Cccd = np.repeat([np.eye(2,2)*0.1**2],imagePoints[j,0].shape[0], axis=0)
+#Cf = np.diag(cameraMatrix[[0,1,0,1],[0,1,2,2]] * ep)**2
+#Ck = np.diag((distCoeffs.reshape(-1) * ep )**2)
+#Cr = np.diag((rVecs[j].reshape(-1) * ep )**2)
+#Ct = np.diag((tVecs[j].reshape(-1) * ep )**2)
+#
+#
+#Crt = [Cr, Ct]
+#
+#
+## %%
+#xpp, ypp, Cpp = cl.ccd2hom(imagePoints[j,0], cameraMatrix, Cccd, Cf)
+#
+#
+## %% undistort
+#xp, yp, Cp = cl.homDist2homUndist(xpp, ypp, distCoeffs, model, Cpp, Ck)
+#
+#
+## %% project to plane z=0 from homogenous
+#xm, ym, Cm = cl.xypToZplane(xp, yp, rVecs[j], tVecs[j], Cp, Crt)
+#
+#Caux = Cm
+## %%
+#xm, ym, Cm = cl.inverse(imagePoints[j,0], rVecs[j], tVecs[j],                                        
+#                        cameraMatrix, distCoeffs, model,
+#                        Cccd, Cf, Ck, Crt)
+#
+#fig = plt.figure()
+#ax = fig.gca()
+#ax.scatter(chessboardModel[0,:,0], chessboardModel[0,:,1])
+#cl.plotPointsUncert(ax, Cm, xm, ym, 'k')
+#
+#
+#
+#er = [xm, ym] - chessboardModel[0,:,:2].T
+##
+## %%
+#statement1 = '''
+#p1 = np.tensordot(er, Cm, axes=(0,1))[range(54),range(54)]
+#p2 = p1.dot(er)[range(54),range(54)]
+#'''
+#
+## %%
+#statement2 = '''
+#Er = np.empty_like(xp)
+#for i in range(len(xp)):
+#    Er[i] = er[:,i].dot(Cm[i]).dot(er[:,i])
+#'''
+#
+## %%
+#statement3 = '''
+#q1 = [np.sum(Cm[:,:,0]*er.T,1), np.sum(Cm[:,:,1]*er.T,1)];
+#q2 = np.sum(q1*er,0)
+#'''
+## %%
+#
+#t1 = timeit.timeit(statement1, globals=globals(), number=10000) / 1e4
+#
+#t2 = timeit.timeit(statement2, globals=globals(), number=10000) / 1e4
+#
+#t3 = timeit.timeit(statement3, globals=globals(), number=10000) / 1e4
+#
+#print(t1/t3, t2/t3)
 
 
-# %% simplest test
-j = 0
+## %%
+#ep = 0.0001  # relative standard deviation in parameters
+#
+## matriz de incerteza de deteccion en pixeles
+#Cccd = np.repeat([np.eye(2,2)*0.1**2],imagePoints[j,0].shape[0], axis=0)
+#Cf = np.diag(cameraMatrix[[0,1,0,1],[0,1,2,2]] * ep)**2
+#Ck = np.diag((distCoeffs.reshape(-1) * ep )**2)
+#
+#
+#fig = plt.figure()
+#ax = fig.gca()
+#
+#ax.scatter(chessboardModel[0,:,0], chessboardModel[0,:,1],
+#            marker='+', c='k', s=100)
+#
+#for j in range(0,n,3):
+#    Cr = np.diag((rVecs[j].reshape(-1) * ep )**2)
+#    Ct = np.diag((tVecs[j].reshape(-1) * ep )**2)
+#    
+#    Crt = [Cr, Ct]
+#    
+#    xm, ym, Cm = cl.inverse(imagePoints[j,0], rVecs[j], tVecs[j],                                        
+#                                         cameraMatrix, distCoeffs, model,
+#                                         Cccd, Cf, Ck, Crt)
+#    
+#    cl.plotPointsUncert(ax, Cm, xm, ym, 'k')
 
-plt.figure()
-plt.scatter(chessboardModel[0,:,0], chessboardModel[0,:,1],
-            marker='+', c='k', s=100)
 
-for j in range(0,n,3):
-    xm, ym, Cm = cl.inverse(imagePoints[j,0], rVecs[j], tVecs[j],                                        
-                            cameraMatrix, distCoeffs, model)
+
+# %% poniendo ruido
+def sacoParmams(pars):
+    d = pars[4:8]
+    r = pars[8:11]
+    t = pars[11:]
     
-    plt.scatter(xm, ym, marker='x', c='b')
+    k = np.zeros((3, 3), dtype=float)
+    k[[0,1,0,1],[0,1,2,2]] = pars[:4]
+    k[2,2] = 1
+    
+    return r, t, k, d
+
+def sdt2covs(covAll):
+    Cf = np.diag(covAll[:4])
+    Ck = np.diag(covAll[4:8])
+    
+    Crt = np.diag(covAll[8:])
+    return Cf, Ck, Crt
 
 
-# %%
-ep = 0.01  # realtive standard deviation in parameters
+j = 10 # elijo una imagen para trabajar
 
-# matriz de incerteza de deteccion en pixeles
-Cccd = np.repeat([np.eye(2,2)*0.1**2],imagePoints[j,0].shape[0], axis=0)
-Cf = np.diag(cameraMatrix[[0,1,0,1],[0,1,2,2]] * ep)**2
-Ck = np.diag((distCoeffs.reshape(-1) * ep )**2)
-Cr = np.diag((rVecs[j].reshape(-1) * ep )**2)
-Ct = np.diag((tVecs[j].reshape(-1) * ep )**2)
+import glob
+imagenFile = glob.glob(imagesFolder+'*.png')[j]
+plt.imshow(plt.imread(imagenFile), origin='lower')
+plt.scatter(imagePoints[j,0,:,0], imagePoints[j,0,:,1])
 
+nSampl = int(1e6)  # cantidad de samples
 
-Crt = [Cr, Ct]
+ep = 1e-6  # relative standard deviation in parameters
+stdIm = 1e-6
 
+# apilo todos los parametros juntos
+parsAll = np.hstack([cameraMatrix[[0,1,0,1],[0,1,2,2]],
+                    distCoeffs.reshape(-1),
+                    rVecs[j].reshape(-1),
+                    tVecs[j].reshape(-1)])
 
-# %%
-xpp, ypp, Cpp = cl.ccd2hom(imagePoints[j,0], cameraMatrix, Cccd, Cf)
+# standard deviations
+sAll = ep * parsAll
 
+Cccd = np.repeat([np.eye(2) * stdIm**2], imagePoints[j,0].shape[0], axis=0)
+Cf, Ck, Crt = sdt2covs(sAll**2)
 
-# %% undistort
-xp, yp, Cp = cl.homDist2homUndist(xpp, ypp, distCoeffs, model, Cpp, Ck)
+# genero todo el ruido
+noiseParam = np.random.randn(nSampl, sAll.shape[0])
+noisePos = np.random.randn(nSampl, imagePoints[j,0].shape[0], imagePoints[j,0].shape[1])
 
-
-# %% project to plane z=0 from homogenous
-xm, ym, Cm = cl.xypToZplane(xp, yp, rVecs[j], tVecs[j], Cp, Crt)
-
-Caux = Cm
-# %%
-xm, ym, Cm = cl.inverse(imagePoints[j,0], rVecs[j], tVecs[j],                                        
-                        cameraMatrix, distCoeffs, model,
-                        Cccd, Cf, Ck, Crt)
-
-fig = plt.figure()
-ax = fig.gca()
-ax.scatter(chessboardModel[0,:,0], chessboardModel[0,:,1])
-cl.plotPointsUncert(ax, Cm, xm, ym, 'k')
+# dejo los valores preparados
+parsGen = parsAll.reshape((1, -1)) + noiseParam * sAll.reshape((1, -1))
+posIgen = imagePoints[j,0].reshape((1,-1,2)) + noisePos * stdIm
+posMap = np.zeros_like(posIgen)
 
 
-
-er = [xm, ym] - chessboardModel[0,:,:2].T
-
-# %%
-statement1 = '''
-p1 = np.tensordot(er, Cm, axes=(0,1))[range(54),range(54)]
-p2 = p1.dot(er)[range(54),range(54)]
-'''
-
-# %%
-statement2 = '''
-Er = np.empty_like(xp)
-for i in range(len(xp)):
-    Er[i] = er[:,i].dot(Cm[i]).dot(er[:,i])
-'''
-
-# %%
-statement3 = '''
-q1 = [np.sum(Cm[:,:,0]*er.T,1), np.sum(Cm[:,:,1]*er.T,1)];
-q2 = np.sum(q1*er,0)
-'''
-# %%
-
-t1 = timeit.timeit(statement1, globals=globals(), number=10000) / 1e4
-
-t2 = timeit.timeit(statement2, globals=globals(), number=10000) / 1e4
-
-t3 = timeit.timeit(statement3, globals=globals(), number=10000) / 1e4
-
-print(t1/t3, t2/t3)
+# %% hago todos los mapeos de Monte Carlo
+for posM, posI, pars in zip(posMap, posIgen, parsGen):
+    r, t, k, d = sacoParmams(pars)
+    posM[:,0], posM[:,1], _ = cl.inverse(posI, r, t, k, d, model)
 
 
-# %%
-ep = 0.001  # relative standard deviation in parameters
+# %% saco media y varianza de cada nube de puntos
+posMapMean = np.mean(posMap, axis=0)
+dif = (posMap - posMapMean).T
+posMapVar = np.mean([dif[0] * dif, dif[1] * dif], axis=-1).T
 
-# matriz de incerteza de deteccion en pixeles
-Cccd = np.repeat([np.eye(2,2)*0.1**2],imagePoints[j,0].shape[0], axis=0)
-Cf = np.diag(cameraMatrix[[0,1,0,1],[0,1,2,2]] * ep)**2
-Ck = np.diag((distCoeffs.reshape(-1) * ep )**2)
 
+
+# %% mapeo propagando incerteza los valores con los que comparar
+xmJ, ymJ, CmJ = cl.inverse(imagePoints[j,0], rVecs[j], tVecs[j],                                        
+                                     cameraMatrix, distCoeffs, model,
+                                     Cccd, Cf, Ck, Crt)
+
+XJ = np.array([xmJ, ymJ]).T
+
+# %% grafico
+xm, ym = posMap.reshape(-1,2).T
 
 fig = plt.figure()
 ax = fig.gca()
@@ -164,59 +261,125 @@ ax = fig.gca()
 ax.scatter(chessboardModel[0,:,0], chessboardModel[0,:,1],
             marker='+', c='k', s=100)
 
-for j in range(0,n,3):
-    Cr = np.diag((rVecs[j].reshape(-1) * ep )**2)
-    Ct = np.diag((tVecs[j].reshape(-1) * ep )**2)
-    
-    Crt = [Cr, Ct]
-    
-    xm, ym, Cm = cl.inverse(imagePoints[j,0], rVecs[j], tVecs[j],                                        
-                                         cameraMatrix, distCoeffs, model,
-                                         Cccd, Cf, Ck, Crt)
-    
-    cl.plotPointsUncert(ax, Cm, xm, ym, 'k')
+ax.scatter(xm, ym, marker='.', c='b', s=1)
+cl.plotPointsUncert(ax, CmJ, xmJ, ymJ, 'k')
+
+cl.plotPointsUncert(ax, posMapVar, posMapMean[:,0], posMapMean[:,1], 'b')
+
+#plt.figure()
+## ploteo el cociente entre varianzas
+#quot = posMapVar[:, [0,1],[0,1]] / CmJ[:, [0,1],[0,1]]
+#plt.plot(quot.T, 'x')
 
 
 
-# %% testeo poniendo ruido en la imagen
-j = 0 # elijo una imagen para trabajar
-nSampl = 100  # cantidad de samples
+# %% TEST EACH STEP. STEP 1: CCD TO HOMOGENOUS
 
-ep = 0.001  # relative standard deviation in parameters
-
-# desviaciones estándar de cada cosa, es facil porque son independientes
-sI = np.ones(2) * 0.1
-sF = cameraMatrix[[0,1,0,1],[0,1,2,2]] * ep
-sK = np.abs(distCoeffs.reshape(-1) * ep)
-sR = np.abs(rVecs[j].reshape(-1) * ep)
-sT = np.abs(tVecs[j].reshape(-1) * ep)
+# mapeo propagando incerteza para tener con quien comparar
+xpp, ypp, Cpp = cl.ccd2hom(imagePoints[j,0], cameraMatrix, Cccd, Cf)
 
 
-# genero todo el ruido
-noise = np.random.randn(15+distCoeffs.shape[0]+imagePoints[j,0].shape[0],
-                        nSampl)
-
-# dejo los samples preparados
-
-rSam = rVecs[j] + sR * noise[0:3]
+# hago todos los mapeos de Monte Carlo
+for posM, posI, pars in zip(posMap, posIgen, parsGen):
+    r, t, k, d = sacoParmams(pars)
+    posM[:,0], posM[:,1], _ = cl.ccd2hom(posI, k)
 
 
-plt.figure()
-plt.scatter(chessboardModel[0,:,0], chessboardModel[0,:,1],
-            marker='+', c='k', s=100)
+# saco media y varianza de cada nube de puntos
+posMapMean = np.mean(posMap, axis=0)
+dif = (posMap - posMapMean).T
+posMapVar = np.mean([dif[0] * dif, dif[1] * dif], axis=-1).T
+
+xm, ym = posMap.reshape(-1,2).T
+
+fig = plt.figure()
+ax = fig.gca()
+ax.scatter(xm, ym, marker='.', c='b', s=1)
+cl.plotPointsUncert(ax, Cpp, xpp, ypp, 'k')
+cl.plotPointsUncert(ax, posMapVar, posMapMean[:,0], posMapMean[:,1], 'b')
+
+posMapVar / Cpp
+posMapMean[:,0] / xpp
+posMapMean[:,1] / ypp
+
+# %% TEST EACH STEP. STEP 2: HOMOGENOUS UNDISTORTION
+# mapeo propagando incerteza para tener con quien comparar
+xp, yp, Cp = cl.homDist2homUndist(xpp, ypp, distCoeffs, model, Cpp=Cpp, Ck=Ck)
 
 
-    xm, ym, Cm = cl.inverse(imagePoints[j,0], , tVecs[j],                                        
-                            cameraMatrix, distCoeffs, model)
-    
-    plt.scatter(xm, ym, marker='x', c='b')
+# dejo los valores preparados
+xPPgen = (xpp.reshape((-1,1)) + noisePos.T[0] * np.sqrt(Cpp[:,0,0]).reshape(-1,1)).T
+yPPgen = (ypp.reshape((-1,1)) + noisePos.T[1] * np.sqrt(Cpp[:,1,1]).reshape(-1,1)).T
+xP = np.zeros_like(xPPgen)
+yP = np.zeros_like(yPPgen)
+
+fig = plt.figure()
+ax = fig.gca()
+ax.plot(xPPgen, yPPgen, '.b')
+cl.plotPointsUncert(ax, Cpp, xpp, ypp, 'k')
 
 
+# hago todos los mapeos de Monte Carlo, una iteracion por sample
+for i in range(nSampl):
+    r, t, k, d = sacoParmams(parsGen[i])
+    xP[i], yP[i], _ = cl.homDist2homUndist(xPPgen[i], yPPgen[i], d, model)
 
 
+# saco media y varianza de cada nube de puntos
+xPMean = np.mean(xP, axis=0)
+yPMean = np.mean(yP, axis=0)
+difX = xP - xPMean
+difY = yP - yPMean
+
+difCross = difX * difY
+posPVar = np.mean([[difX**2, difCross], [difCross, difY**2]], axis=2).T
 
 
+fig = plt.figure()
+ax = fig.gca()
+ax.scatter(xP, yP, marker='.', c='b', s=1)
+cl.plotPointsUncert(ax, Cp, xp, yp, 'k')
+cl.plotPointsUncert(ax, posPVar, xPMean, yPMean, 'b')
+
+posPVar / Cp
+xPMean / xp
+yPMean / yp
+
+# %% TEST EACH STEP. STEP 3: PROJECT TO MAP, UNDO ROTOTRASLATION
+# mapeo propagando incerteza para tener con quien comparar
+xm, ym, Cm= cl.xypToZplane(xp, yp, rVecs[j], tVecs[j], Cp=Cp, Crt=Crt)
+
+# dejo los valores preparados
+xPgen = (xp.reshape((-1,1)) + noisePos.T[0] * np.sqrt(Cp[:,0,0]).reshape(-1,1)).T
+yPgen = (yp.reshape((-1,1)) + noisePos.T[1] * np.sqrt(Cp[:,1,1]).reshape(-1,1)).T
+xM = np.zeros_like(xPgen)
+yM = np.zeros_like(yPgen)
+
+fig = plt.figure()
+ax = fig.gca()
+ax.plot(xPgen, yPgen, '.b', markersize=0.3)
+cl.plotPointsUncert(ax, Cp, xp, yp, 'k')
 
 
+# hago todos los mapeos de Monte Carlo, una iteracion por sample
+for i in range(nSampl):
+    r, t, k, d = sacoParmams(parsGen[i])
+    xM[i], yM[i], _ = cl.xypToZplane(xPgen[i], yPgen[i], r, t)
+
+# saco media y varianza de cada nube de puntos
+xMMean = np.mean(xM, axis=0)
+yMMean = np.mean(yM, axis=0)
+difX = xM - xMMean
+difY = yM - yMMean
+
+difCross = difX * difY
+posMVar = np.mean([[difX**2, difCross], [difCross, difY**2]], axis=2).T
+
+
+fig = plt.figure()
+ax = fig.gca()
+ax.scatter(xM, yM, marker='.', c='b', s=1)
+cl.plotPointsUncert(ax, Cm, xm, ym, 'k')
+cl.plotPointsUncert(ax, posMVar, xMMean, yMMean, 'b')
 
 

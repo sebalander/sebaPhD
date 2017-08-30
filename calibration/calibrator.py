@@ -54,103 +54,6 @@ def euler(al, be, ga):
 
     return rot
 
-# %% HOMOGRAPHY
-# def pose2homogr(rVec, tVec):
-#    '''
-#    generates the homography from the pose descriptors
-#    '''
-#
-#    # calcular las puntas de los versores
-#    if rVec.shape == (3, 3):
-#        [x, y, z] = rVec
-#    else:
-#        [x, y, z] = Rodrigues(rVec)[0]
-#
-#    H = array([x, y, tVec[:, 0]]).T
-#
-#    return H
-#
-#
-#
-# def homogr2pose(H):
-#    '''
-#    returns pose from the homography matrix
-#    '''
-#    r1B = H[:, 0]
-#    r2B = H[:, 1]
-#    r3B = cross(r1B, r2B)
-#
-#    # convert to versors of B described in A ref frame
-#    r1 = array([r1B[0], r2B[0], r3B[0]])
-#    r2 = array([r1B[1], r2B[1], r3B[1]])
-#    r3 = array([r1B[2], r2B[2], r3B[2]])
-#
-#    rot = array([r1, r2, r3]).T
-#    # make sure is orthonormal
-#    rotNorm = rot.dot(inv(sqrtm(rot.T.dot(rot))))
-#    rVec = Rodrigues(rotNorm)[0]  # make into rot vector
-#
-#    # rotate to get displ redcribed in A
-#    # tVec = np.dot(rot, -homography[2]).reshape((3, 1))
-#    tVec = H[:, 2].reshape((3, 1))
-#
-#    # rescale
-#    k = sqrt(norm(r1)*norm(r2))  # geometric mean
-#    tVec = tVec / k
-#
-#    return [rVec, tVec]
-#
-#
-#
-#
-# def estimateInitialPose(objectPoints, corners, cameraMatrix):
-#    '''
-#    estimateInitialPose(objectPoints, corners, f, imgSize) -> [rVecs,
-#                                                               tVecs, Hs]
-#
-#    Recieves fiducial points and list of corners (one for each image),
-#    proposed
-#    focal distance 'f' and returns the estimated pose of the camera. asumes
-#    pinhole model.
-# <<<<<<< HEAD:poseCalibration.py
-# =======
-#
-#    this function doesn't work very well, use at your own risk
-# >>>>> 6d680e7d79797264e8842d99b669d04af01ee6e0:calibration/poseCalibration.py
-#    '''
-#
-#    src = objectPoints[0]+[0, 0, 1]
-#    unos = ones((src.shape[0], 1))
-#
-#    rVecs = list()
-#    tVecs = list()
-#    Hs = list()
-#
-#    if len(corners.shape) < 4:
-#        corners = array([corners])
-#
-#    for cor in corners:
-#        # flip 'y' coordinates, so it works
-#        # why flip image:
-#        # http://stackoverflow.com/questions/14589642/
-#        # python-matplotlib-inverted-image
-#        # dst = [0, imgSize[0]] + cor[:, 0, :2]*[1, -1]
-#        x, y = cor.transpose((2, 0, 1))
-#        # le saque el -1 y el corrimiento y parece que da mejor??
-#
-#        # take to homogenous plane asuming intrinsic pinhole
-#        dst = concatenate(((x-cameraMatrix[0, 2])/cameraMatrix[0, 0],
-#                           (y-cameraMatrix[1, 2])/cameraMatrix[1, 1],
-#                           unos), axis=1)
-#        # fit homography
-#        H = findHomography(src[:, :2], dst[:, :2], method=0)[0]
-#        Hs.append(H)
-#
-#        rVec, tVec = homogr2pose(H)
-#        rVecs.append(rVec)
-#        tVecs.append(tVec)
-#
-#    return [array(rVecs), array(tVecs), array(Hs)]
 
 
 # %% BASIC ROTOTRASLATION
@@ -291,6 +194,9 @@ def calibrateDirect(objectPoints, imagePoints, rVec, tVec, cameraMatrix,
 def ccd2hom(imagePoints, cameraMatrix, Cccd=None, Cf=None):
     '''
     must provide covariances for every point if cov is not None
+    
+    Cf is the covariance matrix of intrinsic linear parameters fx, fy, u, v
+    (in that order).
     '''
     # undo CCD projection, asume diagonal ccd rescale
     xpp = (imagePoints[:, 0] - cameraMatrix[0, 2]) / cameraMatrix[0, 0]
@@ -317,11 +223,14 @@ def ccd2hom(imagePoints, cameraMatrix, Cccd=None, Cf=None):
             c = - unos / cameraMatrix[1, 1]
             d = (cameraMatrix[1, 2] - imagePoints[:, 1]) * c**2
 
-            J = array([[a, ceros, b, ceros], [ceros, c, ceros, d]])
+            J = array([[b, ceros, a, ceros], [ceros, d, ceros, c]])
             J = J.transpose((2, 0, 1))
-
-            for i in range(unos.shape[0]):
-                Cpp[i] += J[i].dot(Cf).dot(J[i].T)
+            
+            # propagate uncertainty via Jacobians
+            Cpp += (J.reshape((-1, 2, 4, 1, 1)) *
+                    Cf.reshape((-1,1,4,4,1)) *
+                    J.transpose((0,2,1)).reshape((-1,1,1,4,2))
+                    ).sum((2,3))
 
     return xpp, ypp, Cpp
 
@@ -365,31 +274,43 @@ def homDist2homUndist(xpp, ypp, distCoeffs, model, Cpp=None, Ck=None):
         dqIrpp = dqI / rpp
 
         # calculo jacobiano respecto a coord distorsioandas
-        J = array([[xpp2, xypp], [xypp, ypp2]])
-        J *= dqIrpp.reshape(1, 1, -1)
-        J[0, 0, :] += q
-        J[1, 1, :] += q
-
+        Jd_h = array([[xpp2, xypp], [xypp, ypp2]])
+        Jd_h *= dqIrpp.reshape(1, 1, -1)
+        Jd_h[[0,1], [0,1], :] += q
+        
+        Jh_d = linalg.inv(Jd_h.T)  # jacobiano respecto a xpp, ypp
+        
         Cp = empty((len(xp),2,2))
-
+        
+        nk = distCoeffs.shape[0]  # unmber of dist coeffs
         if Ck is None:  # incerteza Cpp unicamente
-            for i in range(len(xp)):
-                Cp[i] = J[:, :, i].dot(Cpp[i]).dot(J[:, :, i].T)
+            Cp = (Jh_d.reshape((-1, 2, 1, 2, 1)) *
+                  Cpp.reshape((-1,1,2,2,1)) *
+                  Jh_d.transpose((0,2,1)).reshape((-1,1,2,1,2))
+                  ).sum((2,3))
 
         else:
             # jacobiano respecto a parametros
-            Jk = (array([xpp, ypp]).T.reshape(-1, 2, 1) *
-                      dqDk.T.reshape(-1, 1, Ck.shape[0]))
+            Jd_k = (array([xpp * dqDk, ypp * dqDk])).transpose((1, 0, 2))
 
             if Cpp is None:  # incerteza Ck unicamente
-                for i in range(len(xp)):  # propagate trough both
-                    Caux = Jk[i].dot(Ck).dot(Jk[i].T)
-                    Cp[i] = J[:, :, i].dot(Caux).dot(J[:, :, i].T)
+                # multiply each jacobian
+                Jh_k = (Jd_k.T.reshape((-1, 2, 1, nk)) *
+                        Jh_d.reshape((-1, 2, 2, 1))).sum(1)
+                # propagate uncertanties
+                Cp = (Jh_k.reshape((-1, 2, 1, nk, 1)) *
+                      Ck.reshape((1,1,nk,nk,1)) *
+                      Jh_k.transpose((0,2,1)).reshape((-1,1,nk,1,2))
+                      ).sum((2,3))
+
+#                for i in range(len(xp)):  # propagate trough both
+#                    Caux = Jd_k[i].dot(Ck).dot(Jd_k[i].T)
+#                    Cp[i] = Jh_d[:, :, i].dot(Caux).dot(Jh_d[:, :, i].T)
 
             else: # incertezas Ck y Cpp
                 for i in range(len(xp)):  # propagate trough both
-                    Caux = Cpp[i] + Jk[i].dot(Ck).dot(Jk[i].T)
-                    Cp[i] = J[:, :, i].dot(Caux).dot(J[:, :, i].T)
+                    Caux = Cpp[i] + Jd_k[:,:,i].T.dot(Ck).dot(Jd_k[:,:,i])
+                    Cp[i] = Jh_d[i].dot(Caux).dot(Jh_d[i].T)
 
     return xp, yp, Cp
 
@@ -442,6 +363,8 @@ def rototrasCovariance(xp, yp, rV, tV, Cp):
 def jacobianosHom2Map(xp, yp, rV, tV):
     '''
     returns the jacobians needed to calculate the propagation of uncertainty
+    todavia no me tome el trabajo de calcularlos pro separado según sea
+    necesario
     '''
     rx, ry, rz = rV
     tx, ty, tz = tV
@@ -470,106 +393,102 @@ def jacobianosHom2Map(xp, yp, rV, tV):
     x22 = x1*x15
     x23 = ry*x7
     x24 = -x23
-    x25 = x15*x3
-    x26 = x24 + x25
-    x27 = x26*xp
-    x28 = x12 + x22 - x27
-    x29 = rz*x7
-    x30 = -x29
-    x31 = rx*ry
-    x32 = x15*x31
-    x33 = -x19*xp + x30 + x32
-    x34 = -x26*yp + x29 + x32
-    x35 = x21*x28 - x33*x34
-    x36 = 1/x35
-    x37 = x23 - x25
-    x38 = x17*x34 - x21*x37
-    x39 = tx - tz*xp
-    x40 = x35**(-2)
-    x41 = x40*(x0*x33 - x21*x39)
-    x42 = -x17*x28 + x33*x37
-    x43 = x40*(-x0*x28 + x34*x39)
-    x44 = x6/x4**(3/2)
-    x45 = x2*x44
-    x46 = rx*x45
+    x25 = rx*rz
+    x26 = x15*x25
+    x27 = x24 + x26
+    x28 = x27*xp
+    x29 = x12 + x22 - x28
+    x30 = rz*x7
+    x31 = -x30
+    x32 = rx*ry
+    x33 = x15*x32
+    x34 = -x19*xp + x31 + x33
+    x35 = -x27*yp + x30 + x33
+    x36 = x21*x29 - x34*x35
+    x37 = 1/x36
+    x38 = x23 - x26
+    x39 = x17*x35 - x21*x38
+    x40 = tx - tz*xp
+    x41 = x36**(-2)
+    x42 = x41*(x0*x34 - x21*x40)
+    x43 = -x17*x29 + x34*x38
+    x44 = x41*(-x0*x29 + x35*x40)
+    x45 = x6/x4**(3/2)
+    x46 = x2*x45
     x47 = x4**(-2)
     x48 = 2*rx*x14*x47
-    x49 = -x2*x48
+    x49 = rx*x46 - x2*x48
     x50 = x11*x12
-    x51 = x1*x44
-    x52 = x31*x44
+    x51 = x1*x45
+    x52 = x32*x45
     x53 = rz*x52
     x54 = 2*rz*x14*x47
-    x55 = -x31*x54
+    x55 = -x32*x54
     x56 = x53 + x55 + x7
     x57 = x1*x50 - x51 + x56
-    x58 = x46 + x49 - x57*yp + x9
+    x58 = x49 - x57*yp + x9
     x59 = 2*ry*x14*x47
     x60 = ry*x51 - x1*x59
-    x61 = rx*rz
-    x62 = x44*x61
-    x63 = x50*x61
-    x64 = ry*x15
-    x65 = -x57*xp + x60 + x62 - x63 + x64
-    x66 = rx**3
-    x67 = rx*x15
-    x68 = 2*x14*x47
-    x69 = x31*x50
-    x70 = x3*x44
-    x71 = rx*x70 - x3*x48 + x52 - x69
-    x72 = x44*x66 - x66*x68 + 2*x67 - x71*xp + x9
-    x73 = -x62
-    x74 = x60 + x63 + x64 - x71*yp + x73
-    x75 = -x21*x72 - x28*x58 + x33*x74 + x34*x65
+    x61 = x25*x45
+    x62 = x25*x50
+    x63 = ry*x15
+    x64 = -x57*xp + x60 + x61 - x62 + x63
+    x65 = rx**3
+    x66 = rx*x15
+    x67 = 2*x14*x47
+    x68 = rz*x51 - x1*x54
+    x69 = x32*x50
+    x70 = rz*x15
+    x71 = x52 + x68 - x69 + x70
+    x72 = x45*x65 - x65*x67 + 2*x66 - x71*xp + x9
+    x73 = -x61
+    x74 = x60 + x62 + x63 - x71*yp + x73
+    x75 = -x21*x72 - x29*x58 + x34*x74 + x35*x64
     x76 = ry**3
-    x77 = rz*x45 - x2*x54
-    x78 = rz*x15
-    x79 = -x52 + x69 + x77 + x78
-    x80 = x24 + x44*x76 + 2*x64 - x68*x76 - x79*yp
-    x81 = x46 + x49 + x67
-    x82 = x10*x44
-    x83 = x10*x50
-    x84 = -x83
-    x85 = -x79*xp + x81 + x82 + x84
-    x86 = ry*x70 - x3*x59
-    x87 = -x7
-    x88 = -x2*x50 + x45 + x86 + x87
-    x89 = x24 + x60 - x88*xp
-    x90 = x81 - x82 + x83 - x88*yp
-    x91 = -x21*x89 - x28*x80 + x33*x90 + x34*x85
-    x92 = x63 + x64 + x73 + x86
-    x93 = x30 + x77 - x92*yp
-    x94 = x3*x50
-    x95 = x53 + x55 + x70 + x87 - x92*xp - x94
-    x96 = rz**3
-    x97 = x44*x96 - x68*x96 + 2*x78 + x82 + x84
-    x98 = rz*x51 - x1*x54 + x30 - x97*xp
-    x99 = x56 - x70 + x94 - x97*yp
-    x100 = -x21*x98 - x28*x93 + x33*x99 + x34*x95
+    x77 = rz*x46 - x2*x54
+    x78 = -x52 + x69 + x70 + x77
+    x79 = x24 + x45*x76 + 2*x63 - x67*x76 - x78*yp
+    x80 = x10*x45
+    x81 = x10*x50
+    x82 = -x81
+    x83 = x49 + x66 - x78*xp + x80 + x82
+    x84 = x53 + x55 - x7
+    x85 = -x2*x50 + x46 + x84
+    x86 = x24 + x60 - x85*xp
+    x87 = x49 + x66 - x80 + x81 - x85*yp
+    x88 = -x21*x86 - x29*x79 + x34*x87 + x35*x83
+    x89 = x3*x45
+    x90 = ry*x89 - x3*x59 + x62 + x63 + x73
+    x91 = x31 + x77 - x90*yp
+    x92 = x3*x50
+    x93 = x84 + x89 - x90*xp - x92
+    x94 = rx*x89 - x3*x48 + x66 + x80 + x82
+    x95 = x31 + x68 - x94*xp
+    x96 = x56 - x89 + x92 - x94*yp
+    x97 = -x21*x95 - x29*x91 + x34*x96 + x35*x93
 
     # jacobiano de la pos en el mapa con respecto a las posiciones homogeneas
-    JXm_Xp = array([[x36*(tz*x21 + x0*x17) + x38*x41,
-                     x36*(-tz*x33 - x17*x39) + x41*x42],
-                    [x36*(-tz*x34 - x0*x37) + x38*x43,
-                     x36*(tz*x28 + x37*x39) + x42*x43]])
+    JXm_Xp = array([[x37*(tz*x21 + x0*x17) + x39*x42,
+                     x37*(-tz*x34 - x17*x40) + x42*x43],
+                    [x37*(-tz*x35 - x0*x38) + x39*x44,
+                     x37*(tz*x29 + x38*x40) + x43*x44]])
+    
+    # jacobiano respecto a la rototraslacion, tres primeras columnas son wrt
+    # rotacion y las ultimas tres son wrt traslacion
+    JXm_rtV = array([[x37*(x0*x64 - x40*x58) + x42*x75,     # x wrt r1
+                      x37*(x0*x83 - x40*x79) + x42*x88,     # x wrt r2
+                      x37*(x0*x93 - x40*x91) + x42*x97,     # x wrt r3
+                      x37*(x13 - x18 + x20),                # x wrt t1
+                      x34*x37, x37*(x21*xp - x34*yp)],      # x wrt t2
+                     [x37*(-x0*x72 + x40*x74) + x44*x75,    # x wrt t3
+                      x37*(-x0*x86 + x40*x87) + x44*x88,    # y wrt r1
+                      x37*(-x0*x95 + x40*x96) + x44*x97,    # y wrt r2
+                      x35*x37,                              # y wrt t1
+                      x37*(x13 - x22 + x28),                # y wrt t2
+                      x37*(x29*yp - x35*xp)]])              # y wrt t3
 
-    # jacobiano respecto al vector de rodriguez
-    JXm_rV = array([[x36*(x0*x65 - x39*x58) + x41*x75,
-                     x36*(x0*x85 - x39*x80) + x41*x91,
-                     x100*x41 + x36*(x0*x95 - x39*x93)],
-                    [x36*(-x0*x72 + x39*x74) + x43*x75,
-                     x36*(-x0*x89 + x39*x90) + x43*x91,
-                     x100*x43 + x36*(-x0*x98 + x39*x99)]])
 
-    # jacobiano respecto a la traslacion
-    JXm_tV = array([[x36*(x13 - x18 + x20),
-                     x33*x36,
-                     x36*(x21*xp - x33*yp)],
-                    [x34*x36,
-                     x36*(x13 - x22 + x27),
-                     x36*(x28*yp - x34*xp)]])
-
-    return JXm_Xp, JXm_rV, JXm_tV
+    return JXm_Xp, JXm_rtV
 
 
 def xypToZplane(xp, yp, rV, tV, Cp=None, Crt=None):
@@ -591,42 +510,33 @@ def xypToZplane(xp, yp, rV, tV, Cp=None, Crt=None):
     xm = (f*b - c*e) / q
     ym = (c*d - f*a) / q
 
-#    if Cp is None:
-#        return xm, ym
-#    else:
-#        if Crt is None:
-#            # calculo con el conoide
-#            Cm = rototrasCovariance(xp, yp, rV, tV, Cp)
-#            return xm, ym, Cm
-
-#        else:
-
     if Cp is None and Crt is None:  # no hay incertezas
-        Cm = None
+        return xm, ym, None  # return None covariance
 
-    else:
-        Cm = empty((xm.shape[0],2,2))
-        # calculo jacobianos
-        JXm_Xp, JXm_rV, JXm_tV = jacobianosHom2Map(xp, yp, rV, tV)
+    # continue as if there is a Covariance to calculate
+    Cm = zeros((xm.shape[0],2,2))
+    # calculo jacobianos
+    JXm_Xp, JXm_rtV = jacobianosHom2Map(xp, yp, rV, tV)
 
-        if Cp is None:  # incerteza Crt unicamente
-            Cr, Ct = Crt
-            for i in range(len(xp)):
-                Cm[i] = JXm_rV[:, :, i].dot(Cr).dot(JXm_rV[:, :, i].T)
-                Cm[i] += JXm_tV[:, :, i].dot(Ct).dot(JXm_tV[:, :, i].T)
+    if Crt is not None:  # contribucion incerteza Crt
+        Cm += (JXm_rtV.reshape((2,6,1,1,-1)) *
+               Crt.reshape((1,6,6,1,1)) *
+               JXm_rtV.transpose((1,0,2)).reshape((1,1,6,2,-1))
+               ).sum((1,2)).transpose((2,0,1))
 
-        else:
-            if Crt is None:  # incerteza Cp unicamente
-                for i in range(len(xp)):
-                    Cm[i] = JXm_Xp[:, :, i].dot(Cp[i]).dot(JXm_Xp[:, :, i].T)
-
-            else: # incertezas Ck y Cpp
-                Cr, Ct = Crt
-                for i in range(len(xp)):
-                    Cm[i] = JXm_Xp[:, :, i].dot(Cp[i]).dot(JXm_Xp[:, :, i].T)
-                    Cm[i] += JXm_rV[:, :, i].dot(Cr).dot(JXm_rV[:, :, i].T)
-                    Cm[i] += JXm_tV[:, :, i].dot(Ct).dot(JXm_tV[:, :, i].T)
-
+    if Cp is not None:  # incerteza Cp
+        Cp = Cp.transpose((1,2,0))
+        
+        Cm += (JXm_Xp.reshape((2,2,1,1,-1)) *
+               Cp.reshape((1,2,2,1,-1)) *
+               JXm_Xp.transpose((1,0,2)).reshape((1,1,2,2,-1))
+               ).sum((1,2)).transpose((2,0,1))
+        
+        # da una diferencia muuuy chica respecto a hacerlo en loop... no se porque
+        # CdeltaTest = zeros_like(Cdelta)
+        # for i in range(len(xp)):
+        #     CdeltaTest[:,:,i] = JXm_Xp[:,:,i].dot(Cp[:,:,i]).dot(JXm_Xp[:,:,i].T)
+        
     return xm, ym, Cm
 
 
