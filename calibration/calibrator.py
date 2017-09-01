@@ -9,7 +9,7 @@ Created on Thu Aug 18 11:47:18 2016
 from matplotlib.pyplot import plot, imshow, legend, show, figure, gcf, imread
 from matplotlib.pyplot import xlabel, ylabel
 from cv2 import Rodrigues  # , homogr2pose
-from numpy import max, zeros, array, sqrt, roots
+from numpy import max, zeros, array, sqrt, roots, diag
 from numpy import sin, cos, cross, ones, concatenate, flipud, dot, isreal
 from numpy import linspace, polyval, eye, linalg, mean, prod, vstack
 from numpy import empty_like, ones_like, zeros_like, pi, empty
@@ -191,6 +191,25 @@ def calibrateDirect(objectPoints, imagePoints, rVec, tVec, cameraMatrix,
 
 
 # %% INVERSE PROJECTION
+def ccd2homJacobian(imagePoints, cameraMatrix):
+    '''
+    returns jacobian to propagate uncertainties in ccd2homogemous mapping
+    '''
+    Jd_i = diag(1 / cameraMatrix[[0, 1], [0, 1]])  # doesn't depend on position
+    
+    unos = ones_like(imagePoints[:, 0])
+    ceros = zeros_like(unos)
+    a = - unos / cameraMatrix[0, 0]
+    b = (cameraMatrix[0, 2] - imagePoints[:, 0]) * a**2
+    c = - unos / cameraMatrix[1, 1]
+    d = (cameraMatrix[1, 2] - imagePoints[:, 1]) * c**2
+
+    Jd_k = array([[b, ceros, a, ceros], [ceros, d, ceros, c]])
+    Jd_k = Jd_k.transpose((2, 0, 1))  # first index corresponds
+    
+    return Jd_i, Jd_k
+
+
 def ccd2hom(imagePoints, cameraMatrix, Cccd=None, Cf=None):
     '''
     must provide covariances for every point if cov is not None
@@ -207,29 +226,21 @@ def ccd2hom(imagePoints, cameraMatrix, Cccd=None, Cf=None):
 
     else:
         Cpp = zeros((xpp.shape[0],2,2))  # create covariance matrix
-
+        Jd_i, Jd_k = ccd2homJacobian(imagePoints, cameraMatrix)
+        
         if Cccd is not None:
-            Cpp[:, 0, 0] += Cccd[:, 0, 0] / cameraMatrix[0, 0]**2
-            Cpp[:, 1, 1] += Cccd[:, 1, 1] / cameraMatrix[1, 1]**2
-            fxfy = cameraMatrix[0, 0] * cameraMatrix[1, 1]
-            Cpp[:, 0, 1] += Cccd[:, 0, 1] / fxfy
-            Cpp[:, 1, 0] += Cccd[:, 1, 0] / fxfy
-
+            Jd_iResh = Jd_i.reshape((-1, 2, 2, 1, 1))
+            Cpp += (Jd_iResh *
+                    Cpp.reshape((-1,1,2,2,1)) *
+                    Jd_iResh.transpose((0,4,3,2,1))
+                    ).sum((2,3))
+        
         if Cf is not None:
-            unos = ones_like(imagePoints[:, 0])
-            ceros = zeros_like(unos)
-            a = - unos / cameraMatrix[0, 0]
-            b = (cameraMatrix[0, 2] - imagePoints[:, 0]) * a**2
-            c = - unos / cameraMatrix[1, 1]
-            d = (cameraMatrix[1, 2] - imagePoints[:, 1]) * c**2
-
-            J = array([[b, ceros, a, ceros], [ceros, d, ceros, c]])
-            J = J.transpose((2, 0, 1))
-            
             # propagate uncertainty via Jacobians
-            Cpp += (J.reshape((-1, 2, 4, 1, 1)) *
+            Jd_kResh = Jd_k.reshape((-1, 2, 4, 1, 1))
+            Cpp += (Jd_kResh *
                     Cf.reshape((-1,1,4,4,1)) *
-                    J.transpose((0,2,1)).reshape((-1,1,1,4,2))
+                    Jd_kResh.transpose((0,4,3,2,1))
                     ).sum((2,3))
 
     return xpp, ypp, Cpp
@@ -246,14 +257,48 @@ undistort = {
 }
 
 
+def homDist2homUndist_ratioJacobians(xpp, ypp, distCoeffs, model):
+    '''
+    returns the distortion ratio and the jacobians with respect to undistorted
+    coords and distortion params.
+    '''
+    # calculate ratio of indistortion
+    rpp = norm([xpp, ypp], axis=0)
+    q, ret, dqI, dqDk = undistort[model](rpp, distCoeffs, quot=True,
+                                           der=True)
+    
+    # auxiliares para el jacobiano
+    xpp2 = xpp**2
+    ypp2 = ypp**2
+    xypp = xpp * ypp
+    dqIrpp = dqI / rpp
+
+    # calculo jacobiano respecto a coord distorsioandas
+    Jd_h = array([[xpp2, xypp], [xypp, ypp2]])
+    Jd_h *= dqIrpp.reshape(1, 1, -1)
+    Jd_h[[0,1], [0,1], :] += q
+    
+    Jh_d = linalg.inv(Jd_h.T)  # jacobiano respecto a xpp, ypp
+    
+    # jacobiano respecto a parametros
+    Jd_k = (array([xpp * dqDk, ypp * dqDk])).transpose((1, 0, 2))
+    
+    # multiply each jacobian
+    Jh_k = -(Jd_k.T.reshape((-1, 2, 1, distCoeffs.shape[0])) *
+             Jh_d.reshape((-1, 2, 2, 1))).sum(1)
+    
+    return q, ret, Jh_d, Jh_k
+
+
 def homDist2homUndist(xpp, ypp, distCoeffs, model, Cpp=None, Ck=None):
     '''
     takes ccd cordinates and projects to homogenpus coords and undistorts
     '''
-    rpp = norm([xpp, ypp], axis=0)
+    
 
     if Cpp is None and Ck is None:  # no hay incertezas Ck ni Cpp
         # calculate ratio of undistortion
+        rpp = norm([xpp, ypp], axis=0)
         q, _ = undistort[model](rpp, distCoeffs, quot=True, der=False)
         
         xp = q * xpp  # undistort in homogenous coords
@@ -261,103 +306,85 @@ def homDist2homUndist(xpp, ypp, distCoeffs, model, Cpp=None, Ck=None):
         Cp = None
 
     else:
-        # calculate ratio of undistorition and it's derivative wrt radius
-        q, _, dqI, dqDk = undistort[model](rpp, distCoeffs, quot=True,
-                                           der=True)
+        q, _, Jh_d, Jh_k = homDist2homUndist_ratioJacobians(xpp, ypp,
+                                                            distCoeffs,
+                                                            model)
         xp = q * xpp  # undistort in homogenous coords
         yp = q * ypp
         
-        # auxiliares para el jacobiano
-        xpp2 = xpp**2
-        ypp2 = ypp**2
-        xypp = xpp * ypp
-        dqIrpp = dqI / rpp
-
-        # calculo jacobiano respecto a coord distorsioandas
-        Jd_h = array([[xpp2, xypp], [xypp, ypp2]])
-        Jd_h *= dqIrpp.reshape(1, 1, -1)
-        Jd_h[[0,1], [0,1], :] += q
-        
-        Jh_d = linalg.inv(Jd_h.T)  # jacobiano respecto a xpp, ypp
-        
-        Cp = empty((len(xp),2,2))
+        Cp = zeros((len(xp),2,2))
         
         nk = distCoeffs.shape[0]  # unmber of dist coeffs
-        if Ck is None:  # incerteza Cpp unicamente
-            Cp = (Jh_d.reshape((-1, 2, 1, 2, 1)) *
+        if Cp is not None:  # incerteza Cpp unicamente
+            Jh_dResh = Jh_d.reshape((-1, 2, 1, 2, 1))
+            Cp = (Jh_dResh *
                   Cpp.reshape((-1,1,2,2,1)) *
-                  Jh_d.transpose((0,2,1)).reshape((-1,1,2,1,2))
+                  Jh_dResh.transpose((0,4,3,2,1))
                   ).sum((2,3))
 
-        else:
-            # jacobiano respecto a parametros
-            Jd_k = (array([xpp * dqDk, ypp * dqDk])).transpose((1, 0, 2))
-
-            if Cpp is None:  # incerteza Ck unicamente
-                # multiply each jacobian
-                Jh_k = (Jd_k.T.reshape((-1, 2, 1, nk)) *
-                        Jh_d.reshape((-1, 2, 2, 1))).sum(1)
-                # propagate uncertanties
-                Cp = (Jh_k.reshape((-1, 2, 1, nk, 1)) *
-                      Ck.reshape((1,1,nk,nk,1)) *
-                      Jh_k.transpose((0,2,1)).reshape((-1,1,nk,1,2))
-                      ).sum((2,3))
+        if Ck is not None:  # incerteza Ck unicamente
+            # propagate uncertanties
+            Jh_kResh = Jh_k.reshape((-1, 2, 1, nk, 1))
+            Cp += (Jh_kResh *
+                   Ck.reshape((1,1,nk,nk,1)) *
+                   Jh_kResh.transpose((0,4,3,2,1))
+                   ).sum((2,3))
 
 #                for i in range(len(xp)):  # propagate trough both
 #                    Caux = Jd_k[i].dot(Ck).dot(Jd_k[i].T)
 #                    Cp[i] = Jh_d[:, :, i].dot(Caux).dot(Jh_d[:, :, i].T)
 
-            else: # incertezas Ck y Cpp
-                for i in range(len(xp)):  # propagate trough both
-                    Caux = Cpp[i] + Jd_k[:,:,i].T.dot(Ck).dot(Jd_k[:,:,i])
-                    Cp[i] = Jh_d[i].dot(Caux).dot(Jh_d[i].T)
+#            else: # incertezas Ck y Cpp
+#                for i in range(len(xp)):  # propagate trough both
+#                    Caux = Cpp[i] + Jd_k[:,:,i].T.dot(Ck).dot(Jd_k[:,:,i])
+#                    Cp[i] = Jh_d[i].dot(Caux).dot(Jh_d[i].T)
 
     return xp, yp, Cp
 
 
 
-def rototrasCovariance(xp, yp, rV, tV, Cp):
-    '''
-    DEPRECATED, it is not an aproximation it's non linear, so the projected
-    ellipse will not be the projected gaussian via linear aproximation. the
-    error this encompases is hard to deal with
-    
-    propaga la elipse proyectada por el conoide soble el plano del mapa
-    solo toma en cuenta la incerteza en xp, yp
-    '''
-    a, b, _, c = Cp.flatten()
-    mx, my = (xp, yp)
-
-    r11, r12, r21, r22, r31, r32 = Rodrigues(rV)[0][:, :2].flatten()
-    tx, ty, tz = tV.flatten()
-
-    # auxiliar alculations
-    br11 = b*r11
-    bmx = b*mx
-    amx = a*mx
-    cmy = c*my
-    x0, x1, x2, x3, x4, x8, x9, x10, x11, x12, x13, x14 = 2*array([
-            br11, amx*r11, bmx*r21, br11*my, cmy*r21, bmx*my, b*r12, amx*r12,
-            bmx*r22, b*my*r12, cmy*r22, r31*r32])
-    x5, mx2, my2, x15 = array([r31, mx, my, r32])**2
-    x6 = a*mx2
-    x7 = c*my2
-
-    # matrix elements
-    C11 = a*r11**2 + c*r21**2 + r21*x0 - r31*x1 - r31*x2 - r31*x3 - r31*x4
-    C11 += x5*x6 + x5*x7 + x5*x8
-
-    C12 = r12*(2*a*r11) + r21*x9 + r22*x0 + r22*(2*c*r21) - r31*x10 - r31*x11
-    C12 += - r31*x12 - r31*x13 - r32*x1 - r32*x2 - r32*x3 - r32*x4 + x14*x6
-    C12 += x14*x7 + (4*r31*r32)*(bmx*my)
-
-    C22 = a*r12**2 + c*r22**2 + r22*x9 - r32*x10 - r32*x11 - r32*x12 - r32*x13
-    C22 += x15*x6 + x15*x7 + x15*x8
-
-    # compose covaciance matrix
-    Cm = array([[C11, C12], [C12, C22]])
-
-    return Cm
+#def rototrasCovariance(xp, yp, rV, tV, Cp):
+#    '''
+#    DEPRECATED, it is not an aproximation it's non linear, so the projected
+#    ellipse will not be the projected gaussian via linear aproximation. the
+#    error this encompases is hard to deal with
+#    
+#    propaga la elipse proyectada por el conoide soble el plano del mapa
+#    solo toma en cuenta la incerteza en xp, yp
+#    '''
+#    a, b, _, c = Cp.flatten()
+#    mx, my = (xp, yp)
+#
+#    r11, r12, r21, r22, r31, r32 = Rodrigues(rV)[0][:, :2].flatten()
+#    tx, ty, tz = tV.flatten()
+#
+#    # auxiliar alculations
+#    br11 = b*r11
+#    bmx = b*mx
+#    amx = a*mx
+#    cmy = c*my
+#    x0, x1, x2, x3, x4, x8, x9, x10, x11, x12, x13, x14 = 2*array([
+#            br11, amx*r11, bmx*r21, br11*my, cmy*r21, bmx*my, b*r12, amx*r12,
+#            bmx*r22, b*my*r12, cmy*r22, r31*r32])
+#    x5, mx2, my2, x15 = array([r31, mx, my, r32])**2
+#    x6 = a*mx2
+#    x7 = c*my2
+#
+#    # matrix elements
+#    C11 = a*r11**2 + c*r21**2 + r21*x0 - r31*x1 - r31*x2 - r31*x3 - r31*x4
+#    C11 += x5*x6 + x5*x7 + x5*x8
+#
+#    C12 = r12*(2*a*r11) + r21*x9 + r22*x0 + r22*(2*c*r21) - r31*x10 - r31*x11
+#    C12 += - r31*x12 - r31*x13 - r32*x1 - r32*x2 - r32*x3 - r32*x4 + x14*x6
+#    C12 += x14*x7 + (4*r31*r32)*(bmx*my)
+#
+#    C22 = a*r12**2 + c*r22**2 + r22*x9 - r32*x10 - r32*x11 - r32*x12 - r32*x13
+#    C22 += x15*x6 + x15*x7 + x15*x8
+#
+#    # compose covaciance matrix
+#    Cm = array([[C11, C12], [C12, C22]])
+#
+#    return Cm
 
 
 def jacobianosHom2Map(xp, yp, rV, tV):
@@ -487,7 +514,6 @@ def jacobianosHom2Map(xp, yp, rV, tV):
                       x37*(x13 - x22 + x28),                # y wrt t2
                       x37*(x29*yp - x35*xp)]])              # y wrt t3
 
-
     return JXm_Xp, JXm_rtV
 
 
@@ -519,17 +545,18 @@ def xypToZplane(xp, yp, rV, tV, Cp=None, Crt=None):
     JXm_Xp, JXm_rtV = jacobianosHom2Map(xp, yp, rV, tV)
 
     if Crt is not None:  # contribucion incerteza Crt
-        Cm += (JXm_rtV.reshape((2,6,1,1,-1)) *
+        JXm_rtVResh = JXm_rtV.reshape((2,6,1,1,-1))
+        Cm += (JXm_rtVResh *
                Crt.reshape((1,6,6,1,1)) *
-               JXm_rtV.transpose((1,0,2)).reshape((1,1,6,2,-1))
+               JXm_rtVResh.transpose((3,2,1,0,4))
                ).sum((1,2)).transpose((2,0,1))
 
     if Cp is not None:  # incerteza Cp
         Cp = Cp.transpose((1,2,0))
-        
-        Cm += (JXm_Xp.reshape((2,2,1,1,-1)) *
+        JXm_XpResh = JXm_Xp.reshape((2,2,1,1,-1))
+        Cm += (JXm_XpResh *
                Cp.reshape((1,2,2,1,-1)) *
-               JXm_Xp.transpose((1,0,2)).reshape((1,1,2,2,-1))
+               JXm_XpResh.transpose((3,2,1,0,4))
                ).sum((1,2)).transpose((2,0,1))
         
         # da una diferencia muuuy chica respecto a hacerlo en loop... no se porque

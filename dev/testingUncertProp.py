@@ -12,7 +12,7 @@ test functions that propagate uncertanty
 #import timeit
 
 import numpy as np
-#import scipy.linalg as ln
+import numdifftools as ndf
 from calibration import calibrator as cl
 import matplotlib.pyplot as plt
 
@@ -202,13 +202,14 @@ j = 10 # elijo una imagen para trabajar
 
 import glob
 imagenFile = glob.glob(imagesFolder+'*.png')[j]
+plt.figure()
 plt.imshow(plt.imread(imagenFile), origin='lower')
 plt.scatter(imagePoints[j,0,:,0], imagePoints[j,0,:,1])
 
-nSampl = int(1e6)  # cantidad de samples
+nSampl = int(1e3)  # cantidad de samples
 
-ep = 1e-6  # relative standard deviation in parameters
-stdIm = 1e-6
+ep = 1e-5 # relative standard deviation in parameters
+stdIm = 1e-5
 
 # apilo todos los parametros juntos
 parsAll = np.hstack([cameraMatrix[[0,1,0,1],[0,1,2,2]],
@@ -232,69 +233,72 @@ posIgen = imagePoints[j,0].reshape((1,-1,2)) + noisePos * stdIm
 posMap = np.zeros_like(posIgen)
 
 
-# %% hago todos los mapeos de Monte Carlo
-for posM, posI, pars in zip(posMap, posIgen, parsGen):
-    r, t, k, d = sacoParmams(pars)
-    posM[:,0], posM[:,1], _ = cl.inverse(posI, r, t, k, d, model)
-
-
-# %% saco media y varianza de cada nube de puntos
-posMapMean = np.mean(posMap, axis=0)
-dif = (posMap - posMapMean).T
-posMapVar = np.mean([dif[0] * dif, dif[1] * dif], axis=-1).T
 
 
 
-# %% mapeo propagando incerteza los valores con los que comparar
-xmJ, ymJ, CmJ = cl.inverse(imagePoints[j,0], rVecs[j], tVecs[j],                                        
-                                     cameraMatrix, distCoeffs, model,
-                                     Cccd, Cf, Ck, Crt)
+# %% TEST EACH STEP. STEP 1: CCD TO HOMOGENOUS =======================
 
-XJ = np.array([xmJ, ymJ]).T
+# parte ANALITICA propagacion de incerteza
+xpp, ypp, Cpp = cl.ccd2hom(imagePoints[j,0], cameraMatrix, Cccd=Cccd, Cf=Cf)
+# parte ANALITICA jacobianos
+Jd_i, Jd_k = cl.ccd2homJacobian(imagePoints[j,0], cameraMatrix)
 
-# %% grafico
-xm, ym = posMap.reshape(-1,2).T
-
-fig = plt.figure()
-ax = fig.gca()
-
-ax.scatter(chessboardModel[0,:,0], chessboardModel[0,:,1],
-            marker='+', c='k', s=100)
-
-ax.scatter(xm, ym, marker='.', c='b', s=1)
-cl.plotPointsUncert(ax, CmJ, xmJ, ymJ, 'k')
-
-cl.plotPointsUncert(ax, posMapVar, posMapMean[:,0], posMapMean[:,1], 'b')
-
-#plt.figure()
-## ploteo el cociente entre varianzas
-#quot = posMapVar[:, [0,1],[0,1]] / CmJ[:, [0,1],[0,1]]
-#plt.plot(quot.T, 'x')
-
-
-
-# %% TEST EACH STEP. STEP 1: CCD TO HOMOGENOUS
-
-# mapeo propagando incerteza para tener con quien comparar
-xpp, ypp, Cpp = cl.ccd2hom(imagePoints[j,0], cameraMatrix, Cccd, Cf)
-
-
-# hago todos los mapeos de Monte Carlo
+# parte MONTE CARLO
 for posM, posI, pars in zip(posMap, posIgen, parsGen):
     r, t, k, d = sacoParmams(pars)
     posM[:,0], posM[:,1], _ = cl.ccd2hom(posI, k)
 
+# parte JACOBIANOS NUMERICOS
+def step1vsX(X, cameraMatrix):
+    imagePoints = X.T
+    xpp, ypp, Cpp = cl.ccd2hom(imagePoints, cameraMatrix)
+    
+    return np.array([xpp, ypp])
 
-# saco media y varianza de cada nube de puntos
+def step1vsParams(params, imagePoints):
+    cameraMatrix = np.zeros((3,3))
+    cameraMatrix[[0 , 1, 0, 1], [0, 1, 2, 2]] = params
+    cameraMatrix[2,2] = 1
+    
+    xpp, ypp, Cpp = cl.ccd2hom(imagePoints, cameraMatrix)
+    
+    return np.array([xpp, ypp])
+
+#Jd_iNumJacob = ndf.Jacobian(step1vsX)
+Jd_inumeric = ndf.Jacobian(step1vsX)(imagePoints[j,0].T, cameraMatrix).T
+
+Jd_knumeric = ndf.Jacobian(step1vsParams)(cameraMatrix[[0 , 1, 0, 1],
+                                                       [0, 1, 2, 2]],
+                                          imagePoints[j,0]).transpose((2,0,1))
+
+# COMPARO JACOBIANOS
+plt.figure()
+plt.plot(Jd_k.flat, (Jd_knumeric - Jd_k).flat, '+')
+plt.plot(Jd_inumeric.flat,
+         (Jd_inumeric.transpose((1,2,0)) - Jd_i.reshape((2,2,1))).flat, 'x')
+
+
+# COMPARO VARIANZAS
+# medias y varianzas de las nubes de puntos
+posIMean = np.mean(posIgen, axis=0)
+dif = (posIgen - posIMean).T
+posIVar = np.mean([dif[0] * dif, dif[1] * dif], axis=-1).T
+
 posMapMean = np.mean(posMap, axis=0)
 dif = (posMap - posMapMean).T
 posMapVar = np.mean([dif[0] * dif, dif[1] * dif], axis=-1).T
 
-xm, ym = posMap.reshape(-1,2).T
 
 fig = plt.figure()
 ax = fig.gca()
-ax.scatter(xm, ym, marker='.', c='b', s=1)
+ax.scatter(posIgen[:,:,0], posIgen[:,:,1], marker='.', c='b', s=1)
+cl.plotPointsUncert(ax, Cccd, imagePoints[j,0,:,0], imagePoints[j,0,:,1], 'k')
+cl.plotPointsUncert(ax, posIVar, posIMean[:,0], posIMean[:,1], 'b')
+
+
+fig = plt.figure()
+ax = fig.gca()
+ax.scatter(posMap[:,:,0], posMap[:,:,1], marker='.', c='b', s=1)
 cl.plotPointsUncert(ax, Cpp, xpp, ypp, 'k')
 cl.plotPointsUncert(ax, posMapVar, posMapMean[:,0], posMapMean[:,1], 'b')
 
@@ -302,22 +306,25 @@ posMapVar / Cpp
 posMapMean[:,0] / xpp
 posMapMean[:,1] / ypp
 
-# %% TEST EACH STEP. STEP 2: HOMOGENOUS UNDISTORTION
-# mapeo propagando incerteza para tener con quien comparar
+
+
+
+
+
+# %% TEST EACH STEP. STEP 2: HOMOGENOUS UNDISTORTION =======================
+
+# parte ANALITICA propagacion de incerteza
 xp, yp, Cp = cl.homDist2homUndist(xpp, ypp, distCoeffs, model, Cpp=Cpp, Ck=Ck)
 
+# parte ANALITICA jacobianos
+_, _, Jh_d, Jh_k =  cl.homDist2homUndist_ratioJacobians(xpp, ypp, distCoeffs, model)
 
-# dejo los valores preparados
+# parte MONTE CARLO
+# Genero los valores a usar
 xPPgen = (xpp.reshape((-1,1)) + noisePos.T[0] * np.sqrt(Cpp[:,0,0]).reshape(-1,1)).T
 yPPgen = (ypp.reshape((-1,1)) + noisePos.T[1] * np.sqrt(Cpp[:,1,1]).reshape(-1,1)).T
 xP = np.zeros_like(xPPgen)
 yP = np.zeros_like(yPPgen)
-
-fig = plt.figure()
-ax = fig.gca()
-ax.plot(xPPgen, yPPgen, '.b')
-cl.plotPointsUncert(ax, Cpp, xpp, ypp, 'k')
-
 
 # hago todos los mapeos de Monte Carlo, una iteracion por sample
 for i in range(nSampl):
@@ -325,25 +332,59 @@ for i in range(nSampl):
     xP[i], yP[i], _ = cl.homDist2homUndist(xPPgen[i], yPPgen[i], d, model)
 
 
-# saco media y varianza de cada nube de puntos
-xPMean = np.mean(xP, axis=0)
-yPMean = np.mean(yP, axis=0)
-difX = xP - xPMean
-difY = yP - yPMean
+# parte JACOBIANOS NUMERICOS
+def step2vsX(X, distCoeffs, model):
+    xpp, ypp = X
+    xp, yp, Cpp = cl.homDist2homUndist(xpp, ypp, distCoeffs, model)
+    return np.array([xp, yp])
 
-difCross = difX * difY
-posPVar = np.mean([[difX**2, difCross], [difCross, difY**2]], axis=2).T
+def step2vsParams(distCoeffs, X, model):
+    xpp, ypp = X
+    xp, yp, Cpp = cl.homDist2homUndist(xpp, ypp, distCoeffs, model)
+    return np.array([xp, yp])
+
+X = np.array([xpp, ypp])
+Jh_dnumeric = ndf.Jacobian(step2vsX)(X, distCoeffs, model).T
+Jh_knumeric = ndf.Jacobian(step2vsParams)(distCoeffs, X, model).transpose((2,0,1))
+
+
+# COMPARO JACOBIANOS
+plt.figure()
+plt.plot(Jh_d.flat, (Jh_dnumeric - Jh_d).flat, '+')
+plt.plot(Jh_knumeric.flat, (Jh_knumeric - Jh_k).flat, 'x')
+
+
+
+# COMPARO VARIANZAS
+# saco media y varianza de cada nube de puntos
+def mediaCovars(x, y):
+    '''
+    saco media y covarianza de x(n,m), y(n,m), el primer indice es de muestreo
+    '''
+    
+    xm, ym = np.mean([x,y], axis=1)
+    dx, dy = (x - xm), (y - ym)
+    Cxy = dx*dy
+    
+    return xm, ym, np.array([[dx**2, Cxy],[Cxy, dy**2]]).mean(2).T
+
+xPPm, yPPm, varPP = mediaCovars(xPPgen, yPPgen)
+xPm, yPm, varP = mediaCovars(xP, yP)
+
+
+fig = plt.figure()
+ax = fig.gca()
+ax.plot(xPPgen, yPPgen, '.b')
+cl.plotPointsUncert(ax, Cpp, xpp, ypp, 'k')
+cl.plotPointsUncert(ax, varPP, xPPm, yPPm, 'b')
 
 
 fig = plt.figure()
 ax = fig.gca()
 ax.scatter(xP, yP, marker='.', c='b', s=1)
 cl.plotPointsUncert(ax, Cp, xp, yp, 'k')
-cl.plotPointsUncert(ax, posPVar, xPMean, yPMean, 'b')
+cl.plotPointsUncert(ax, varP, xPm, yPm, 'b')
 
-posPVar / Cp
-xPMean / xp
-yPMean / yp
 
 # %% TEST EACH STEP. STEP 3: PROJECT TO MAP, UNDO ROTOTRASLATION
 # mapeo propagando incerteza para tener con quien comparar
@@ -383,3 +424,37 @@ cl.plotPointsUncert(ax, Cm, xm, ym, 'k')
 cl.plotPointsUncert(ax, posMVar, xMMean, yMMean, 'b')
 
 
+# %% TESTEO LOS TRES PASOS JUNTOS 
+# hago todos los mapeos de Monte Carlo
+for posM, posI, pars in zip(posMap, posIgen, parsGen):
+    r, t, k, d = sacoParmams(pars)
+    posM[:,0], posM[:,1], _ = cl.inverse(posI, r, t, k, d, model)
+
+
+# %% saco media y varianza de cada nube de puntos
+posMapMean = np.mean(posMap, axis=0)
+dif = (posMap - posMapMean).T
+posMapVar = np.mean([dif[0] * dif, dif[1] * dif], axis=-1).T
+
+
+
+# %% mapeo propagando incerteza los valores con los que comparar
+xmJ, ymJ, CmJ = cl.inverse(imagePoints[j,0], rVecs[j], tVecs[j],                                        
+                                     cameraMatrix, distCoeffs, model,
+                                     Cccd, Cf, Ck, Crt)
+
+XJ = np.array([xmJ, ymJ]).T
+
+# %% grafico
+xm, ym = posMap.reshape(-1,2).T
+
+fig = plt.figure()
+ax = fig.gca()
+
+ax.scatter(chessboardModel[0,:,0], chessboardModel[0,:,1],
+            marker='+', c='k', s=100)
+
+ax.scatter(xm, ym, marker='.', c='b', s=1)
+cl.plotPointsUncert(ax, CmJ, xmJ, ymJ, 'k')
+
+cl.plotPointsUncert(ax, posMapVar, posMapMean[:,0], posMapMean[:,1], 'b')
