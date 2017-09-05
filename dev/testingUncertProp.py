@@ -198,7 +198,7 @@ def sdt2covs(covAll):
     return Cf, Ck, Crt
 
 
-j = 10 # elijo una imagen para trabajar
+j = 19 # elijo una imagen para trabajar
 
 import glob
 imagenFile = glob.glob(imagesFolder+'*.png')[j]
@@ -206,7 +206,7 @@ plt.figure()
 plt.imshow(plt.imread(imagenFile), origin='lower')
 plt.scatter(imagePoints[j,0,:,0], imagePoints[j,0,:,1])
 
-nSampl = int(1e3)  # cantidad de samples
+nSampl = int(1e4)  # cantidad de samples
 
 ep = 1e-5 # relative standard deviation in parameters
 stdIm = 1e-5
@@ -273,10 +273,13 @@ Jd_knumeric = ndf.Jacobian(step1vsParams)(cameraMatrix[[0 , 1, 0, 1],
 
 # COMPARO JACOBIANOS
 plt.figure()
-plt.plot(Jd_k.flat, (Jd_knumeric - Jd_k).flat, '+')
-plt.plot(Jd_inumeric.flat,
-         (Jd_inumeric.transpose((1,2,0)) - Jd_i.reshape((2,2,1))).flat, 'x')
-
+plt.title('Jacobianos')
+plt.plot(Jd_k.reshape(-1), np.abs(Jd_knumeric - Jd_k).reshape(-1), '+', label='params')
+plt.plot(Jd_inumeric.reshape(-1),
+         np.abs(Jd_inumeric.transpose((1,2,0))
+                - Jd_i.reshape((2,2,1))).reshape(-1), 'x', label='posicion')
+plt.yscale('log')
+plt.legend(loc=0)
 
 # COMPARO VARIANZAS
 # medias y varianzas de las nubes de puntos
@@ -291,6 +294,7 @@ posMapVar = np.mean([dif[0] * dif, dif[1] * dif], axis=-1).T
 
 fig = plt.figure()
 ax = fig.gca()
+ax.set_title('pos generadas')
 ax.scatter(posIgen[:,:,0], posIgen[:,:,1], marker='.', c='b', s=1)
 cl.plotPointsUncert(ax, Cccd, imagePoints[j,0,:,0], imagePoints[j,0,:,1], 'k')
 cl.plotPointsUncert(ax, posIVar, posIMean[:,0], posIMean[:,1], 'b')
@@ -298,6 +302,7 @@ cl.plotPointsUncert(ax, posIVar, posIMean[:,0], posIMean[:,1], 'b')
 
 fig = plt.figure()
 ax = fig.gca()
+ax.set_title('propagacion')
 ax.scatter(posMap[:,:,0], posMap[:,:,1], marker='.', c='b', s=1)
 cl.plotPointsUncert(ax, Cpp, xpp, ypp, 'k')
 cl.plotPointsUncert(ax, posMapVar, posMapMean[:,0], posMapMean[:,1], 'b')
@@ -350,8 +355,11 @@ Jh_knumeric = ndf.Jacobian(step2vsParams)(distCoeffs, X, model).transpose((2,0,1
 
 # COMPARO JACOBIANOS
 plt.figure()
-plt.plot(Jh_d.flat, (Jh_dnumeric - Jh_d).flat, '+')
-plt.plot(Jh_knumeric.flat, (Jh_knumeric - Jh_k).flat, 'x')
+plt.title('Jacobianos')
+plt.plot(Jh_d.flat, np.abs(Jh_dnumeric - Jh_d).reshape(-1), '+', label='posicion')
+plt.plot(Jd_knumeric.flat, np.abs(Jd_knumeric - Jd_k).reshape(-1), 'x', label='params')
+plt.legend(loc=0)
+plt.yscale('log')
 
 
 
@@ -374,6 +382,7 @@ xPm, yPm, varP = mediaCovars(xP, yP)
 
 fig = plt.figure()
 ax = fig.gca()
+ax.set_title('pos generadas')
 ax.plot(xPPgen, yPPgen, '.b')
 cl.plotPointsUncert(ax, Cpp, xpp, ypp, 'k')
 cl.plotPointsUncert(ax, varPP, xPPm, yPPm, 'b')
@@ -381,47 +390,85 @@ cl.plotPointsUncert(ax, varPP, xPPm, yPPm, 'b')
 
 fig = plt.figure()
 ax = fig.gca()
+ax.set_title('propagacion')
 ax.scatter(xP, yP, marker='.', c='b', s=1)
 cl.plotPointsUncert(ax, Cp, xp, yp, 'k')
 cl.plotPointsUncert(ax, varP, xPm, yPm, 'b')
 
 
 # %% TEST EACH STEP. STEP 3: PROJECT TO MAP, UNDO ROTOTRASLATION
-# mapeo propagando incerteza para tener con quien comparar
+# parte ANALITICA propagacion de incerteza
 xm, ym, Cm= cl.xypToZplane(xp, yp, rVecs[j], tVecs[j], Cp=Cp, Crt=Crt)
 
+# parte ANALITICA jacobianos
+JXm_Xp, JXm_rtV =  cl.jacobianosHom2Map(xp, yp, rVecs[j], tVecs[j])
+
+# parte MONTE CARLO
 # dejo los valores preparados
 xPgen = (xp.reshape((-1,1)) + noisePos.T[0] * np.sqrt(Cp[:,0,0]).reshape(-1,1)).T
 yPgen = (yp.reshape((-1,1)) + noisePos.T[1] * np.sqrt(Cp[:,1,1]).reshape(-1,1)).T
 xM = np.zeros_like(xPgen)
 yM = np.zeros_like(yPgen)
 
-fig = plt.figure()
-ax = fig.gca()
-ax.plot(xPgen, yPgen, '.b', markersize=0.3)
-cl.plotPointsUncert(ax, Cp, xp, yp, 'k')
-
-
 # hago todos los mapeos de Monte Carlo, una iteracion por sample
 for i in range(nSampl):
     r, t, k, d = sacoParmams(parsGen[i])
     xM[i], yM[i], _ = cl.xypToZplane(xPgen[i], yPgen[i], r, t)
 
-# saco media y varianza de cada nube de puntos
-xMMean = np.mean(xM, axis=0)
-yMMean = np.mean(yM, axis=0)
-difX = xM - xMMean
-difY = yM - yMMean
 
-difCross = difX * difY
-posMVar = np.mean([[difX**2, difCross], [difCross, difY**2]], axis=2).T
+
+
+# parte JACOBIANOS NUMERICOS
+def step3vsX(X, rt):
+    xp, yp = X
+    xm, ym, Cm= cl.xypToZplane(xp, yp, rt[:3], rt[3:])
+    return np.array([xm, ym])
+
+def step3vsParams(rt, X):
+    return step3vsX(X, rt)
+
+X = np.array([xp, yp])
+rt = np.concatenate([rVecs[j], tVecs[j]])
+JXm_Xpnumeric = ndf.Jacobian(step3vsX)(X, rt)
+JXm_rtVnumeric = ndf.Jacobian(step3vsParams)(rt, X)
+
+
+
+# COMPARO JACOBIANOS
+plt.figure()
+plt.title('Jacobianos')
+plt.plot(JXm_Xp.flat, np.abs(JXm_Xpnumeric - JXm_Xp).reshape(-1), '+', label='posicion')
+plt.plot(JXm_rtVnumeric.flat, np.abs(JXm_rtVnumeric - JXm_rtV).reshape(-1), 'x', label='params')
+plt.legend(loc=0)
+plt.yscale('log')
+
+
+
+
+
+# COMPARO VARIANZAS
+# saco media y varianza de cada nube de puntos
+xPm, yPm, varP = mediaCovars(xPgen, yPgen)
+xMm, yMm, varM = mediaCovars(xM, yM)
+
+
 
 
 fig = plt.figure()
 ax = fig.gca()
+ax.set_title('pos generadas')
+ax.plot(xPgen, yPgen, '.b')
+cl.plotPointsUncert(ax, Cp, xp, yp, 'k')
+cl.plotPointsUncert(ax, varP, xPm, yPm, 'b')
+
+
+fig = plt.figure()
+ax = fig.gca()
+ax.set_title('propagacion')
 ax.scatter(xM, yM, marker='.', c='b', s=1)
 cl.plotPointsUncert(ax, Cm, xm, ym, 'k')
-cl.plotPointsUncert(ax, posMVar, xMMean, yMMean, 'b')
+cl.plotPointsUncert(ax, varM, xMm, yMm, 'b')
+
 
 
 # %% TESTEO LOS TRES PASOS JUNTOS 
