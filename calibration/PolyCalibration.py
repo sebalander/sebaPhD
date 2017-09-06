@@ -136,14 +136,14 @@ def radialDistort(rp, k, quot=False, der=False):
     
     if der:
         # derivative of quot of polynomials, "Direct" mapping
-        dqD = rp * 2 * (k[0] + 2 * k[1]*rp2 + 3 * k[4]*rp4)
+        dQdP = rp * 2 * (k[0] + 2 * k[1]*rp2 + 3 * k[4]*rp4)
         
-        dqDk = array([rp2, rp4, rp6])
+        dQdK = array([rp2, rp4, rp6])
         
         if quot:
-            return q, dqD, dqDk
+            return q, dQdP, dQdK
         else:
-            return rp * q, dqD, dqDk
+            return rp * q, dQdP, dQdK
     else:
         if quot:
             return q
@@ -151,46 +151,9 @@ def radialDistort(rp, k, quot=False, der=False):
             return rp * q
 
 
-#
-#def direct(fiducialPoints, rVec, tVec, linearCoeffs, distCoeffs):
-#    projected, _ = projectPoints(fiducialPoints,
-#                                 rVec,
-#                                 tVec,
-#                                 linearCoeffs,
-#                                 distCoeffs)
-#    
-#    return projected
-#
-#def residualDirect(params, fiducialPoints, imageCorners):
-#    '''
-#    '''
-#    rVec, tVec, linearCoeffs, distCoeffs = retrieveParameters(params)
-#    
-#    projectedCorners = direct(fiducialPoints,
-#                              rVec,
-#                              tVec,
-#                              linearCoeffs,
-#                              distCoeffs)
-#    
-#    return imageCorners[:,0,:] - projectedCorners[:,0,:]
-#
-#
-#def calibrateDirect(fiducialPoints, imageCorners, rVec, tVec, linearCoeffs, distCoeffs):
-#    initialParams = formatParameters(rVec, tVec, linearCoeffs, distCoeffs) # generate Parameters obj
-#    
-#    out = minimize(residualDirect,
-#                   initialParams,
-#                   args=(fiducialPoints,
-#                         imageCorners))
-#    
-#    rvecOpt, tvecOpt, _, _ = retrieveParameters(out.params)
-#    
-#    return rvecOpt, tvecOpt, out.params
-
-
 # %% ========== ========== INVERSE RATIONAL ========== ==========
 def radialUndistort(rpp, k, quot=False, der=False):
-    '''
+    '''dqD
     takes distorted radius and returns the radius undistorted
     optioally it returns the undistortion quotient rp = rpp * q
     '''
@@ -223,7 +186,7 @@ def radialUndistort(rpp, k, quot=False, der=False):
         # select real extrema in positive side, keep smallest
         rRealPos = min(rExtrema.real[isreal(rExtrema) & (0<=rExtrema.real)])
         # assign to problematic values
-        rp[-retVal] = rRealPos
+        rp[~retVal] = rRealPos
     
     # choose minimum positive roots
     rp[retVal] = [min(rootsPoly[i, rPRB[i]].real)
@@ -231,14 +194,12 @@ def radialUndistort(rpp, k, quot=False, der=False):
     
     if der:
         # derivada de la directa
-        _, dqD, dqDk = radialDistort(rp, k, der=True)
-        # derivative of quotient of "Inverse" mapping
-        dqI = - rp**3 * dqD / rpp**2 / (rpp + rp**2 * dqD)
-        
+        q, dQdP, dQdK = radialDistort(rp, k, der=True)
+
         if quot:
-            return rp / rpp, retVal, dqI, dqDk
+            return q, retVal, dQdP, dQdK
         else:
-            return rp, retVal, dqI, dqDk
+            return rp, retVal, dQdP, dQdK
     else:
         if quot:
             return rp / rpp, retVal

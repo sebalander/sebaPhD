@@ -142,59 +142,25 @@ def radialDistort(rp, k, quot=False, der=False):
 
     if der:
         # numerator and denominator derived wrt rp
-        dNum = rp * 2 * (k[0] + 2*k[1]*rp2 + 3*k[4]*rp4)
-        dDen = rp * 2 * (k[5] + 2*k[6]*rp2 + 3*k[7]*rp4)
+        dNum = k[0] + 2*k[1]*rp2 + 3*k[4]*rp4  # later multiply by rp * 2
+        dDen = k[5] + 2*k[6]*rp2 + 3*k[7]*rp4
         # derivative of quot of polynomials, "Direct" mapping
-        dqD = (dNum * den - num * dDen) / den**2
+        dQdP = 2 * rp * (dNum  - q * dDen)
 
-        dqDk = array([rp2, rp4, rp6, rp2, rp4, rp6])
-        dqDk[:3] /= den
-        dqDk[3:] *= num / den**2
+        dQdK = array([rp2, rp4, rp6, rp2, rp4, rp6])
+        dQdK[:3] /= den
+        dQdK[3:] *= q / den
 
         if quot:
-            return q, dqD, dqDk
+            return q, dQdP, dQdK
         else:
-            return rp * q, dqD, dqDk
+            return rp * q, dQdP, dQdK
     else:
         if quot:
             return q
         else:
             return rp * q
 
-#def direct(fiducialPoints, rVec, tVec, linearCoeffs, distCoeffs):
-#    projected, _ = projectPoints(fiducialPoints,
-#                                 rVec,
-#                                 tVec,
-#                                 linearCoeffs,
-#                                 distCoeffs)
-#
-#    return projected
-#
-#def residualDirect(params, fiducialPoints, imageCorners):
-#    '''
-#    '''
-#    rVec, tVec, linearCoeffs, distCoeffs = retrieveParameters(params)
-#
-#    projectedCorners = direct(fiducialPoints,
-#                               rVec,
-#                               tVec,
-#                               linearCoeffs,
-#                               distCoeffs)
-#
-#    return imageCorners - projectedCorners
-#
-#
-#def calibrateDirect(fiducialPoints, imageCorners, rVec, tVec, linearCoeffs, distCoeffs):
-#    initialParams = formatParameters(rVec, tVec, linearCoeffs, distCoeffs) # generate Parameters obj
-#
-#    out = minimize(residualDirect,
-#                   initialParams,
-#                   args=(fiducialPoints,
-#                         imageCorners))
-#
-#    rvecOpt, tvecOpt, _, _ = retrieveParameters(out.params)
-#
-#    return rvecOpt, tvecOpt, out.params
 
 
 # %% ========== ========== INVERSE RATIONAL ========== ==========
@@ -243,14 +209,12 @@ def radialUndistort(rpp, k, quot=False, der=False):
 
     if der:
         # derivada de la directa
-        _, dqD, dqDk = radialDistort(rp, k, der=True)
-        # derivative of quotient of "Inverse" mapping
-        dqI = - rp**3 * dqD / rpp**2 / (rpp + rp**2 * dqD)
+        q, dQdP, dQdK = radialDistort(rp, k, der=True)
 
         if quot:
-            return rp / rpp, retVal, dqI, dqDk
+            return q, retVal, dQdP, dQdK
         else:
-            return rp, retVal, dqI, dqDk
+            return rp, retVal, dQdP, dQdK
     else:
         if quot:
             return rp / rpp, retVal

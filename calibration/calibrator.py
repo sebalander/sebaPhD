@@ -262,32 +262,33 @@ def homDist2homUndist_ratioJacobians(xpp, ypp, distCoeffs, model):
     returns the distortion ratio and the jacobians with respect to undistorted
     coords and distortion params.
     '''
-    # calculate ratio of indistortion
+    # calculate ratio of undistortion
     rpp = norm([xpp, ypp], axis=0)
-    q, ret, dqI, dqDk = undistort[model](rpp, distCoeffs, quot=True,
+    q, ret, dQdP, dQdK = undistort[model](rpp, distCoeffs, quot=True,
                                            der=True)
     
-    # auxiliares para el jacobiano
-    xpp2 = xpp**2
-    ypp2 = ypp**2
-    xypp = xpp * ypp
-    dqIrpp = dqI / rpp
+    xp = xpp / q
+    yp = ypp / q
+    rp = rpp / q
+    
+    # jacobiano PP (distort) respecto a coord distorsioandas
+    xyp = xp * yp
+    Jpp_p = array([[xp**2, xyp], [xyp, yp**2]]) / rp
+    Jpp_p *= dQdP.reshape(1, 1, -1)
+    Jpp_p[[0,1], [0,1], :] += q
+    
+    # jacobiano PP (distort) respecto a parametros
+    Jpp_k = (array([xp * dQdK, yp * dQdK])).transpose((1, 0, 2))
+    
+    # los invierto
+    Jp_pp = linalg.inv(Jpp_p.T)  # jacobiano respecto a xpp, ypp
 
-    # calculo jacobiano respecto a coord distorsioandas
-    Jd_h = array([[xpp2, xypp], [xypp, ypp2]])
-    Jd_h *= dqIrpp.reshape(1, 1, -1)
-    Jd_h[[0,1], [0,1], :] += q
-    
-    Jh_d = linalg.inv(Jd_h.T)  # jacobiano respecto a xpp, ypp
-    
-    # jacobiano respecto a parametros
-    Jd_k = (array([xpp * dqDk, ypp * dqDk])).transpose((1, 0, 2))
-    
     # multiply each jacobian
-    Jh_k = -(Jd_k.T.reshape((-1, 2, 1, distCoeffs.shape[0])) *
-             Jh_d.reshape((-1, 2, 2, 1))).sum(1)
+    Jp_k = -(Jpp_k.T.reshape((-1, 2, 1, dQdK.shape[0])) *
+             Jp_pp.reshape((-1, 2, 2, 1))).sum(1)
     
-    return q, ret, Jh_d, Jh_k
+    return q, ret, Jp_pp, Jp_k
+
 
 
 def homDist2homUndist(xpp, ypp, distCoeffs, model, Cpp=None, Ck=None):
@@ -295,49 +296,40 @@ def homDist2homUndist(xpp, ypp, distCoeffs, model, Cpp=None, Ck=None):
     takes ccd cordinates and projects to homogenpus coords and undistorts
     '''
     
-
     if Cpp is None and Ck is None:  # no hay incertezas Ck ni Cpp
         # calculate ratio of undistortion
         rpp = norm([xpp, ypp], axis=0)
         q, _ = undistort[model](rpp, distCoeffs, quot=True, der=False)
         
-        xp = q * xpp  # undistort in homogenous coords
-        yp = q * ypp
+        xp = xpp / q  # undistort in homogenous coords
+        yp = ypp / q
         Cp = None
 
     else:
-        q, _, Jh_d, Jh_k = homDist2homUndist_ratioJacobians(xpp, ypp,
+        q, _, Jp_pp, Jp_k = homDist2homUndist_ratioJacobians(xpp, ypp,
                                                             distCoeffs,
                                                             model)
-        xp = q * xpp  # undistort in homogenous coords
-        yp = q * ypp
+        xp = xpp / q  # undistort in homogenous coords
+        yp = ypp / q
         
         Cp = zeros((len(xp),2,2))
         
-        nk = distCoeffs.shape[0]  # unmber of dist coeffs
+        # nk = nparams[model] # distCoeffs.shape[0]  # unmber of dist coeffs
         if Cp is not None:  # incerteza Cpp unicamente
-            Jh_dResh = Jh_d.reshape((-1, 2, 1, 2, 1))
-            Cp = (Jh_dResh *
+            Jp_ppResh = Jp_pp.reshape((-1, 2, 1, 2, 1))
+            Cp = (Jp_ppResh *
                   Cpp.reshape((-1,1,2,2,1)) *
-                  Jh_dResh.transpose((0,4,3,2,1))
+                  Jp_ppResh.transpose((0,4,3,2,1))
                   ).sum((2,3))
 
         if Ck is not None:  # incerteza Ck unicamente
             # propagate uncertanties
-            Jh_kResh = Jh_k.reshape((-1, 2, 1, nk, 1))
-            Cp += (Jh_kResh *
-                   Ck.reshape((1,1,nk,nk,1)) *
-                   Jh_kResh.transpose((0,4,3,2,1))
-                   ).sum((2,3))
-
-#                for i in range(len(xp)):  # propagate trough both
-#                    Caux = Jd_k[i].dot(Ck).dot(Jd_k[i].T)
-#                    Cp[i] = Jh_d[:, :, i].dot(Caux).dot(Jh_d[:, :, i].T)
-
-#            else: # incertezas Ck y Cpp
-#                for i in range(len(xp)):  # propagate trough both
-#                    Caux = Cpp[i] + Jd_k[:,:,i].T.dot(Ck).dot(Jd_k[:,:,i])
-#                    Cp[i] = Jh_d[i].dot(Caux).dot(Jh_d[i].T)
+            nk = Jp_k.shape[-1]
+            Jp_kResh = Jp_k.reshape((-1, 2, 1, nk, 1))
+            Cp += (Jp_kResh *
+                   Ck.reshape((1, 1, nk, nk, 1)) *
+                   Jp_kResh.transpose((0, 4, 3, 2, 1))
+                   ).sum((2, 3))
 
     return xp, yp, Cp
 

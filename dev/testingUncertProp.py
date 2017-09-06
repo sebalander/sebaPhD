@@ -17,7 +17,7 @@ from calibration import calibrator as cl
 import matplotlib.pyplot as plt
 
 from importlib import reload
-reload(cl)
+
 
 # %% LOAD DATA
 # input
@@ -26,7 +26,7 @@ plotCorners = False
 camera = 'vcaWide'
 # puede ser ['rational', 'fisheye', 'poly']
 modelos = ['poly', 'rational', 'fisheye']
-model = modelos[2]
+model = modelos[1]
 
 imagesFolder = "/home/sebalander/Desktop/Code/sebaPhD/resources/intrinsicCalib/" + camera + "/"
 cornersFile =      imagesFolder + camera + "Corners.npy"
@@ -179,26 +179,33 @@ tVecs = np.load(tVecsFile)#[indexes]
 
 
 # %% poniendo ruido
+
 def sacoParmams(pars):
-    d = pars[4:8]
-    r = pars[8:11]
-    t = pars[11:]
+    r = pars[4:7]
+    t = pars[7:10]
+    d = pars[10:]
     
-    k = np.zeros((3, 3), dtype=float)
-    k[[0,1,0,1],[0,1,2,2]] = pars[:4]
+    if model is 'poly' or model is 'rational':
+        d = np.concatenate([d[:2],np.zeros_like(d[:2]), d[2].reshape((1,-1))])
+    
+    if len(pars.shape) > 1:
+        k = np.zeros((3, 3, pars.shape[1]), dtype=float)
+    else:
+        k = np.zeros((3, 3), dtype=float)
+    k[[0,1,2,2],[0,1,0,1]] = pars[:4]
     k[2,2] = 1
     
-    return r, t, k, d
+    return r.T, t.T, k.T, d.T
 
 def sdt2covs(covAll):
     Cf = np.diag(covAll[:4])
-    Ck = np.diag(covAll[4:8])
+    Crt = np.diag(covAll[4:10])
     
-    Crt = np.diag(covAll[8:])
+    Ck = np.diag(covAll[10:])
     return Cf, Ck, Crt
 
 
-j = 19 # elijo una imagen para trabajar
+j = 2 # elijo una imagen para trabajar
 
 import glob
 imagenFile = glob.glob(imagesFolder+'*.png')[j]
@@ -206,16 +213,20 @@ plt.figure()
 plt.imshow(plt.imread(imagenFile), origin='lower')
 plt.scatter(imagePoints[j,0,:,0], imagePoints[j,0,:,1])
 
-nSampl = int(1e4)  # cantidad de samples
+nSampl = int(1e3)  # cantidad de samples
 
-ep = 1e-5 # relative standard deviation in parameters
-stdIm = 1e-5
+ep = 1e-6 # relative standard deviation in parameters
+stdIm = 1e-6
+
+sacaCeros = {'poly' : [0,1,4],
+          'rational' : [0,1,4,5,6],
+          'fisheye' : range(4)}
 
 # apilo todos los parametros juntos
 parsAll = np.hstack([cameraMatrix[[0,1,0,1],[0,1,2,2]],
-                    distCoeffs.reshape(-1),
                     rVecs[j].reshape(-1),
-                    tVecs[j].reshape(-1)])
+                    tVecs[j].reshape(-1),
+                    distCoeffs.reshape(-1)[sacaCeros[model]]])
 
 # standard deviations
 sAll = ep * parsAll
@@ -233,10 +244,10 @@ posIgen = imagePoints[j,0].reshape((1,-1,2)) + noisePos * stdIm
 posMap = np.zeros_like(posIgen)
 
 
+rG, tG, kG, dG = sacoParmams(parsGen.T)
 
 
-
-# %% TEST EACH STEP. STEP 1: CCD TO HOMOGENOUS =======================
+# %% TEST EACH STEP. STEP 1: CCD TO DISTORTED HOMOGENOUS ===================
 
 # parte ANALITICA propagacion de incerteza
 xpp, ypp, Cpp = cl.ccd2hom(imagePoints[j,0], cameraMatrix, Cccd=Cccd, Cf=Cf)
@@ -244,9 +255,8 @@ xpp, ypp, Cpp = cl.ccd2hom(imagePoints[j,0], cameraMatrix, Cccd=Cccd, Cf=Cf)
 Jd_i, Jd_k = cl.ccd2homJacobian(imagePoints[j,0], cameraMatrix)
 
 # parte MONTE CARLO
-for posM, posI, pars in zip(posMap, posIgen, parsGen):
-    r, t, k, d = sacoParmams(pars)
-    posM[:,0], posM[:,1], _ = cl.ccd2hom(posI, k)
+for i in range(nSampl):
+    posMap[i,:,0], posMap[i,:,1], _ = cl.ccd2hom(posIgen[i], kG[i])
 
 # parte JACOBIANOS NUMERICOS
 def step1vsX(X, cameraMatrix):
@@ -292,12 +302,12 @@ dif = (posMap - posMapMean).T
 posMapVar = np.mean([dif[0] * dif, dif[1] * dif], axis=-1).T
 
 
-fig = plt.figure()
-ax = fig.gca()
-ax.set_title('pos generadas')
-ax.scatter(posIgen[:,:,0], posIgen[:,:,1], marker='.', c='b', s=1)
-cl.plotPointsUncert(ax, Cccd, imagePoints[j,0,:,0], imagePoints[j,0,:,1], 'k')
-cl.plotPointsUncert(ax, posIVar, posIMean[:,0], posIMean[:,1], 'b')
+#fig = plt.figure()
+#ax = fig.gca()
+#ax.set_title('pos generadas')
+#ax.scatter(posIgen[:,:,0], posIgen[:,:,1], marker='.', c='b', s=1)
+#cl.plotPointsUncert(ax, Cccd, imagePoints[j,0,:,0], imagePoints[j,0,:,1], 'k')
+#cl.plotPointsUncert(ax, posIVar, posIMean[:,0], posIMean[:,1], 'b')
 
 
 fig = plt.figure()
@@ -317,7 +327,7 @@ posMapMean[:,1] / ypp
 
 
 # %% TEST EACH STEP. STEP 2: HOMOGENOUS UNDISTORTION =======================
-
+reload(cl)
 # parte ANALITICA propagacion de incerteza
 xp, yp, Cp = cl.homDist2homUndist(xpp, ypp, distCoeffs, model, Cpp=Cpp, Ck=Ck)
 
@@ -326,15 +336,23 @@ _, _, Jh_d, Jh_k =  cl.homDist2homUndist_ratioJacobians(xpp, ypp, distCoeffs, mo
 
 # parte MONTE CARLO
 # Genero los valores a usar
-xPPgen = (xpp.reshape((-1,1)) + noisePos.T[0] * np.sqrt(Cpp[:,0,0]).reshape(-1,1)).T
-yPPgen = (ypp.reshape((-1,1)) + noisePos.T[1] * np.sqrt(Cpp[:,1,1]).reshape(-1,1)).T
+# matriz para rotoescalear el ruido
+convEllip2 = np.array([cl.unit2CovTransf(c) for c in Cpp])
+# aplico rotoescaleo
+xypertub2 = (convEllip2.reshape((1,-1,2,2)) *
+             noisePos.reshape((nSampl,-1,1,2))).sum(-1)
+# aplico la perturbacion
+xPPgen = xpp.reshape((1, -1)) + xypertub2[:,:,0]
+yPPgen = ypp.reshape((1, -1)) + xypertub2[:,:,1]
+
+
+
 xP = np.zeros_like(xPPgen)
 yP = np.zeros_like(yPPgen)
 
 # hago todos los mapeos de Monte Carlo, una iteracion por sample
 for i in range(nSampl):
-    r, t, k, d = sacoParmams(parsGen[i])
-    xP[i], yP[i], _ = cl.homDist2homUndist(xPPgen[i], yPPgen[i], d, model)
+    xP[i], yP[i], _ = cl.homDist2homUndist(xPPgen[i], yPPgen[i], dG[i], model)
 
 
 # parte JACOBIANOS NUMERICOS
@@ -361,6 +379,9 @@ plt.plot(Jd_knumeric.flat, np.abs(Jd_knumeric - Jd_k).reshape(-1), 'x', label='p
 plt.legend(loc=0)
 plt.yscale('log')
 
+#plt.figure()
+#plt.title('Jacobianos 2')
+#plt.plot(Jh_knumeric.flat, Jh_k.flat, '+', label='posicion')
 
 
 # COMPARO VARIANZAS
@@ -380,12 +401,12 @@ xPPm, yPPm, varPP = mediaCovars(xPPgen, yPPgen)
 xPm, yPm, varP = mediaCovars(xP, yP)
 
 
-fig = plt.figure()
-ax = fig.gca()
-ax.set_title('pos generadas')
-ax.plot(xPPgen, yPPgen, '.b')
-cl.plotPointsUncert(ax, Cpp, xpp, ypp, 'k')
-cl.plotPointsUncert(ax, varPP, xPPm, yPPm, 'b')
+#fig = plt.figure()
+#ax = fig.gca()
+#ax.set_title('pos generadas')
+#ax.plot(xPPgen, yPPgen, '.b')
+#cl.plotPointsUncert(ax, Cpp, xpp, ypp, 'k')
+#cl.plotPointsUncert(ax, varPP, xPPm, yPPm, 'b')
 
 
 fig = plt.figure()
@@ -405,17 +426,20 @@ JXm_Xp, JXm_rtV =  cl.jacobianosHom2Map(xp, yp, rVecs[j], tVecs[j])
 
 # parte MONTE CARLO
 # dejo los valores preparados
-xPgen = (xp.reshape((-1,1)) + noisePos.T[0] * np.sqrt(Cp[:,0,0]).reshape(-1,1)).T
-yPgen = (yp.reshape((-1,1)) + noisePos.T[1] * np.sqrt(Cp[:,1,1]).reshape(-1,1)).T
+# matriz para rotoescalear el ruido
+convEllip3 = np.array([cl.unit2CovTransf(c) for c in Cp])
+# aplico rotoescaleo
+xypertub3 = (convEllip3.reshape((1,-1,2,2)) *
+             noisePos.reshape((nSampl,-1,1,2))).sum(-1)
+
+xPgen = xp.reshape((1, -1)) + xypertub3[:,:,0]
+yPgen = yp.reshape((1, -1)) + xypertub3[:,:,1]
 xM = np.zeros_like(xPgen)
 yM = np.zeros_like(yPgen)
 
 # hago todos los mapeos de Monte Carlo, una iteracion por sample
 for i in range(nSampl):
-    r, t, k, d = sacoParmams(parsGen[i])
-    xM[i], yM[i], _ = cl.xypToZplane(xPgen[i], yPgen[i], r, t)
-
-
+    xM[i], yM[i], _ = cl.xypToZplane(xPgen[i], yPgen[i], rG[i], tG[i])
 
 
 # parte JACOBIANOS NUMERICOS
@@ -433,7 +457,6 @@ JXm_Xpnumeric = ndf.Jacobian(step3vsX)(X, rt)
 JXm_rtVnumeric = ndf.Jacobian(step3vsParams)(rt, X)
 
 
-
 # COMPARO JACOBIANOS
 plt.figure()
 plt.title('Jacobianos')
@@ -444,22 +467,18 @@ plt.yscale('log')
 
 
 
-
-
 # COMPARO VARIANZAS
 # saco media y varianza de cada nube de puntos
 xPm, yPm, varP = mediaCovars(xPgen, yPgen)
 xMm, yMm, varM = mediaCovars(xM, yM)
 
 
-
-
-fig = plt.figure()
-ax = fig.gca()
-ax.set_title('pos generadas')
-ax.plot(xPgen, yPgen, '.b')
-cl.plotPointsUncert(ax, Cp, xp, yp, 'k')
-cl.plotPointsUncert(ax, varP, xPm, yPm, 'b')
+#fig = plt.figure()
+#ax = fig.gca()
+#ax.set_title('pos generadas')
+#ax.plot(xPgen, yPgen, '.b')
+#cl.plotPointsUncert(ax, Cp, xp, yp, 'k')
+#cl.plotPointsUncert(ax, varP, xPm, yPm, 'b')
 
 
 fig = plt.figure()
