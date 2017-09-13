@@ -22,6 +22,7 @@ parámetros optimos dado los datos de test
 #import glob
 import numpy as np
 from calibration import calibrator as cl
+from numpy import any as anny
 
 import numdifftools as ndf
 
@@ -112,15 +113,17 @@ def errorCuadraticoImagen(Xext, Xint, Ns, params, j):
     # error
     er = [xm, ym] - chessboardModel[0,:,:2].T
     
-    if Cm is None:
-        # error cuadratico pelado, escalar
-        Er = np.sum(er**2)
-    else:
+    Cmbool = anny(Cm)
+    
+    if Cmbool:
         # devuelvo error cuadratico pesado por las covarianzas
         S = np.linalg.inv(Cm)  # inverse of covariance matrix
         q1 = [np.sum(S[:, :, 0] * er.T, 1),  # fastest way I found to do product
               np.sum(S[:, :, 1] * er.T, 1)];
         Er = np.sum(q1 * er)
+    else:
+        # error cuadratico pelado, escalar
+        Er = np.sum(er**2)
     
     return Er
 

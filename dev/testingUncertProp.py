@@ -26,7 +26,7 @@ plotCorners = False
 camera = 'vcaWide'
 # puede ser ['rational', 'fisheye', 'poly']
 modelos = ['poly', 'rational', 'fisheye']
-model = modelos[1]
+model = modelos[2]
 
 imagesFolder = "/home/sebalander/Desktop/Code/sebaPhD/resources/intrinsicCalib/" + camera + "/"
 cornersFile =      imagesFolder + camera + "Corners.npy"
@@ -419,7 +419,7 @@ cl.plotPointsUncert(ax, varP, xPm, yPm, 'b')
 
 # %% TEST EACH STEP. STEP 3: PROJECT TO MAP, UNDO ROTOTRASLATION
 # parte ANALITICA propagacion de incerteza
-xm, ym, Cm= cl.xypToZplane(xp, yp, rVecs[j], tVecs[j], Cp=Cp, Crt=Crt)
+xm, ym, Cm = cl.xypToZplane(xp, yp, rVecs[j], tVecs[j], Cp=Cp, Crt=Crt)
 
 # parte ANALITICA jacobianos
 JXm_Xp, JXm_rtV =  cl.jacobianosHom2Map(xp, yp, rVecs[j], tVecs[j])
@@ -524,3 +524,28 @@ ax.scatter(xm, ym, marker='.', c='b', s=1)
 cl.plotPointsUncert(ax, CmJ, xmJ, ymJ, 'k')
 
 cl.plotPointsUncert(ax, posMapVar, posMapMean[:,0], posMapMean[:,1], 'b')
+
+
+# %% pruebo la funcion error
+stdIm = 1e-6
+Cccd = np.repeat([np.eye(2) * stdIm**2], imagePoints[j,0].shape[0], axis=0)
+
+# hago el mapeo
+xmJ, ymJ, CmJ = cl.inverse(imagePoints[j,0], rVecs[j], tVecs[j],                                        
+                                     cameraMatrix, distCoeffs, model,
+                                     Cccd, Cf, Ck, Crt*0.5e8)
+
+fig = plt.figure()
+ax = fig.gca()
+ax.scatter(chessboardModel[0,:,0], chessboardModel[0,:,1],
+            marker='+', c='k', s=100)
+cl.plotPointsUncert(ax, CmJ, xmJ, ymJ, 'k')
+
+
+XJ = np.array([xmJ, ymJ]).T
+
+
+
+
+
+

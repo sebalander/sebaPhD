@@ -23,7 +23,7 @@ parámetros optimos dado los datos de test
 import numpy as np
 import scipy.linalg as ln
 import matplotlib.pyplot as plt
-#from importlib import reload
+from importlib import reload
 from copy import deepcopy as dc
 
 from dev import bayesLib as bl
@@ -78,10 +78,12 @@ tVecs = np.load(tVecsFile)#[indexes]
 
 
 
-
+intrinsicHessianFile = imagesFolder + camera + model + "intrinsicHessian.npy"
 
 
 # %%
+reload(bl)
+reload(bl.cl)
 testearFunc = True
 if testearFunc:
     # parametros auxiliares
@@ -103,8 +105,11 @@ if testearFunc:
 
 
 # %% pruebo evaluar las funciones para los processos
-testearFunc = True
+testearFunc = False
 if testearFunc:
+    Ci = np.repeat([np.eye(2)],n*m, axis=0).reshape(n,m,2,2)
+    params = [n, m, imagePoints, model, chessboardModel, Ci]
+    
     jInt = Queue()  # np.zeros((Ns[-1]), dtype=float)
     hInt = Queue()  # np.zeros((Ns[-1], Ns[-1]), dtype=float)
     
@@ -138,7 +143,12 @@ if testearFunc:
 # %%
 testearFunc = True
 if testearFunc:
+    Ci = np.repeat([np.eye(2)],n*m, axis=0).reshape(n,m,2,2)
+    params = [n, m, imagePoints, model, chessboardModel, Ci]
     # pruebo de evaluar jacobianos y hessianos
+    Xint, Ns = bl.int2flat(cameraMatrix, distCoeffs)
+    XextList = [bl.ext2flat(rVecs[i], tVecs[i])for i in range(n)]
+    
     jInt, hInt, jExt, hExt = bl.jacobianos(Xint, Ns, XextList, params)
     plt.matshow(hInt)
     [plt.matshow(h) for h in hExt]
@@ -155,65 +165,84 @@ if testearFunc:
     plt.figure()
     [plt.plot(j[0], '-+') for j in jExt]
 
+# %% calculo el hessiano en la solucion de opencv
+calcSaveHessInt = False
+if calcSaveHessInt:
+    Ci = np.repeat([np.eye(2)],n*m, axis=0).reshape(n,m,2,2)
+    params = [n, m, imagePoints, model, chessboardModel, Ci]
+    # pruebo de evaluar jacobianos y hessianos
+    jInt, hInt, jExt, hExt = bl.jacobianos(Xint, Ns, XextList, params)
+    
+    np.save(intrinsicHessianFile, hInt)
+
+w, v = ln.eig(hInt)
+
 # %% grafico la función error en las direcciones de los autovalores del hessiano
 
+plotErrorFunc = True
+if plotErrorFunc:
+    # parametros auxiliares
+    params = [n, m, imagePoints, model, chessboardModel, Ci]
+    
+    # pongo en forma flat los valores iniciales
+    Xint0, Ns = bl.int2flat(cameraMatrix, distCoeffs)
+    XextList0 = [bl.ext2flat(rVecs[i], tVecs[i])for i in range(n)]
+    e0 = bl.errorCuadraticoInt(Xint0, Ns, XextList0, params)
+    
+    # saco los hessianos si no estan definidos
+    if 'hInt' not in locals():
+        hInt = bl.Hint(Xint, Ns, XextList, params)
+    
+    # get eigenvectors
+    u, s, v = np.linalg.svd(hInt)
+    
+    etasLista = list()
+    erroresLista = list()
+    
+    # %%
+    etasI = np.linspace(-1e-15, 1e-15, 200)
+    
+    npts = etasI.shape[0]
+    errsI = np.empty(npts, dtype=float)
+    
+    direction = 0  # indice de la componente ppal que vamos a mirar
+    direc = v[direction] * s[direction]
+    deltaX = - np.array([direc]*npts) * etasI.reshape((-1,1))
+    Xmod = deltaX + Xint0  # modified parameters
+    
+    # %%
+    for i in range(npts):
+        print(i)
+        errsI[i] = bl.errorCuadraticoInt(Xmod[i], Ns, XextList0, params)
+    
+    etasLista.append(etasI)
+    erroresLista.append(errsI)
+    
+    # %%
+    
+    errsI = np.hstack(erroresLista)
+    etasI = np.hstack(etasLista)
+    
+    sortingIndexes = np.argsort(etasI)
+    errsI = errsI[sortingIndexes]
+    etasI = etasI[sortingIndexes]
+    
+    plt.figure()
+    #plt.xlim([-1.5e-11, 0.0])
+    #plt.ylim([0.722315, e0])
+    plt.plot(etasI, errsI, '-kx')
+    plt.plot([etasI[0], etasI[-1]],[e0, e0], '-r')
+    # plt.yscale('log')
+    
+    # %%
+    np.savetxt('dev/firstComponentErrorFunct.txt', np.array([etasI, errsI]).T,
+               header='moving by eta in the direction of the most significant eigvect of the hessian of the error function in the optimal point according to OpenCV.')
+
+etasI, errsI = np.loadtxt("./dev/firstComponentErrorFunct.txt").T
+
+# %%
 # parametros auxiliares
 params = [n, m, imagePoints, model, chessboardModel, Ci]
-
-# pongo en forma flat los valores iniciales
-Xint0, Ns = bl.int2flat(cameraMatrix, distCoeffs)
-XextList0 = [bl.ext2flat(rVecs[i], tVecs[i])for i in range(n)]
-e0 = bl.errorCuadraticoInt(Xint0, Ns, XextList0, params)
-
-# saco los hessianos si no estan definidos
-if 'hInt' not in locals():
-    jInt, hInt, jExt, hExt = bl.jacobianos(Xint, Ns, XextList, params)
-
-# get eigenvectors
-u, s, v = np.linalg.svd(hInt)
-
-etasLista = list()
-erroresLista = list()
-
-# %%
-etasI = np.linspace(-1.0e-11, -2.5e-12, 1000)
-
-npts = etasI.shape[0]
-errsI = np.empty(npts, dtype=float)
-
-direction = 0  # indice de la componente ppal que vamos a mirar
-direc = v[direction] * s[direction]
-deltaX = - np.array([direc]*npts) * etasI.reshape((-1,1))
-Xmod = deltaX + Xint0  # modified parameters
-
-# %%
-for i in range(npts):
-    print(i)
-    errsI[i] = bl.errorCuadraticoInt(Xmod[i], Ns, XextList0, params)
-
-etasLista.append(etasI)
-erroresLista.append(errsI)
-
-# %%
-
-errsI = np.hstack(erroresLista)
-etasI = np.hstack(etasLista)
-
-sortingIndexes = np.argsort(etasI)
-errsI = errsI[sortingIndexes]
-etasI = etasI[sortingIndexes]
-
-plt.figure()
-plt.plot(etasI, errsI, '-*k')
-plt.plot([-3e-9, 5e-9],[e0, e0], '-r')
-
-np.savetxt('dev/firstComponentErrorFunct.txt', np.array([etasI, errsI]).T,
-           header='moving by eta in the direction of the most significant eigvect of the hessian of the error function in the optimal point according to OpenCV.')
-
-
-# %%
-# parametros auxiliares
-params = [n, m, imagePoints, model, chessboardModel]
 
 # pongo en forma flat los valores iniciales
 Xint, Ns = bl.int2flat(cameraMatrix, distCoeffs)
@@ -292,7 +321,8 @@ def newtonOptE2(cameraMatrix, distCoeffs, rVecs, tVecs, Ns, params, ep=1e-3):
     return bl.flat2int(XextList1, Ns), [bl.ext2flat(x)for x in XextList1], errores
 
 # %%
-intr, extr, ers = newtonOptE2(cameraMatrix, distCoeffs*1.001, rVecs, tVecs, Ns, params)
+
+#intr, extr, ers = newtonOptE2(cameraMatrix, distCoeffs*1.001, rVecs, tVecs, Ns, params)
 '''
 este metodo no esta funcionando para esto. anduvo para la trilateracion pero
 se ve que esta funcion de perdida es mas complicada y tiene cosas muy raras
@@ -300,22 +330,26 @@ se ve que esta funcion de perdida es mas complicada y tiene cosas muy raras
 
 # %% solo gradiente descendente
 # parametros auxiliares
-params = [n, m, imagePoints, model, chessboardModel]
+params = [n, m, imagePoints, model, chessboardModel, Ci]
 
 # pongo en forma flat los valores iniciales
 Xint, Ns = bl.int2flat(cameraMatrix, distCoeffs)
 XextList = [bl.ext2flat(rVecs[i], tVecs[i])for i in range(n)]
 
 
-def gradDescE2(cameraMatrix, distCoeffs, rVecs, tVecs, Ns, params, ep=1e-4, eta=0.01):
+def gradDescE2(cameraMatrix, distCoeffs, rVecs, tVecs, Ns, params, ep=1e-6, eta=1e2):
+    # %%
+    ep=1e-6
+    eta=1e-2
     n = params[0]
     
     errores = list()
     
     # pongo las variables en flat, son las cond iniciales
-    Xint0, Ns = bl.int2flat(cameraMatrix, distCoeffs)
+    # las saco de donde encontro opencv
+    Xint0, Ns = bl.int2flat(cameraMatrix*1.02, distCoeffs*1.02)
     XextList0 = np.array([bl.ext2flat(rVecs[i], tVecs[i]) for i in range(n)])
-    
+    aux = [dc(Xint0), dc(XextList0)] # por si hay que volver atrás
     
     errores.append(bl.errorCuadraticoInt(Xint0, Ns, XextList0, params))
     print('error es ', errores[-1])
@@ -343,11 +377,20 @@ def gradDescE2(cameraMatrix, distCoeffs, rVecs, tVecs, Ns, params, ep=1e-4, eta=
                 np.max(np.abs((XextList1 - XextList0) / XextList0))])
     print('correccion hecha ', e)
     
+    print('error es', errores[-1],
+          '. respecto anterior: %.3g'%(errores[-1] - errores[-2]))
+    
+    if (errores[-1] - errores[-2]) > 0:
+        eta /= 10.0 # hago el paso mas chico si la cosa se inestabiliza
+        print('nuevo eta %g y vuelvo un paso atrás'%(eta))
+        Xint1, XextList1 = dc(aux)
+        errores.pop(-1)  # saco el valor de error que no va
+    
     # mientras las correcciones sean mayores a un umbral
     while e > ep:
         Xint0[:] = Xint1
         XextList0[:] = XextList1
-        
+        aux = [dc(Xint1), dc(XextList1)] # por si hay que volver atrás
         # jacobianos y hessianos
         print('jacobianos')
         jInt, jExt = bl.jacobianos(Xint0, Ns, XextList0, params, hessianos=False)
@@ -369,8 +412,21 @@ def gradDescE2(cameraMatrix, distCoeffs, rVecs, tVecs, Ns, params, ep=1e-4, eta=
         errores.append(bl.errorCuadraticoInt(Xint1, Ns, XextList1, params))
         print('error es', errores[-1],
               '. respecto anterior: %.3g'%(errores[-1] - errores[-2]))
+        
+        if (errores[-1] - errores[-2]) > 0:
+            eta /= 10.0 # hago el paso mas chico si la cosa se inestabiliza
+            print('nuevo eta %g y vuelvo un paso atrás'%(eta))
+            Xint1, XextList1 = dc(aux)
+            errores.pop(-1)  # saco el valor de error que no va
     
+    print(XextList1.shape)
+    # %%
     return bl.flat2int(XextList1, Ns), [bl.ext2flat(x)for x in XextList1], errores
+
+
+# %%
+intr, extr, ers = gradDescE2(cameraMatrix, distCoeffs, rVecs, tVecs, Ns,
+                             params, eta=1e-6)
 
 # %%
 
@@ -385,11 +441,6 @@ def relativeNoise(x, l=0.05):
     y = y.reshape(s)
     
     return x * (l * y + 1)
-
-
-# %%
-intr, extr, ers = gradDescE2(cameraMatrix, distCoeffs, rVecs, tVecs, Ns,
-                             params, eta=1e-6)
 
 # %%
 # parametros auxiliares
@@ -436,17 +487,17 @@ plt.plot(etasI, errsI, '-*')
 plt.plot([etasI[0], etasI[-1]],[e0, e0], '-r')
 
 # %%
-et = np.hstack([et, etasI])
-er = np.hstack([er, errsI])
-
-insort = np.argsort(et)
-
-et = et[insort]
-er = er[insort]
-
-plt.figure()
-plt.plot(et, er, '-*')
-plt.plot([et[0], et[-1]],[e0, e0], '-r')
+#et = np.hstack([et, etasI])
+#er = np.hstack([er, errsI])
+#
+#insort = np.argsort(et)
+#
+#et = et[insort]
+#er = er[insort]
+#
+#plt.figure()
+#plt.plot(et, er, '-*')
+#plt.plot([et[0], et[-1]],[e0, e0], '-r')
 
 '''
 ver aca para plotear mejor
@@ -497,7 +548,11 @@ for i in range(Xint0.shape[0]):
     # genero la version modif de ese param
     xPar = Xint0[i] * porc
     Xmod = dc(Xint0)
-    
+    Ci = np.repeat([np.eye(2)],n*m, axis=0).reshape(n,m,2,2)
+    params = [n, m, imagePoints, model, chessboardModel, Ci]
+    # pruebo de evaluar jacobianos y hessianos
+    Xint, Ns = bl.int2flat(cameraMatrix, distCoeffs)
+    XextList = [bl.ext2flat(rVecs[i], tVecs[i])for i in range(n)]
     axis.append(xPar - Xint0[i])
     ers.append(np.empty_like(axis[-1]))
     
@@ -532,3 +587,310 @@ erxNor = (erx - e0) / (erMax - e0)
 
 plt.plot(axxNor, erxNor)
 
+# %% trato de resolver el problema del hessiano no positivo en los parametros intrinsecos
+
+Ci = np.repeat([np.eye(2)],n*m, axis=0).reshape(n,m,2,2)
+params = [n, m, imagePoints, model, chessboardModel, Ci]
+
+# pongo en forma flat los valores iniciales
+Xint, Ns = bl.int2flat(cameraMatrix, distCoeffs)
+XextList = [bl.ext2flat(rVecs[i], tVecs[i])for i in range(n)]
+
+jInt = bl.Jint(Xint, Ns, XextList, params)  # (Ns,)
+hInt = bl.Hint(Xint, Ns, XextList, params)  #  (Ns, Ns)
+
+# %%
+deter = ln.det(hInt)
+
+diagonal = np.diag(hInt)
+
+u, s, v = ln.svd(hInt)
+
+# %% intento optimizacion con leastsq
+from scipy.optimize import minimize
+Ci = np.repeat([np.eye(2)],n*m, axis=0).reshape(n,m,2,2)
+params = [n, m, imagePoints, model, chessboardModel, Ci]
+# pongo en forma flat los valores iniciales
+Xint0, Ns = bl.int2flat(cameraMatrix, distCoeffs)
+XextList0 = [bl.ext2flat(rVecs[i], tVecs[i])for i in range(n)]
+
+# %%
+meths = ["Nelder-Mead", "Powell", "L-BFGS-B", "COBYLA", "SLSQP"]
+
+res = minimize(bl.errorCuadraticoInt, Xint0,
+               args=(Ns, XextList0, params), method=meths[0])
+print(res)
+
+import numdifftools as ndf
+
+if res.success is True:
+    Hint = ndf.Hessian(bl.errorCuadraticoInt)
+    hInt = Hint(res.x, Ns, XextList, params)  #  (Ns, Ns)
+    
+    cov = ln.inv(hInt)
+    plt.matshow(cov)
+    #fun, hess_inv, jac, message, nfev, nit, njev, status, success, x = res
+    
+    sigs = np.sqrt(np.diag(cov))
+    plt.figure()
+    plt.plot(np.abs(sigs / res.x), 'x')
+
+# %%
+plt.figure()
+plt.plot(Xint0, res.x, 'x')
+
+(Xint0 - res.x) / Xint0
+
+plt.figure()
+plt.plot((Xint0 - res.x) / Xint0, 'x')
+
+
+# %% ploteo en cada direccion
+Npts = 10
+etaM = 1e-4 # variacion total para cada lado
+etas = 1 + np.linspace(-etaM, etaM, Npts)
+
+XintFin = res.x
+XmodAll = np.repeat([XintFin], Npts, axis=0) * etas.reshape((Npts, -1))
+erAll = np.zeros_like(XmodAll)
+
+
+for j in range(len(XintFin)):
+    for i in range(Npts):
+        print(j, i)
+        X = dc(XintFin)
+        X[j] = XmodAll[i, j]
+        erAll[i, j] = bl.errorCuadraticoInt(X, Ns, XextList0, params)
+        print(erAll[i, j])
+
+plt.plot(etas, erAll, '-x')
+plt.plot([etas[0], etas[-1]], [res.fun, res.fun])
+
+
+
+
+# %%
+# metodos que funcionan:
+meths = ["Nelder-Mead", "Powell", "L-BFGS-B", "COBYLA", "SLSQP"]
+resss = []
+
+for me in meths:
+    res = minimize(bl.errorCuadraticoInt, Xint0,
+                   args=(Ns, XextList0, params), method=me)
+    print(me)
+    print(res)
+    resss.append(res)
+
+# %% como la libreria uqe hace ndiftools tiene problemas para calcularl el
+# hessiano lo calculo por mi cuenta usando el resultado de los varias metodos
+from dev import multipolyfit as mpf
+
+XX = np.array([r.x for r in resss])
+YY = np.array([r.fun for r in resss])
+
+armi = np.argmin(YY)
+X0 = XX[armi]
+Y0 = YY[armi] # bl.errorCuadraticoInt(X0, Ns, XextList0, params)
+
+
+coefs, exps = mpf.multipolyfit(XX - X0, YY, 2, powers_out=True)
+
+# asume first of 9 element in exponent is for 1
+const = 0
+jac = np.zeros((8))
+hes = np.zeros((8,8))
+
+const = coefs[0]
+jac = coefs[1:9]
+hes = np.zeros((8,8))
+hes[np.tril_indices(8)] = hes[np.triu_indices(8)] = coefs[9:]
+
+
+print(const)
+print(jac)
+print(hes)
+
+# testeo
+[const + jac.dot(x) + x.dot(hes).dot(x)/2 for x in (XX - X0)]
+
+# %% ahora augmento las soluciones obtenidas
+XXX = np.zeros((5,5,5,5,5,5,5,5,8))
+
+for i in range(5):
+    for j in range(5):
+        for k in range(5):
+            for l in range(5):
+                for m in range(5):
+                    for n in range(5):
+                        for o in range(5):
+                            for p in range(5):
+                                XXX[i,j,k,l,m,n,o,p] = XX[[i,j,k,l,m,n,o,p],[0,1,2,3,4,5,6,7]]
+
+XXX.shape = (-1,8)
+
+np.save('XXX.npy', XXX)
+
+#import timeit
+#statement = '''
+#bl.errorCuadraticoInt(XX[0], Ns, XextList0, params)
+#'''
+#t1 = timeit.timeit(statement, globals=globals(), number=100) / 1e2
+#print('horas que va atardar', t1 * XXX.shape[0] / 3600)
+
+#indprueba = np.random.randint(0, XXX.shape[0], 500)
+YYY = [bl.errorCuadraticoInt(x, Ns, XextList0, params) for x in XXX]
+np.save('YYY.npy', YYY)
+prob = np.exp(-np.array(YYY))  # peso proporcional a la probabilidad,
+# YYY = np.load('YYY.npy')
+# XXX = np.load('XXX.npy')
+
+XXX0 = np.average(XXX,axis=0,weights=prob)
+
+
+coefs, exps = mpf.multipolyfit(XXX - XXX0, YYY, 2, powers_out=True)
+
+# asume first of 9 element in exponent is for 1
+const = coefs[0]
+jac = coefs[1:9]
+hes = np.zeros((8,8))
+hes.T[np.triu_indices(8)] = hes[np.triu_indices(8)] = coefs[9:]
+
+
+print(const)
+print(jac)
+print(hes)
+print(hes==hes)
+# testeo
+test = [const + jac.dot(x) + x.dot(hes).dot(x)/2 for x in (XXX - XXX0)]
+# deberia dar la identidad +- error de taylor
+plt.plot(YYY, test, 'x')
+
+
+# %% saco el vertice de la hiperparabola calculada
+vert = XXX0 - jac.dot(ln.inv(hes))
+
+# ahora recalculo la hiperparabola
+coefs, exps = mpf.multipolyfit(XXX - vert, YYY, 2, powers_out=True)
+
+# asume first of 9 element in exponent is for 1
+const = coefs[0]
+jac = coefs[1:9]
+hes = np.zeros((8,8))
+hes.T[np.triu_indices(8)] = hes[np.triu_indices(8)] = coefs[9:]
+
+cova = ln.inv(hes)  # esta seria la covarianza asociada
+
+# %% un ultimo refinamiento, sampleo puntos de la gaussiana calculada
+# y con esos puntos recalculo el vertice y todo eso
+
+u,s,v = ln.svd(cova)  # para diagonalizar la elipse de la gaussiana
+
+XXsamples = vert + np.random.randn(1000, 8).dot(s*v)  # sampleo
+
+for i in range(6):
+    print(i)
+    plt.figure()
+    plt.scatter(XXsamples.T[i], XXsamples.T[i+1])
+
+# calculo los errores de esos samples
+YYsamples = [bl.errorCuadraticoInt(x, Ns, XextList0, params) for x in XXsamples]
+prob = np.exp(-np.array(YYsamples))  # peso proporcional a la probabilidad
+
+# saco el valor esperado
+XXsamples0 = np.average(XXsamples,axis=0,weights=prob)
+
+coefs, exps = mpf.multipolyfit(XXsamples - XXsamples0, YYsamples, 2, powers_out=True)
+
+constSam = coefs[0]
+jacSam = coefs[1:9]
+hesSam = np.zeros((8,8))
+hesSam[np.triu_indices(8)] = hesSam.T[np.triu_indices(8)] = coefs[9:]
+
+print(constSam)
+print(jacSam)
+print(hesSam)
+print(ln.eig(hesSam)[0])
+
+# testeo
+testSam = [constSam + jacSam.dot(x) + x.dot(hesSam).dot(x)/2 for x in (XXsamples - XXsamples0)]
+
+plt.plot(YYsamples, testSam, 'x')
+
+# saco el vertice de la hiperparabola calculada
+vert = XXsamples0 - jac.dot(ln.inv(hes))
+cova = ln.inv(hes)  # esta seria la covarianza asociada
+
+# %% grafico el error en cada direccion para ver que sea suave y en que
+# escalas hacer el fiteo
+Ci = np.repeat([np.eye(2)],n*m, axis=0).reshape(n,m,2,2)
+params = [n, m, imagePoints, model, chessboardModel, Ci]
+
+# pongo en forma flat los valores iniciales
+Xint, Ns = bl.int2flat(cameraMatrix, distCoeffs)
+XextList = [bl.ext2flat(rVecs[i], tVecs[i])for i in range(n)]
+
+Nsam = 100
+etas = np.linspace(0.9,1.1, Nsam)
+
+xList = list()
+yList = list()
+
+for i in range(8):
+    print(i)
+    xSam = np.repeat([Xint], Nsam, axis=0)
+    xSam[:, i] *= etas
+    
+    ySam = [bl.errorCuadraticoInt(x, Ns, XextList, params) for x in xSam]
+    
+    xList.append(xSam[:, i])
+    yList.append(ySam)
+
+xList = np.array(xList).T - Xint
+yList = np.array(yList).T
+
+xListInf = np.min(xList, axis=0)
+xListSup = np.max(xList, axis=0)
+
+yListInf = np.min(yList)
+yListSup = np.max(yList, axis=0)
+
+plt.plot((xList - xListInf) / (xListSup - xListInf),
+         (yList - yListInf) / (yListSup - yListInf))
+
+
+# %%
+# import funcion para ajustar hiperparabola
+from dev import multipolyfit as mpf
+
+# genero muchas perturbaciones de los params intrinsecos alrededor de las cond
+# iniciales en un rango de +-1%
+
+Xrand = (np.random.rand(1000,8)*0.006 + 0.997) * Xint
+Yrand = [bl.errorCuadraticoInt(x, Ns, XextList, params) for x in Xrand]
+prob = np.exp(-np.array(Yrand))  # peso proporcional a la probabilidad
+
+# saco el valor esperado
+Xrand0 = np.average(Xrand, axis=0, weights=prob)
+
+coefs, exps = mpf.multipolyfit(Xrand - Xrand0, Yrand, 2, powers_out=True)
+
+constRan = coefs[0]
+jacRan = coefs[1:9]
+hesRan = np.zeros((8,8))
+hesRan[np.triu_indices(8)] = hesRan.T[np.triu_indices(8)] = coefs[9:]
+
+print(constRan)
+print(jacRan)
+print(hesRan)
+print(ln.eig(hesRan)[0])
+
+# testeo
+testRan = [constRan + jacRan.dot(x) + x.dot(hesRan).dot(x) for x in (Xrand - Xrand0)]
+
+plt.plot(Yrand, testRan, 'x')
+emin, emax = [np.min(Yrand), np.max(Yrand)]
+plt.plot([emin, emax],[emin, emax])
+
+# saco el vertice de la hiperparabola calculada
+vert = Xrand0- jacRan.dot(ln.inv(hesRan))
+cova = ln.inv(hesRan)  # esta seria la covarianza asociada

@@ -13,6 +13,7 @@ from numpy import max, zeros, array, sqrt, roots, diag
 from numpy import sin, cos, cross, ones, concatenate, flipud, dot, isreal
 from numpy import linspace, polyval, eye, linalg, mean, prod, vstack
 from numpy import empty_like, ones_like, zeros_like, pi, empty
+from numpy import any as anny
 from scipy.linalg import norm, inv, eig
 from scipy.special import chdtri
 from matplotlib.patches import FancyArrowPatch
@@ -210,7 +211,7 @@ def ccd2homJacobian(imagePoints, cameraMatrix):
     return Jd_i, Jd_k
 
 
-def ccd2hom(imagePoints, cameraMatrix, Cccd=None, Cf=None):
+def ccd2hom(imagePoints, cameraMatrix, Cccd=False, Cf=False):
     '''
     must provide covariances for every point if cov is not None
     
@@ -221,27 +222,29 @@ def ccd2hom(imagePoints, cameraMatrix, Cccd=None, Cf=None):
     xpp = (imagePoints[:, 0] - cameraMatrix[0, 2]) / cameraMatrix[0, 0]
     ypp = (imagePoints[:, 1] - cameraMatrix[1, 2]) / cameraMatrix[1, 1]
 
-    if Cccd is None and Cf is None:
-        Cpp = None  # return without covariance matrix
-
-    else:
+    Cccdbool = anny(Cccd)
+    Cfbool = anny(Cf)
+    
+    if Cccdbool or Cfbool:
         Cpp = zeros((xpp.shape[0],2,2))  # create covariance matrix
         Jd_i, Jd_k = ccd2homJacobian(imagePoints, cameraMatrix)
         
-        if Cccd is not None:
+        if Cccdbool:
             Jd_iResh = Jd_i.reshape((-1, 2, 2, 1, 1))
             Cpp += (Jd_iResh *
-                    Cpp.reshape((-1,1,2,2,1)) *
+                    Cccd.reshape((-1,1,2,2,1)) *
                     Jd_iResh.transpose((0,4,3,2,1))
                     ).sum((2,3))
         
-        if Cf is not None:
+        if Cfbool:
             # propagate uncertainty via Jacobians
             Jd_kResh = Jd_k.reshape((-1, 2, 4, 1, 1))
             Cpp += (Jd_kResh *
                     Cf.reshape((-1,1,4,4,1)) *
                     Jd_kResh.transpose((0,4,3,2,1))
                     ).sum((2,3))
+    else:
+        Cpp = False  # return without covariance matrix
 
     return xpp, ypp, Cpp
 
@@ -291,21 +294,14 @@ def homDist2homUndist_ratioJacobians(xpp, ypp, distCoeffs, model):
 
 
 
-def homDist2homUndist(xpp, ypp, distCoeffs, model, Cpp=None, Ck=None):
+def homDist2homUndist(xpp, ypp, distCoeffs, model, Cpp=False, Ck=False):
     '''
     takes ccd cordinates and projects to homogenpus coords and undistorts
     '''
+    Cppbool = anny(Cpp)
+    Ckbool = anny(Ck)
     
-    if Cpp is None and Ck is None:  # no hay incertezas Ck ni Cpp
-        # calculate ratio of undistortion
-        rpp = norm([xpp, ypp], axis=0)
-        q, _ = undistort[model](rpp, distCoeffs, quot=True, der=False)
-        
-        xp = xpp / q  # undistort in homogenous coords
-        yp = ypp / q
-        Cp = None
-
-    else:
+    if Cppbool or Ckbool :  # no hay incertezas Ck ni Cpp
         q, _, Jp_pp, Jp_k = homDist2homUndist_ratioJacobians(xpp, ypp,
                                                             distCoeffs,
                                                             model)
@@ -315,21 +311,28 @@ def homDist2homUndist(xpp, ypp, distCoeffs, model, Cpp=None, Ck=None):
         Cp = zeros((len(xp),2,2))
         
         # nk = nparams[model] # distCoeffs.shape[0]  # unmber of dist coeffs
-        if Cp is not None:  # incerteza Cpp unicamente
+        if Cppbool:  # incerteza Cpp 
             Jp_ppResh = Jp_pp.reshape((-1, 2, 1, 2, 1))
             Cp = (Jp_ppResh *
                   Cpp.reshape((-1,1,2,2,1)) *
                   Jp_ppResh.transpose((0,4,3,2,1))
                   ).sum((2,3))
-
-        if Ck is not None:  # incerteza Ck unicamente
-            # propagate uncertanties
+        if Ckbool:  # incerteza Ck 
             nk = Jp_k.shape[-1]
             Jp_kResh = Jp_k.reshape((-1, 2, 1, nk, 1))
             Cp += (Jp_kResh *
                    Ck.reshape((1, 1, nk, nk, 1)) *
                    Jp_kResh.transpose((0, 4, 3, 2, 1))
                    ).sum((2, 3))
+
+    else:
+        # calculate ratio of undistortion
+        rpp = norm([xpp, ypp], axis=0)
+        q, _ = undistort[model](rpp, distCoeffs, quot=True, der=False)
+        
+        xp = xpp / q  # undistort in homogenous coords
+        yp = ypp / q
+        Cp = False
 
     return xp, yp, Cp
 
@@ -509,7 +512,7 @@ def jacobianosHom2Map(xp, yp, rV, tV):
     return JXm_Xp, JXm_rtV
 
 
-def xypToZplane(xp, yp, rV, tV, Cp=None, Crt=None):
+def xypToZplane(xp, yp, rV, tV, Cp=False, Crt=False):
     '''
     projects a point from homogenous undistorted to 3D asuming z=0
     '''
@@ -528,41 +531,38 @@ def xypToZplane(xp, yp, rV, tV, Cp=None, Crt=None):
     xm = (f*b - c*e) / q
     ym = (c*d - f*a) / q
 
-    if Cp is None and Crt is None:  # no hay incertezas
-        return xm, ym, None  # return None covariance
-
-    # continue as if there is a Covariance to calculate
-    Cm = zeros((xm.shape[0],2,2))
-    # calculo jacobianos
-    JXm_Xp, JXm_rtV = jacobianosHom2Map(xp, yp, rV, tV)
-
-    if Crt is not None:  # contribucion incerteza Crt
-        JXm_rtVResh = JXm_rtV.reshape((2,6,1,1,-1))
-        Cm += (JXm_rtVResh *
-               Crt.reshape((1,6,6,1,1)) *
-               JXm_rtVResh.transpose((3,2,1,0,4))
-               ).sum((1,2)).transpose((2,0,1))
-
-    if Cp is not None:  # incerteza Cp
-        Cp = Cp.transpose((1,2,0))
-        JXm_XpResh = JXm_Xp.reshape((2,2,1,1,-1))
-        Cm += (JXm_XpResh *
-               Cp.reshape((1,2,2,1,-1)) *
-               JXm_XpResh.transpose((3,2,1,0,4))
-               ).sum((1,2)).transpose((2,0,1))
+    Cpbool = anny(Cp)
+    Crtbool = anny(Crt)
+    if Cpbool or Crtbool:  # no hay incertezas
+        Cm = zeros((xm.shape[0],2,2))
+        # calculo jacobianos
+        JXm_Xp, JXm_rtV = jacobianosHom2Map(xp, yp, rV, tV)
         
-        # da una diferencia muuuy chica respecto a hacerlo en loop... no se porque
-        # CdeltaTest = zeros_like(Cdelta)
-        # for i in range(len(xp)):
-        #     CdeltaTest[:,:,i] = JXm_Xp[:,:,i].dot(Cp[:,:,i]).dot(JXm_Xp[:,:,i].T)
+        if Crtbool:  # contribucion incerteza Crt
+            JXm_rtVResh = JXm_rtV.reshape((2,6,1,1,-1))
+            Cm += (JXm_rtVResh *
+                   Crt.reshape((1,6,6,1,1)) *
+                   JXm_rtVResh.transpose((3,2,1,0,4))
+                   ).sum((1,2)).transpose((2,0,1))
         
+        if Cpbool:  # incerteza Cp
+            Cp = Cp.transpose((1,2,0))
+            JXm_XpResh = JXm_Xp.reshape((2,2,1,1,-1))
+            Cm += (JXm_XpResh *
+                   Cp.reshape((1,2,2,1,-1)) *
+                   JXm_XpResh.transpose((3,2,1,0,4))
+                   ).sum((1,2)).transpose((2,0,1))
+    
+    else:
+        Cm = False  # return None covariance
+    
     return xm, ym, Cm
 
 
 
 
 def inverse(imagePoints, rV, tV, cameraMatrix, distCoeffs, model,
-            Cccd=None, Cf=None, Ck=None, Crt=None):
+            Cccd=False, Cf=False, Ck=False, Crt=False):
     '''
     inverseFisheye(objPoints, rVec/rotMatrix, tVec, cameraMatrix,
                     distCoeffs)-> objPoints
@@ -573,7 +573,6 @@ def inverse(imagePoints, rV, tV, cameraMatrix, distCoeffs, model,
 
     propagates covariance uncertainty
     '''
-
     # project to homogenous distorted
     xpp, ypp, Cpp = ccd2hom(imagePoints, cameraMatrix, Cccd, Cf)
     # undistort
