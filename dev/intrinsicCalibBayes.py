@@ -28,7 +28,7 @@ from copy import deepcopy as dc
 
 from dev import bayesLib as bl
 
-from multiprocess import Process, Queue
+from multiprocess import Process, Queue, Value
 # https://github.com/uqfoundation/multiprocess/tree/master/py3.6/examples
 
 # %% LOAD DATA
@@ -40,7 +40,7 @@ camera = 'vcaWide'
 modelos = ['poly', 'rational', 'fisheye']
 model = modelos[2]
 
-imagesFolder = "/home/sebalander/Desktop/Code/sebaPhD/resources/intrinsicCalib/" + camera + "/"
+imagesFolder = "./resources/intrinsicCalib/" + camera + "/"
 cornersFile =      imagesFolder + camera + "Corners.npy"
 patternFile =      imagesFolder + camera + "ChessPattern.npy"
 imgShapeFile =     imagesFolder + camera + "Shape.npy"
@@ -903,8 +903,9 @@ def mapListofParams(X, Ns, XextList, params):
     ret = list()
     for  x in X:
         ret.append(bl.errorCuadraticoInt(x, Ns, XextList, params))
-        mapCounter +=1
-        print(mapCounter, ' de ', npts, ' ', mapCounter/npts*100, '%')
+        mapCounter.value += 1
+        print("%d de %d calculos: %2.3f por 100" % 
+              (mapCounter.value, npts, mapCounter.value/npts*100))
     
     return np.array(ret)
 
@@ -951,29 +952,33 @@ def mapManyParams(Xlist, Ns, XextList, params, nThre=4):
 
 # %% aca testeo que tan rapido es con multithreading para 4 nucleos
 import timeit
+mapCounter=0
 
-statement = '''mapManyParams(Xrand, Ns, XextList, params)'''
+statement = '''mapManyParams(Xrand, Ns, XextList, params, nThre=8)'''
 
 timss = list()
 nss = [50, 100, 200, 500, 1000, 2000]
 
-for nn in nss:
-    print(nn)
-    Xrand = (np.random.rand(nn, 8) * 2 - 1) * anchos + Xint
+for npts in nss:
+    print(npts)
+    Xrand = (np.random.rand(npts, 8) * 2 - 1) * anchos + Xint
     timss.append(timeit.timeit(statement, globals=globals(), number=5) / 5)
-    print(nn, timss[-1])
+    print(npts, timss[-1])
+
+plt.plot(nss, timss)
 
 p = np.polyfit(nss, timss, 1)
 npts = int(2e5)
-print(np.polyval(p, npts) / 3600, npts**0.125)
+print('tiempo ', np.polyval(p, npts) / 3600, 'hs; ptos por eje ', npts**0.125)
 # tomaria como 10hs hacer un milon de puntos
 # %%
 # genero muchas perturbaciones de los params intrinsecos alrededor de las cond
 # iniciales en un rango de +-10% que por las graficas parece ser bastante
 # parabolico el comportamiento todavía
-mapCounter=0
+npts = int(1e6)
+mapCounter = Value('i', 0)
 Xrand = (np.random.rand(npts, 8) * 2 - 1) * anchos + Xint
-Yrand = mapManyParams(Xrand, Ns, XextList, params)
+Yrand = mapManyParams(Xrand, Ns, XextList, params,  nThre=8)
 
 np.save('Xrand', Xrand)
 np.save('Yrand', Yrand)
