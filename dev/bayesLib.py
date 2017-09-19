@@ -190,11 +190,11 @@ def jacobianos(Xint, Ns, XextList, params, hessianos=True):
     # donde guardar resultados de jaco y hess externos
     n = len(XextList)
     jExt = np.zeros((n, 1, 6), dtype=float)
-    qJext = [Queue()]*n
+    qJext = [Queue() for nn in range(n)]
 
     if hessianos:
         hExt = np.zeros((n, 6, 6), dtype=float)
-        qHext = [Queue()]*n
+        qHext = [Queue() for nn in range(n)]
     
     # lista de threads
     proJ = list()

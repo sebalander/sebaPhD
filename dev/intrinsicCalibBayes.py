@@ -141,7 +141,7 @@ if testearFunc:
 
 
 # %%
-testearFunc = True
+testearFunc = False
 if testearFunc:
     Ci = np.repeat([np.eye(2)],n*m, axis=0).reshape(n,m,2,2)
     params = [n, m, imagePoints, model, chessboardModel, Ci]
@@ -468,7 +468,7 @@ jInt, hInt, jExt, hExt = bl.jacobianos(Xint0, Ns, XextList0, params)
 u, s, v = np.linalg.svd(hInt)
 
 # %% testeo en las diferentes direcciones segun el hesiano
-etasI = np.linspace(-5e-8, 4e-8, int(5e2))
+etasI = np.linspace(-5e-8, 4e-8, int(1e2))
 
 npts = etasI.shape[0]
 errsI = np.empty(npts, dtype=float)
@@ -724,7 +724,8 @@ for i in range(5):
                     for n in range(5):
                         for o in range(5):
                             for p in range(5):
-                                XXX[i,j,k,l,m,n,o,p] = XX[[i,j,k,l,m,n,o,p],[0,1,2,3,4,5,6,7]]
+                                XXX[i,j,k,l,m,n,o,p] = XX[[i,j,k,l,m,n,o,p],
+                                                          [0,1,2,3,4,5,6,7]]
 
 XXX.shape = (-1,8)
 
@@ -829,68 +830,245 @@ params = [n, m, imagePoints, model, chessboardModel, Ci]
 Xint, Ns = bl.int2flat(cameraMatrix, distCoeffs)
 XextList = [bl.ext2flat(rVecs[i], tVecs[i])for i in range(n)]
 
-Nsam = 100
-etas = np.linspace(0.9,1.1, Nsam)
+Nsam = 500
+#                   0    1    2    3    4     5     6     7
+anchos = np.array([7e0, 7e0, 2e1, 2e1, 6e-3, 4e-3, 2e-3, 1e-3])
+rangos = np.array([Xint-anchos, Xint+anchos]).T
+
+
+#np.linspace(0.5,1.5, Nsam)
 
 xList = list()
 yList = list()
 
-for i in range(8):
+for i in [1,2,3]:
     print(i)
     xSam = np.repeat([Xint], Nsam, axis=0)
-    xSam[:, i] *= etas
+    xSam[:, i] = np.linspace(rangos[i][0], rangos[i][1], Nsam)
     
     ySam = [bl.errorCuadraticoInt(x, Ns, XextList, params) for x in xSam]
     
     xList.append(xSam[:, i])
     yList.append(ySam)
+    
+    # fiteo una parabola
+    p = np.polyfit(xSam[:, i], ySam, 2)
+    ypoly = np.polyval(p, xSam[:, i])
+    
+    plt.figure(i*2)
+    plt.title(i)
+    plt.plot(xSam[:, i], ySam, 'b-')
+    plt.plot(xSam[:, i], ypoly, 'g-')
+    plt.plot([Xint[i], Xint[i]], [np.min(ySam), np.max(ySam)], '-r')
+    
+    plt.figure(i*2+1)
+    plt.title(i)
+    ysqrt = np.sqrt(ySam)
+    ypolysqrt = np.sqrt(ypoly)
+    plt.plot(xSam[:, i], ysqrt, 'b-')
+    plt.plot(xSam[:, i], ypolysqrt, 'g-')
+    plt.plot([Xint[i], Xint[i]], [np.min(ysqrt), np.max(ysqrt)], '-r')
 
 xList = np.array(xList).T - Xint
 yList = np.array(yList).T
 
-xListInf = np.min(xList, axis=0)
-xListSup = np.max(xList, axis=0)
-
-yListInf = np.min(yList)
-yListSup = np.max(yList, axis=0)
-
-plt.plot((xList - xListInf) / (xListSup - xListInf),
-         (yList - yListInf) / (yListSup - yListInf))
+#xListInf = np.min(xList, axis=0)
+#xListSup = np.max(xList, axis=0)
+#
+#yListInf = np.min(yList)
+#yListSup = np.max(yList, axis=0)
+#
+#plt.plot((xList - xListInf) / (xListSup - xListInf),
+#         (yList - yListInf) / (yListSup - yListInf), '-+')
 
 
 # %%
 # import funcion para ajustar hiperparabola
 from dev import multipolyfit as mpf
 
-# genero muchas perturbaciones de los params intrinsecos alrededor de las cond
-# iniciales en un rango de +-1%
+def coefs2mats(coefs, n=8):
+    const = coefs[0]
+    jac = coefs[1:n+1]
+    hes = np.zeros((n,n)) # los diagonales aparecen solo una vez
+    hes[np.triu_indices(n)] = hes.T[np.triu_indices(n)] = coefs[n+1:]
+    
+    hes[np.diag_indices(n)] *= 2
+    return const, jac, hes
 
-Xrand = (np.random.rand(1000,8)*0.006 + 0.997) * Xint
-Yrand = [bl.errorCuadraticoInt(x, Ns, XextList, params) for x in Xrand]
-prob = np.exp(-np.array(Yrand))  # peso proporcional a la probabilidad
+
+# %% para hacer en muchos hilos
+def mapListofParams(X, Ns, XextList, params):
+    global mapCounter
+    global npts
+    ret = list()
+    for  x in X:
+        ret.append(bl.errorCuadraticoInt(x, Ns, XextList, params))
+        mapCounter +=1
+        print(mapCounter, ' de ', npts, ' ', mapCounter/npts*100, '%')
+    
+    return np.array(ret)
+
+
+
+def procMapParams(X, Ns, XextList, params, ret):
+    ret.put(mapListofParams(X, Ns, XextList, params))
+
+
+
+def mapManyParams(Xlist, Ns, XextList, params, nThre=4):
+    '''
+    function to map in many threads values of params to error function
+    '''
+    N = Xlist.shape[0] # cantidad de vectores a procesar
+    procs = list()  # lista de procesos
+    er = [Queue() for i in range(nThre)]  # donde comunicar el resultado
+    retVals = np.zeros(N)  # 
+    
+    inds = np.linspace(0,N,nThre+1, endpoint=True, dtype=int)
+    #print(inds)
+    
+    for i in range(nThre):
+        #print('vecores', Xlist[inds[i]:inds[i+1]].shape)
+        p = Process(target=procMapParams,
+                    args=(Xlist[inds[i]:inds[i+1]], Ns, XextList, params,
+                          er[i]))
+        procs.append(p)
+        p.start()
+    
+    [p.join() for p in procs]
+
+    for i in range(nThre):
+        ret = er[i].get()
+        #print('loque dio', ret.shape)
+        #print('donde meterlo', retVals[inds[i]:inds[i+1]].shape)
+        retVals[inds[i]:inds[i+1]] = ret
+    
+    
+    
+    return retVals
+
+
+
+# %% aca testeo que tan rapido es con multithreading para 4 nucleos
+import timeit
+
+statement = '''mapManyParams(Xrand, Ns, XextList, params)'''
+
+timss = list()
+nss = [50, 100, 200, 500, 1000, 2000]
+
+for nn in nss:
+    print(nn)
+    Xrand = (np.random.rand(nn, 8) * 2 - 1) * anchos + Xint
+    timss.append(timeit.timeit(statement, globals=globals(), number=5) / 5)
+    print(nn, timss[-1])
+
+p = np.polyfit(nss, timss, 1)
+npts = int(2e5)
+print(np.polyval(p, npts) / 3600, npts**0.125)
+# tomaria como 10hs hacer un milon de puntos
+# %%
+# genero muchas perturbaciones de los params intrinsecos alrededor de las cond
+# iniciales en un rango de +-10% que por las graficas parece ser bastante
+# parabolico el comportamiento todavía
+mapCounter=0
+Xrand = (np.random.rand(npts, 8) * 2 - 1) * anchos + Xint
+Yrand = mapManyParams(Xrand, Ns, XextList, params)
+
+np.save('Xrand', Xrand)
+np.save('Yrand', Yrand)
+
+# prob = np.exp(-Yrand / np.mean(Yrand))  # peso proporcional a la probabilidad
 
 # saco el valor esperado
-Xrand0 = np.average(Xrand, axis=0, weights=prob)
+# Xrand0 = np.average(Xrand, axis=0) # , weights=prob)
+# centro la cuenta en Xint
+DeltaX = Xrand - Xint
+coefs, exps = mpf.multipolyfit(DeltaX, Yrand, 2, powers_out=True)
 
-coefs, exps = mpf.multipolyfit(Xrand - Xrand0, Yrand, 2, powers_out=True)
+constRan, jacRan, hesRan = coefs2mats(coefs)
 
-constRan = coefs[0]
-jacRan = coefs[1:9]
-hesRan = np.zeros((8,8))
-hesRan[np.triu_indices(8)] = hesRan.T[np.triu_indices(8)] = coefs[9:]
-
-print(constRan)
-print(jacRan)
-print(hesRan)
-print(ln.eig(hesRan)[0])
+## autovectores son las columnas
+#w, vr = ln.eig(hesRan, left=False, right=True)
+#np.dot(vr, ln.diagsvd(np.real(w),8,8).dot(ln.inv(vr)))
+#
+## right singular vectors as rows
+#u, s, v = ln.svd(hesRan)
+#
+#np.allclose(hesRan, np.dot(u, np.dot(ln.diagsvd(s,8,8), v)))
+#
+#plt.matshow(np.log(np.abs(hesRan)))
+#
+#print(l)
 
 # testeo
-testRan = [constRan + jacRan.dot(x) + x.dot(hesRan).dot(x) for x in (Xrand - Xrand0)]
+testRan = [constRan + jacRan.dot(x) + x.dot(hesRan).dot(x) / 2 for x in DeltaX]
 
-plt.plot(Yrand, testRan, 'x')
+plt.figure()
+plt.plot(Yrand, testRan, 'xk')
+plt.plot(Yrand, testRan, 'xr')
 emin, emax = [np.min(Yrand), np.max(Yrand)]
 plt.plot([emin, emax],[emin, emax])
 
-# saco el vertice de la hiperparabola calculada
-vert = Xrand0- jacRan.dot(ln.inv(hesRan))
-cova = ln.inv(hesRan)  # esta seria la covarianza asociada
+## saco el vertice de la hiperparabola calculada
+#vert = Xint - jacRan.dot(ln.inv(hesRan))
+#cova = ln.inv(hesRan)  # esta seria la covarianza asociada
+
+#hesChancho = vr.dot(ln.diagsvd(s,8,8)).dot(ln.inv(vr))
+#
+#testChan = [constRan + jacRan.dot(x) + x.dot(hesChancho).dot(x) / 2 for x in DeltaX]
+#
+#plt.figure()
+#plt.plot(Yrand, testChan, 'xk')
+#plt.plot(Yrand, testChan, 'xr')
+#emin, emax = [np.min(Yrand), np.max(Yrand)]
+#plt.plot([emin, emax],[emin, emax])
+# no le pega ni por asomo
+
+# %%
+
+#from scipy.stats import multivariate_normal
+#rv = multivariate_normal(mean=vert, cov=cova)
+#
+## make positive semidefinite, asume simetry
+#print(ln.eig(hesRan)[0])
+## https://www.mathworks.com/matlabcentral/fileexchange/42885-nearestspd
+#A = hesRan
+#B = (A + A.T) / 2
+#u, s, v = ln.svd(B)
+##% Compute the symmetric polar factor of B. Call it H.
+##% Clearly H is itself SPD.
+#H = v.dot(s).dot(v.T)
+#Ahat = (A + H) / 2
+#Ahat = (Ahat + Ahat.T) /2
+#
+#ln.cho_factor(Ahat)
+#
+#ln.eig(Ahat)[0]
+
+
+
+# %% ahora miro en los autovectores del hessiano
+#u, s, v = np.linalg.svd(hesRan)
+l, v = ln.eig(hesRan)
+s = np.sqrt(np.abs(np.real(l)))
+npts = int(2e1)
+etasI = np.linspace(-1e3, 1e3, npts)
+
+i = 0
+for i in range(8):
+    direc = v[:,i]
+    perturb = np.repeat([direc], npts, axis=0) * etasI.reshape((-1,1)) / s[i]
+    Xmod = vert + perturb  # modified parameters
+    Ymod = np.array([bl.errorCuadraticoInt(x, Ns, XextList, params) for x in Xmod])
+    Xdist = ln.norm(perturb, axis=1) * np.sign(etasI)
+    
+    plt.figure()
+    plt.plot(Xdist, Ymod, '-*')
+
+
+
+
+
+
+
