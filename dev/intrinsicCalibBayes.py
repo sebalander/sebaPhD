@@ -25,6 +25,8 @@ import scipy.linalg as ln
 import matplotlib.pyplot as plt
 from importlib import reload
 from copy import deepcopy as dc
+import numdifftools as ndf
+from dev import multipolyfit as mpf
 
 from dev import bayesLib as bl
 
@@ -682,7 +684,7 @@ for me in meths:
 
 # %% como la libreria uqe hace ndiftools tiene problemas para calcularl el
 # hessiano lo calculo por mi cuenta usando el resultado de los varias metodos
-from dev import multipolyfit as mpf
+
 
 XX = np.array([r.x for r in resss])
 YY = np.array([r.fun for r in resss])
@@ -903,8 +905,8 @@ def mapListofParams(X, Ns, XextList, params):
     for  x in X:
         ret.append(bl.errorCuadraticoInt(x, Ns, XextList, params))
         mapCounter.value += 1
-        print("%d de %d calculos: %2.3f por 100" % 
-              (mapCounter.value, npts, mapCounter.value/npts*100))
+        print("%d de %d calculos: %2.3f por 100; error %g" % 
+              (mapCounter.value, npts, mapCounter.value/npts*100, ret[-1]))
     
     return np.array(ret)
 
@@ -924,7 +926,7 @@ def mapManyParams(Xlist, Ns, XextList, params, nThre=4):
     er = [Queue() for i in range(nThre)]  # donde comunicar el resultado
     retVals = np.zeros(N)  # 
     
-    inds = np.linspace(0,N,nThre+1, endpoint=True, dtype=int)
+    inds = np.linspace(0, N, nThre + 1, endpoint=True, dtype=int)
     #print(inds)
     
     for i in range(nThre):
@@ -957,6 +959,7 @@ statement = '''mapManyParams(Xrand, Ns, XextList, params, nThre=8)'''
 
 timss = list()
 nss = [50, 100, 200, 500, 1000, 2000]
+mapCounter = Value('i', 0)
 
 for npts in nss:
     print(npts)
@@ -964,17 +967,19 @@ for npts in nss:
     timss.append(timeit.timeit(statement, globals=globals(), number=5) / 5)
     print(npts, timss[-1])
 
-plt.plot(nss, timss)
+plt.plot(nss, timss, '-*')
 
 p = np.polyfit(nss, timss, 1)
-npts = int(2e5)
-print('tiempo ', np.polyval(p, npts) / 3600, 'hs; ptos por eje ', npts**0.125)
+p = np.array([ 0.0338636, -0.2550772])
+npts = int(1e5)
+print('tiempo ', np.polyval(p, npts) / 60, 'hs; ptos por eje ', npts**0.125)
 # tomaria como 10hs hacer un milon de puntos
+
 # %%
 # genero muchas perturbaciones de los params intrinsecos alrededor de las cond
 # iniciales en un rango de +-10% que por las graficas parece ser bastante
 # parabolico el comportamiento todavía
-npts = int(1e6)
+npts = int(2e4)
 mapCounter = Value('i', 0)
 Xrand = (np.random.rand(npts, 8) * 2 - 1) * anchos + Xint
 Yrand = mapManyParams(Xrand, Ns, XextList, params,  nThre=8)
@@ -991,6 +996,28 @@ DeltaX = Xrand - Xint
 coefs, exps = mpf.multipolyfit(DeltaX, Yrand, 2, powers_out=True)
 
 constRan, jacRan, hesRan = coefs2mats(coefs)
+np.real(ln.eig(hesRan)[0])
+
+nConsidered = np.arange(100, npts+100, 100, dtype=int)
+autovalsConverg = np.zeros((nConsidered.shape[0], 8))
+
+indShuff = np.arange(Yrand.shape[0])
+np.random.shuffle(indShuff)
+
+Xrand = Xrand[indShuff]
+Yrand = Yrand[indShuff]
+
+
+for i, ncon in enumerate(nConsidered):
+    print(i)
+    coefs, exps = mpf.multipolyfit(DeltaX[:ncon], Yrand[:ncon], 2, powers_out=True)
+    constRan, jacRan, hesRan = coefs2mats(coefs)
+    autovalsConverg[i] = np.real(ln.eig(hesRan)[0])
+    print(autovalsConverg[i])
+
+plt.figure()
+plt.plot(nConsidered, autovalsConverg)
+
 
 ## autovectores son las columnas
 #w, vr = ln.eig(hesRan, left=False, right=True)
@@ -1073,7 +1100,6 @@ for i in range(8):
 
 
 # %% pruebo de calcular el hessiano poniendo paso fijo sabiendo la escala
-import numdifftools as ndf
 
 #                   0    1    2    3    4     5     6     7
 anchos = np.array([7e0, 7e0, 2e1, 2e1, 6e-3, 4e-3, 2e-3, 1e-3])
@@ -1101,7 +1127,7 @@ for i,aut in enumerate(autovalores.T):
 # %% estos son los rangos de step dond eveo que hay estabilidad
 # o algo razonable
 rangoNunDiffStep = np.array([[1e-3, 1e-1],    # 0
-                             [1e-3, 1e-1],  # 1
+                             [1e-5, 1e-1],  # 1
                              [1e-3, 1e-1],   # 2
                              [1e-3, 1e-1],   # 3
                              [1e-3, 1e-1],     # 4
@@ -1160,4 +1186,27 @@ for j in range(8):
     plt.xscale('log')
     plt.yscale('log')
     plt.grid('on')
+
+'''
+en base a los graficos defino los steps con los que sacar el hessiano numerico
+'''
+stepsGraph = [0.3, 0.7, 2.5, 3.0, 1e-3, 4e-4, 4e-6, 3e-6]
+
+
+Hint = ndf.Hessian(bl.errorCuadraticoInt, step=stepsGraph)
+hesGraphStep = Hint(Xint, Ns, XextList, params)
+
+np.real(ln.eig(hesGraphStep)[0])
+
+
+
+
+
+
+
+
+
+
+
+
 
