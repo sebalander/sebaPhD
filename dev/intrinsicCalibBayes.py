@@ -461,10 +461,9 @@ jInt, hInt, jExt, hExt = bl.jacobianos(Xint0, Ns, XextList0, params)
 ##                       np.linspace(-2e-6, 2e-6, 100),
 ##                       np.linspace(2e-6, 0.001, 100),
 ##                       np.linspace(0.001, 0.1, 30)))
-#
 #rangos = [,,1e-5]
-#
-#
+
+
 u, s, v = np.linalg.svd(hInt)
 
 # %% testeo en las diferentes direcciones segun el hesiano
@@ -1073,7 +1072,92 @@ for i in range(8):
 
 
 
+# %% pruebo de calcular el hessiano poniendo paso fijo sabiendo la escala
+import numdifftools as ndf
+
+#                   0    1    2    3    4     5     6     7
+anchos = np.array([7e0, 7e0, 2e1, 2e1, 6e-3, 4e-3, 2e-3, 1e-3])
+
+autovalores = list() # aca guardar la lista de autovalores
+
+# en cuánto reducir los anchos especificados a ojo
+factores = [0.1, 0.2, 0.5, 1, 2, 5, 10, 20, 50, 100, 200, 500,
+            1e3, 2e3, 5e3, 1e4, 2e4, 5e4]
+
+for fact in factores:
+    step = anchos/fact
+    Hint = ndf.Hessian(bl.errorCuadraticoInt, step=step)
+    hes1step = Hint(Xint, Ns, XextList, params)
+    
+    autovalores.append(np.real(ln.eig(hes1step)[0]))
+    print(fact, autovalores[-1])
+
+autovalores = np.array(autovalores)
+
+for i,aut in enumerate(autovalores.T):
+    plt.figure(i)
+    plt.plot(factores, aut, '-*')
+
+# %% estos son los rangos de step dond eveo que hay estabilidad
+# o algo razonable
+rangoNunDiffStep = np.array([[1e-3, 1e-1],    # 0
+                             [1e-3, 1e-1],  # 1
+                             [1e-3, 1e-1],   # 2
+                             [1e-3, 1e-1],   # 3
+                             [1e-3, 1e-1],     # 4
+                             [1e-3, 1e-1],      # 5
+                             [1e-3, 1e-1],      # 6
+                             [1e-3, 1e-1]]).T * anchos
+
+nLogSteps = 100  # cantidad de pasos en los que samplear el diff step
+logFactor = (rangoNunDiffStep[1] / rangoNunDiffStep[0])**(1 / (nLogSteps-1))
+
+# calculate list of steps
+diffSteps3 = (rangoNunDiffStep[0].reshape((1,-1))
+             * np.cumproduct([logFactor]*nLogSteps, axis=0)
+             / logFactor)
+
+autovalores3 = np.zeros_like(diffSteps3)
+
+for i in range(nLogSteps):
+    print('paso', i)
+    
+    Hint = ndf.Hessian(bl.errorCuadraticoInt, step=diffSteps3[i])
+    hes1step = Hint(Xint, Ns, XextList, params)
+    
+    autovalores3[i] = np.real(ln.eig(hes1step)[0])
+    print('autovalores', autovalores3[i])
 
 
+# %%
+'''
+falta explorar un poco mas para algunos steps, haciendolo mas chico.
+se nota que no es facil determinar el paso optimo, es bastante complicado
+y quiza haya que terminar haciendo algo iterativo tipo metropolis.
+comparar con lo que de el hessiano de la hiperparabola. si da parecido ya 
+está.
+'''
 
+autovTotal = np.concatenate([autovalores[:73],
+                             autovalores2,
+                             autovalores3], axis=0)
+
+diffStepsTotal =  np.concatenate([diffSteps[:73],
+                             diffSteps2,
+                             diffSteps3], axis=0)
+
+
+np.save('autovaloresHess', autovTotal)
+np.save('diffSteps', diffStepsTotal)
+
+diffStepsTotal = np.load('diffSteps.npy')
+autovTotal = np.load('autovaloresHess.npy')
+
+for j in range(8):
+    plt.figure()
+    plt.title(j)
+    plt.plot(diffStepsTotal[:,j], autovTotal[:,j], '-+')
+    plt.xscale('log')
+    plt.yscale('log')
+    plt.grid('on')
 
