@@ -205,7 +205,7 @@ def sdt2covs(covAll):
     return Cf, Ck, Crt
 
 
-j = 2 # elijo una imagen para trabajar
+j = 0 # elijo una imagen para trabajar
 
 import glob
 imagenFile = glob.glob(imagesFolder+'*.png')[j]
@@ -215,8 +215,8 @@ plt.scatter(imagePoints[j,0,:,0], imagePoints[j,0,:,1])
 
 nSampl = int(1e3)  # cantidad de samples
 
-ep = 1e-6 # relative standard deviation in parameters
-stdIm = 1e-6
+ep = 1e-2 # relative standard deviation in parameters
+stdIm = 1e0
 
 sacaCeros = {'poly' : [0,1,4],
           'rational' : [0,1,4,5,6],
@@ -520,9 +520,9 @@ ax = fig.gca()
 ax.scatter(chessboardModel[0,:,0], chessboardModel[0,:,1],
             marker='+', c='k', s=100)
 
-ax.scatter(xm, ym, marker='.', c='b', s=1)
 cl.plotPointsUncert(ax, CmJ, xmJ, ymJ, 'k')
 
+ax.scatter(xm, ym, marker='.', c='b', s=1)
 cl.plotPointsUncert(ax, posMapVar, posMapMean[:,0], posMapMean[:,1], 'b')
 
 

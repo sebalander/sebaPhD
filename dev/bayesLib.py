@@ -118,9 +118,12 @@ def errorCuadraticoImagen(Xext, Xint, Ns, params, j):
     if Cmbool:
         # devuelvo error cuadratico pesado por las covarianzas
         S = np.linalg.inv(Cm)  # inverse of covariance matrix
-        q1 = [np.sum(S[:, :, 0] * er.T, 1),  # fastest way I found to do product
-              np.sum(S[:, :, 1] * er.T, 1)];
-        Er = np.sum(q1 * er)
+        # q1 = [np.sum(S[:, :, 0] * er.T, 1),  # fastest way I found to do product
+        #       np.sum(S[:, :, 1] * er.T, 1)]
+        
+        # distancia mahalanobis
+        Er = (er.T.reshape((-1,2,1)) * S * er.T.reshape((-1,1,2))).sum()
+        Er += np.log(np.linalg.det(Cm)).sum()  # sumo termino de normalizacion
     else:
         # error cuadratico pelado, escalar
         Er = np.sum(er**2)

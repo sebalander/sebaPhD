@@ -617,24 +617,33 @@ XextList0 = [bl.ext2flat(rVecs[i], tVecs[i])for i in range(n)]
 
 # %%
 meths = ["Nelder-Mead", "Powell", "L-BFGS-B", "COBYLA", "SLSQP"]
+elijo = 1
 
-res = minimize(bl.errorCuadraticoInt, Xint0,
-               args=(Ns, XextList0, params), method=meths[0])
-print(res)
+res = dict()
+Hint = ndf.Hessian(bl.errorCuadraticoInt)
 
-import numdifftools as ndf
+hInt = dict()
 
-if res.success is True:
-    Hint = ndf.Hessian(bl.errorCuadraticoInt)
-    hInt = Hint(res.x, Ns, XextList, params)  #  (Ns, Ns)
+for me in meths:
+    res[me] = minimize(bl.errorCuadraticoInt, Xint0,
+                   args=(Ns, XextList0, params), method=me)
+    print(me)
+    print(res[me])
+    print(np.abs((res[me].x - Xint0)/ Xint0))
     
-    cov = ln.inv(hInt)
-    plt.matshow(cov)
-    #fun, hess_inv, jac, message, nfev, nit, njev, status, success, x = res
-    
-    sigs = np.sqrt(np.diag(cov))
-    plt.figure()
-    plt.plot(np.abs(sigs / res.x), 'x')
+    if res[me].success is True:
+        hInt[me] = Hint(res[me].x, Ns, XextList, params)  #  (Ns, Ns)
+        
+        print(np.real(ln.eig(hInt[me])[0]))
+        
+        cov = ln.inv(hInt[me])
+        plt.matshow(cov)
+        #fun, hess_inv, jac, message, nfev, nit, njev, status, success, x = res
+        
+        sigs = np.sqrt(np.diag(cov))
+        plt.figure()
+        plt.plot(np.abs(sigs / res[me].x), 'x')
+
 
 # %%
 plt.figure()
@@ -831,7 +840,7 @@ params = [n, m, imagePoints, model, chessboardModel, Ci]
 Xint, Ns = bl.int2flat(cameraMatrix, distCoeffs)
 XextList = [bl.ext2flat(rVecs[i], tVecs[i])for i in range(n)]
 
-Nsam = 500
+Nsam = 50
 #                   0    1    2    3    4     5     6     7
 anchos = np.array([7e0, 7e0, 2e1, 2e1, 6e-3, 4e-3, 2e-3, 1e-3])
 rangos = np.array([Xint-anchos, Xint+anchos]).T
@@ -842,7 +851,10 @@ rangos = np.array([Xint-anchos, Xint+anchos]).T
 xList = list()
 yList = list()
 
-for i in [1,2,3]:
+fig, ax = plt.subplots(2,4)
+ax = ax.flatten()
+
+for i in range(8): # [1,2,3]:
     print(i)
     xSam = np.repeat([Xint], Nsam, axis=0)
     xSam[:, i] = np.linspace(rangos[i][0], rangos[i][1], Nsam)
@@ -852,23 +864,23 @@ for i in [1,2,3]:
     xList.append(xSam[:, i])
     yList.append(ySam)
     
-    # fiteo una parabola
-    p = np.polyfit(xSam[:, i], ySam, 2)
-    ypoly = np.polyval(p, xSam[:, i])
+#    plt.figure(i)
+#    ax[i].title(i)
+    ax[i].plot(xSam[:, i], ySam, 'b-')
+#    plt.plot(xSam[:, i], ypoly, 'g-')
+    ax[i].plot([Xint[i], Xint[i]], [np.min(ySam), np.max(ySam)], '-r')
     
-    plt.figure(i*2)
-    plt.title(i)
-    plt.plot(xSam[:, i], ySam, 'b-')
-    plt.plot(xSam[:, i], ypoly, 'g-')
-    plt.plot([Xint[i], Xint[i]], [np.min(ySam), np.max(ySam)], '-r')
+#    # fiteo una parabola
+#    p = np.polyfit(xSam[:, i], ySam, 2)
+#    ypoly = np.polyval(p, xSam[:, i])
     
-    plt.figure(i*2+1)
-    plt.title(i)
-    ysqrt = np.sqrt(ySam)
-    ypolysqrt = np.sqrt(ypoly)
-    plt.plot(xSam[:, i], ysqrt, 'b-')
-    plt.plot(xSam[:, i], ypolysqrt, 'g-')
-    plt.plot([Xint[i], Xint[i]], [np.min(ysqrt), np.max(ysqrt)], '-r')
+#    plt.figure(i*2+1)
+#    plt.title(i)
+#    ysqrt = np.sqrt(ySam)
+#    ypolysqrt = np.sqrt(ypoly)
+#    plt.plot(xSam[:, i], ysqrt, 'b-')
+#    plt.plot(xSam[:, i], ypolysqrt, 'g-')
+#    plt.plot([Xint[i], Xint[i]], [np.min(ysqrt), np.max(ysqrt)], '-r')
 
 xList = np.array(xList).T - Xint
 yList = np.array(yList).T
@@ -979,7 +991,7 @@ print('tiempo ', np.polyval(p, npts) / 60, 'hs; ptos por eje ', npts**0.125)
 # genero muchas perturbaciones de los params intrinsecos alrededor de las cond
 # iniciales en un rango de +-10% que por las graficas parece ser bastante
 # parabolico el comportamiento todavía
-npts = int(2e4)
+npts = int(1e4)
 mapCounter = Value('i', 0)
 Xrand = (np.random.rand(npts, 8) * 2 - 1) * anchos + Xint
 Yrand = mapManyParams(Xrand, Ns, XextList, params,  nThre=8)
