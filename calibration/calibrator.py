@@ -200,13 +200,14 @@ def ccd2homJacobian(imagePoints, cameraMatrix):
     
     unos = ones_like(imagePoints[:, 0])
     ceros = zeros_like(unos)
+    
     a = - unos / cameraMatrix[0, 0]
     b = (cameraMatrix[0, 2] - imagePoints[:, 0]) * a**2
     c = - unos / cameraMatrix[1, 1]
     d = (cameraMatrix[1, 2] - imagePoints[:, 1]) * c**2
 
     Jd_k = array([[b, ceros, a, ceros], [ceros, d, ceros, c]])
-    Jd_k = Jd_k.transpose((2, 0, 1))  # first index corresponds
+    Jd_k = Jd_k.transpose((2, 0, 1))  # first index iterates points
     
     return Jd_i, Jd_k
 

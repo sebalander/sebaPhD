@@ -213,10 +213,10 @@ plt.figure()
 plt.imshow(plt.imread(imagenFile), origin='lower')
 plt.scatter(imagePoints[j,0,:,0], imagePoints[j,0,:,1])
 
-nSampl = int(1e3)  # cantidad de samples
+nSampl = int(1e6)  # cantidad de samples
 
-ep = 1e-2 # relative standard deviation in parameters
-stdIm = 1e0
+ep = 1e-3 # relative standard deviation in parameters
+stdIm = 1e-1
 
 sacaCeros = {'poly' : [0,1,4],
           'rational' : [0,1,4,5,6],
@@ -249,14 +249,9 @@ rG, tG, kG, dG = sacoParmams(parsGen.T)
 
 # %% TEST EACH STEP. STEP 1: CCD TO DISTORTED HOMOGENOUS ===================
 
-# parte ANALITICA propagacion de incerteza
-xpp, ypp, Cpp = cl.ccd2hom(imagePoints[j,0], cameraMatrix, Cccd=Cccd, Cf=Cf)
+#### COMPARACION DE JACOBIANOS
 # parte ANALITICA jacobianos
 Jd_i, Jd_k = cl.ccd2homJacobian(imagePoints[j,0], cameraMatrix)
-
-# parte MONTE CARLO
-for i in range(nSampl):
-    posMap[i,:,0], posMap[i,:,1], _ = cl.ccd2hom(posIgen[i], kG[i])
 
 # parte JACOBIANOS NUMERICOS
 def step1vsX(X, cameraMatrix):
@@ -274,33 +269,50 @@ def step1vsParams(params, imagePoints):
     
     return np.array([xpp, ypp])
 
-#Jd_iNumJacob = ndf.Jacobian(step1vsX)
-Jd_inumeric = ndf.Jacobian(step1vsX)(imagePoints[j,0].T, cameraMatrix).T
+# calculo con derivada numerica
+Jd_inumeric = ndf.Jacobian(step1vsX, order=4)(imagePoints[j,0].T, cameraMatrix).T
 
-Jd_knumeric = ndf.Jacobian(step1vsParams)(cameraMatrix[[0 , 1, 0, 1],
+Jd_knumeric = ndf.Jacobian(step1vsParams, order=4,
+                           method='central')(cameraMatrix[[0 , 1, 0, 1],
                                                        [0, 1, 2, 2]],
                                           imagePoints[j,0]).transpose((2,0,1))
 
+indJacNon0 = [[0,1,2,3], [0,1,0,1]]
+jkanal = Jd_k.T[indJacNon0].reshape(-1)
+jknumDif = np.abs(Jd_knumeric.T[indJacNon0].reshape(-1) - jkanal)
+jianal = np.diag(Jd_i)
+jinum = np.abs(Jd_inumeric[:,[0,1],[0,1]] - jianal)
+
 # COMPARO JACOBIANOS
 plt.figure()
-plt.title('Jacobianos')
-plt.plot(Jd_k.reshape(-1), np.abs(Jd_knumeric - Jd_k).reshape(-1), '+', label='params')
-plt.plot(Jd_inumeric.reshape(-1),
-         np.abs(Jd_inumeric.transpose((1,2,0))
-                - Jd_i.reshape((2,2,1))).reshape(-1), 'x', label='posicion')
+plt.title('Jacobianos relative error')
+plt.plot(jkanal, jknumDif / np.abs(jkanal), '+', label='params')
+plt.plot(jianal.reshape((-1,1)), (jinum / jianal).T, 'xk', label='posicion')
 plt.yscale('log')
 plt.legend(loc=0)
+
+#### COMPARACION DE COVARIANZAS ####
+
+## Solo incerteza en coordenadas imagen ##
+
+# parte ANALITICA propagacion de incerteza
+xpp, ypp, Cpp = cl.ccd2hom(imagePoints[j,0], cameraMatrix, Cccd=Cccd)
+
+# parte MONTE CARLO
+for i in range(nSampl):
+    posMap[i,:,0], posMap[i,:,1], _ = cl.ccd2hom(posIgen[i], cameraMatrix)
 
 # COMPARO VARIANZAS
 # medias y varianzas de las nubes de puntos
 posIMean = np.mean(posIgen, axis=0)
 dif = (posIgen - posIMean).T
-posIVar = np.mean([dif[0] * dif, dif[1] * dif], axis=-1).T
+posIVar = np.sum([dif[0] * dif, dif[1] * dif], axis=-1) / (nSampl - 2)
+posIVar = posIVar.transpose((2,0,1))
 
 posMapMean = np.mean(posMap, axis=0)
 dif = (posMap - posMapMean).T
-posMapVar = np.mean([dif[0] * dif, dif[1] * dif], axis=-1).T
-
+posMapVar = np.sum([dif[0] * dif, dif[1] * dif], axis=-1) / (nSampl - 1)
+posMapVar = posMapVar.transpose((2,0,1))
 
 #fig = plt.figure()
 #ax = fig.gca()
@@ -308,6 +320,10 @@ posMapVar = np.mean([dif[0] * dif, dif[1] * dif], axis=-1).T
 #ax.scatter(posIgen[:,:,0], posIgen[:,:,1], marker='.', c='b', s=1)
 #cl.plotPointsUncert(ax, Cccd, imagePoints[j,0,:,0], imagePoints[j,0,:,1], 'k')
 #cl.plotPointsUncert(ax, posIVar, posIMean[:,0], posIMean[:,1], 'b')
+
+cAnal = Cpp[:, [0,1,0],[0,1,1]]
+cDif = np.abs(posMapVar[:, [0,1,0],[0,1,1]] - cAnal)
+plt.plot(cAnal.T, cDif.T / np.linalg.norm(Cpp, axis=(1,2)), '+b')
 
 
 fig = plt.figure()
