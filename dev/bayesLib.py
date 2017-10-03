@@ -111,7 +111,7 @@ def errorCuadraticoImagen(Xext, Xint, Ns, params, j):
                             distCoeffs, model, Cccd=Cov)
     # print(Cm)
     # error
-    er = [xm, ym] - chessboardModel[0,:,:2].T
+    er = ([xm, ym] - chessboardModel[0,:,:2].T).T
     
     Cmbool = anny(Cm)
     
@@ -122,7 +122,7 @@ def errorCuadraticoImagen(Xext, Xint, Ns, params, j):
         #       np.sum(S[:, :, 1] * er.T, 1)]
         
         # distancia mahalanobis
-        Er = (er.T.reshape((-1,2,1)) * S * er.T.reshape((-1,1,2))).sum()
+        Er = (er.reshape((-1,2,1)) * S * er.reshape((-1,1,2))).sum()
         Er += np.log(np.linalg.det(Cm)).sum()  # sumo termino de normalizacion
     else:
         # error cuadratico pelado, escalar
