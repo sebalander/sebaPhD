@@ -14,7 +14,7 @@ N = int(5e2)  # number of data
 M = int(1e5)  # number of realisations
 
 mu = np.array([7, 10])  # mean of data
-c = np.array([[5, -3],[-3, 7]])
+c = np.array([[5, -3], [-3, 7]])
 
 # generate data
 x = np.random.multivariate_normal(mu, c, (N, M))
@@ -31,23 +31,30 @@ difmu = muest - muExp.reshape((1,2))
 muVar = np.sum(difmu.reshape((M,2,1)) * difmu.reshape((M,1,2)), axis=0) / (M - 1)
 
 cExp = np.mean(cest, axis=0)
-difc = cest - cExp.reshape((1,2,2))
+difc = cest - cExp ## ACA ESTA EL PROBLEMA
 cVar = np.sum(difc.reshape((M,2,2,1,1)) *
                difc.reshape((M,1,1,2,2)).transpose((0,1,2,4,3)),
                axis=0) / (M - 1)
 
-cVar2 = np.zeros((M,2,2,2,2))
-for i in range(M):
-    cVar2[i] = difc[i].reshape((2,2,1,1)) * difc[i].reshape((1,1,2,2))
+#cVar2 = np.zeros((M,2,2,2,2))
+#for i in range(M):
+#    cVar2[i] = difc[i].reshape((2,2,1,1)) * difc[i].reshape((1,1,2,2))
+#
+#cVar2 = np.sum(cVar2 / (M - 1), axis=0)
+#
+#cVar2 = np.zeros_like(cVar)
+#for i in [0,1]:
+#    for j in [0,1]:
+#        for k in [0,1]:
+#            for l in [0,1]:
+#                cVar2[i,j,k,l] = np.sum(difc[:,i,j] * difc[:,k,l])
 
-cVar2 = np.sum(cVar2 / (M - 1), axis=0)
+#difc2 = difc.reshape((-1,4))
+#cVar2 = np.sum(difc2.reshape((-1,4,1)) * difc2.reshape((-1,1,4)) / (M - 1),
+#               axis=0)
+#cVar2 = cVar2.reshape((2,2,2,2))
 
-cVar2 = np.zeros_like(cVar)
-for i in [0,1]:
-    for j in [0,1]:
-        for k in [0,1]:
-            for l in [0,1]:
-                cVar2[i,j,k,l] = np.sum(difc[:,i,j] * difc[:,k,l])
+
 
 # saco las cuentas analiticas
 expMu = mu
@@ -56,6 +63,9 @@ expC = c
 # no es necesario trasponer porque c es simetrica
 VarC = (c.reshape((2,2,1,1)) *
         c.reshape((1,1,2,2)).transpose((0,1,3,2))) * (2 * N - 1) / (N - 1)**2
+#VarC2 = c.reshape((4,1)) * c.reshape((1,4)) * (2 * N - 1) / (N - 1)**2
+#VarC2 = VarC2.reshape((2,2,2,2))
+
 
 print('numerico: \n', cVar, '\n\n\n\n analitico \n', VarC)
 
