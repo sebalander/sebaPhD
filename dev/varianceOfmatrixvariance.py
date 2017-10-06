@@ -13,7 +13,7 @@ N = int(1e3)  # number of data
 M = int(1e5)  # number of realisations
 
 mu = np.array([7, 10])  # mean of data
-c = np.array([[2, 1], [1, 4]])
+c = np.array([[5, 3], [3, 7]])
 
 # generate data
 x = np.random.multivariate_normal(mu, c, (N, M))
@@ -60,3 +60,17 @@ print('\n\n varianza de varianza numerico (sin normalizar):\n', cVarnn,
 
 #reldif = np.abs((cVar - VarC) / VarC)
 #reldif > 1e-1
+
+# %% pruebo wishart
+#  probabilidad de la covarianza estimada
+import scipy.stats as sts
+# N degrees of freedom
+# inv(c) is precision matrix
+wpdf = sts.wishart(N, c)
+wpdf.pdf(cest[3])
+
+
+
+
+
+
