@@ -9,8 +9,8 @@ Created on Tue Oct  3 19:01:13 2017
 import numpy as np
 
 # %%
-N = int(1e1)  # number of data, degrees of freedom
-M = int(1e3)  # number of realisations
+N = int(5e1)  # number of data, degrees of freedom
+M = int(1e5)  # number of realisations
 P = 2  # size of matrices
 
 
@@ -39,7 +39,7 @@ cVarKron = np.sum(difcKron  / (M - 1), axis=0)
 
 difc = difc.reshape((M,P*P,1))
 cVarAux = np.reshape(difc * difc.transpose((0,2,1)), (M,P,P,P,P))
-cVar = np.sum(cVarAux  / (M - 1), axis=0)
+cVar = np.sum(cVarAux  / (M - 1), axis=0)  # VARIANZA NUMERICA
 
 
 # saco las cuentas analiticas
@@ -51,7 +51,7 @@ cShaped = c.reshape((P,P,1,1))
 VarCnn = cShaped * cShaped.transpose((3,2,1,0))
 nn = (2 * N - 1) / (N - 1)**2
 
-VarC = VarCnn * nn
+VarC = VarCnn * nn  ## VARIANZA TEORICA SEGUN SEBA
 cVarnn = cVar / nn
 
 print('media de media numerico: \n', muExp,
@@ -83,6 +83,13 @@ no entiendo donde esta el problema
 '''
 #reldif = np.abs((cVar - VarC) / VarC)
 #reldif > 1e-1
+
+# %% re calculo las covarianzas pero con tamaños 4x4
+# numerica
+cVar2 = np.sum(difc * difc.transpose((0,2,1)) / (M - 1), axis=0)
+# teorica
+VarC2 = c.reshape((-1,1)) * c.reshape((1,-1)) * (2 * N - 1) / (N - 1)**2
+
 
 # %% pruebo wishart
 #  probabilidad de la covarianza estimada
@@ -161,7 +168,7 @@ def E2(gaussPDF):
     return - np.log(gaussPDF) - norLog
 
 e2 = E2(wishartPDFs)
- import matplotlib.pyplot as plt
+import matplotlib.pyplot as plt
 plt.hist(e2, 100)
 er = np.sqrt(e2)
 print(np.min(E), np.sqrt(E2(wishPDFofC)))
@@ -170,19 +177,119 @@ print(np.min(E), np.sqrt(E2(wishPDFofC)))
 # https://www.statlect.com/probability-distributions/wishart-distribution
 cKron = np.kron(c,c)
 
-PvecA = np.eye(P*P) # como c es simetrica vec(c)=vec(c')
 
-Var = (2/N) * cKron
+PvecA = np.array([[1,0,0,0],
+                  [0,0,1,0],
+                  [0,1,0,0],
+                  [0,0,0,1]]) # como c es simetrica vec(c)=vec(c')
+
+## testear PvecA
+#A = np.array([[1,2],[3,4]])
+#PvecA.dot(np.reshape(A,-1))
+#np.reshape(A.T,-1)
+
+const = (PvecA + np.eye(P*P)) / N
+
+Var = const.dot(cKron)
+
+print('teorico de wishart\n', Var)
+print('numerico\n', cVar)
+print('teorico seba\n', VarC)
 
 
+print('\n\nteorico de wishart2\n', Var)
+print('numerico2\n', cVar2)
+print('teorico seba2\n', VarC2)
+
+# %%
+'''
+quedo demostrado que la expected variance segun lateoria de wishart es la que
+coincide con las simulaciones (se puede rastrear la diferencia con lo propuesto
+por mi pero no vale la pena).
+
+ahora ver como sacar una distancia mahalanobis
+'''
+import scipy.linalg as ln
+
+PvecA = np.array([[1,0,0,0],
+                  [0,0,1,0],
+                  [0,1,0,0],
+                  [0,0,0,1]]) # como c es simetrica vec(c)=vec(c')
+
+const = (PvecA + np.eye(P*P))
+
+def varVar(c, N):
+    '''
+    para c de 2x2
+    '''
+    cKron = np.kron(c,c)
+    
+    return const.dot(cKron) / N
+
+# tomo dos de las matrices estimadas
+i = 0
+j = 1
+
+ci = cest[i]
+cj = cest[j]
+
+# elimino uno de los componentes que es redundante # y lo multiplico
+# mul = np.array([[1],[2],[1]])
+ind = [0,1,3]
+ciVar = varVar(ci, N)[ind] # * mul
+cjVar = varVar(cj, N)[ind] # * mul
+ciVar = ciVar.T[ind].T
+cjVar = cjVar.T[ind].T
+
+ciFlat = np.reshape(ci, -1)[ind]
+cjFlat = np.reshape(cj, -1)[ind]
+cFlatDif = ciFlat - cjFlat
+
+A =  varVar(ci, N)
+ln.svd(A)
 
 
+ciPres = np.linalg.inv(ciVar)
+cjPres = np.linalg.inv(cjVar)
 
+dMahi = cFlatDif.dot(ciPres).dot(cFlatDif)
+dMahj = cFlatDif.dot(cjPres).dot(cFlatDif)
 
+# intuyo que la manera de juntar las dos covarianzas es sumar las distancias al cuadrado:
 
+dM = np.sqrt(dMahi + dMahj)
 
+# %% testeo las distancias mahalanobis de las esperanzas wrt lo estimado
 
+difMU = muest - mu # la varianza de esto tiene que ser VarMu
+difC = cest - c # la varianza de esto tiene que ser Var
+difC2 = difC[:,[0,0,1],[0,1,1]]
 
+presMU = ln.inv(VarMu)
+Var2 = Var[[0,1,3]].T[[0,1,3]].T # saco las dimensiones irrelevantes
+presC = ln.inv(Var2)
+
+mahMU = difMU.reshape((-1,2,1)) * presMU.reshape((1,2,2)) * difMU.reshape((-1,1,2))
+mahMU = mahMU.sum(axis=(1,2))
+
+mahC = difC2.reshape((-1,3,1)) * presC.reshape((1,3,3)) * difC2.reshape((-1,1,3))
+mahC = mahC.sum(axis=(1,2))
+
+# grafico y comparo con chi cuadrado
+plt.figure()
+nMU, binsMU, patchesMU = plt.hist(mahMU, 1000, normed=True)
+chi2MU = sts.chi2.pdf(binsMU,2)
+plt.plot(binsMU, chi2MU, label='chi2, df=2')
+
+plt.figure()
+nC, binsC, patchesC = plt.hist(mahC, 1000, normed=True)
+chi2C = sts.chi2.pdf(binsC,3)
+plt.plot(binsC, chi2C, label='chi2, df=3')
+
+'''
+como sigue la pdf chi cuadrado parece que esta todo bien, asi que la distancia
+de mahalanobis es un buen indicador de la distancia.
+'''
 
 
 
