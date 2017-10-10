@@ -289,7 +289,17 @@ plt.plot(binsC, chi2C, label='chi2, df=3')
 '''
 como sigue la pdf chi cuadrado parece que esta todo bien, asi que la distancia
 de mahalanobis es un buen indicador de la distancia.
+
+falta poner loq ue vendría a ser el sigma segun los grados de libertad. para
+cada distancia de mahalanobis pouedo calcular en que elipse esta, o sea indicar
+"el volumen de la elipse" donde esta, mientras mas chico mejor.
 '''
 
+muEllVol = sts.chi2.cdf(mahMU, 2)
+cEllVol = sts.chi2.cdf(mahC, 3)
 
-
+plt.figure()
+plt.plot(mahMU, muEllVol, '.', label='mu')
+plt.plot(mahC, cEllVol, '.', label='C')
+plt.xlabel('distancia mahalanobis al cuadrado')
+plt.ylabel('acumulado de probabiliad')
