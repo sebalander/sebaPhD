@@ -9,8 +9,10 @@ Created on Tue Oct  3 19:01:13 2017
 import numpy as np
 
 # %%
-N = int(1e3)  # number of data
-M = int(1e5)  # number of realisations
+N = int(1e1)  # number of data, degrees of freedom
+M = int(1e3)  # number of realisations
+P = 2  # size of matrices
+
 
 mu = np.array([7, 10])  # mean of data
 c = np.array([[5, 3], [3, 7]])
@@ -20,17 +22,23 @@ x = np.random.multivariate_normal(mu, c, (N, M))
 
 # estimo los mu y c de cada relizacion
 muest = np.mean(x, axis=0)
-dif = x - muest.reshape((1,-1,2))
-cest = np.sum(dif.reshape((N,M,2,1)) * dif.reshape((N,M,1,2)), axis=0) / (N - 1)
+dif = x - muest
+cest = dif.reshape((N,M,P,1)) * dif.reshape((N,M,1,P))
+cest = np.sum(cest, axis=0) / (N - 1)
 
 # saco la media y varianza entre todas las realizaciones
 muExp = np.mean(muest, axis=0)
-difmu = muest - muExp.reshape((1,2))
-muVar = np.sum(difmu.reshape((M,2,1)) * difmu.reshape((M,1,2)), axis=0) / (M - 1)
+difmu = muest - muExp
+muVar = np.sum(difmu.reshape((M,P,1)) * difmu.reshape((M,1,P)), axis=0) / (M - 1)
 
 cExp = np.mean(cest, axis=0)
-difc = (cest - cExp).reshape((M,2,2,1,1))
-cVarAux = difc * difc.transpose((0,4,3,2,1))
+difc = cest - cExp
+
+difcKron = np.array([np.kron(cc,cc) for cc  in difc])
+cVarKron = np.sum(difcKron  / (M - 1), axis=0)
+
+difc = difc.reshape((M,P*P,1))
+cVarAux = np.reshape(difc * difc.transpose((0,2,1)), (M,P,P,P,P))
 cVar = np.sum(cVarAux  / (M - 1), axis=0)
 
 
@@ -39,7 +47,7 @@ expMu = mu
 VarMu = c / N
 expC = c
 # no es necesario trasponer porque c es simetrica
-cShaped = c.reshape((2,2,1,1))
+cShaped = c.reshape((P,P,1,1))
 VarCnn = cShaped * cShaped.transpose((3,2,1,0))
 nn = (2 * N - 1) / (N - 1)**2
 
@@ -58,16 +66,120 @@ print('\n\n media de varianza numerico: \n', cExp,
 print('\n\n varianza de varianza numerico (sin normalizar):\n', cVarnn,
       '\n\n varianza de varianza analitico (sin normalizar)\n', VarCnn)
 
+
+cKron = np.kron(c,c)
+
+cVarnn
+VarCnn
+cKron.reshape((P,P,P,P))
+
+
+
+np.reshape(c,(P*P,1), order='C') * np.reshape(c,(1, P*P), order='C')
+cKron
+cVarKron / nn
+'''
+no entiendo donde esta el problema
+'''
 #reldif = np.abs((cVar - VarC) / VarC)
 #reldif > 1e-1
 
 # %% pruebo wishart
 #  probabilidad de la covarianza estimada
 import scipy.stats as sts
+import scipy.special as spe
+
 # N degrees of freedom
 # inv(c) is precision matrix
-wpdf = sts.wishart(N, c)
-wpdf.pdf(cest[3])
+wishRV = sts.wishart(N, c)
+wpdf = wishRV.pdf
+wishPDFofC = wpdf(c * (N-1))  # la scatter matrix de mayor probabilidad
+eC = - np.log(wishPDFofC)
+wpdf(wishRV.rvs())
+
+[wpdf(m) for m in cest]
+
+
+def wishConst(P, N):
+    '''
+    multivariate gamma
+    '''
+    aux1 = np.pi**(P * (P - 1) / 4)
+    aux2 = spe.gamma( (N - np.arange(P)) / 2)
+    
+    multivariateGamma = aux1 * np.prod(aux2)
+    return 1 / (multivariateGamma * 2**(N*P/2))
+
+# constantes para calular la wishart pdf
+wishartConstant = wishConst(P, N)
+expW = (N - P - 1) / 2
+expV = N / 2
+
+def wishartPDF(W, V):
+    '''
+    implementation of wishart pdf as per muravchik notes and wikipedia
+    '''
+    detV = np.linalg.det(V)
+    detW = np.linalg.det(W)
+    exponent =  np.linalg.inv(V).dot(W)
+    exponent =  - np.trace(exponent) / 2
+    return wishartConstant * detW**expW * np.exp(exponent) / detV**expV
+
+
+
+wishartPDF(cest[4] * (N - 1), c)
+wpdf(cest[4] * (N - 1))
+
+
+[wishartPDF(mat * (N - 1), c) for mat in cest[:10]]
+[wpdf(mat * (N - 1)) for mat in cest[:10]]
+wpdf(cest[:10].transpose((1,2,0)) * (N - 1))
+'''
+las dos dan igual asi que la libreria de scipy esta evaluando la pdf de la
+matriz como corresponde.
+ok, tengo una manera de medir que tan bien dan las covarianzas
+'''
+
+wishartPDFs = wpdf(cest.transpose((1,2,0)) * (N - 1))
+
+
+
+
+
+# %% como llevar esto a una metrica
+# cantidad de "grados de libertad" de una matriz de covarianza
+# calculate error without including dims
+# dimsErroConst = - np.log(np.pi * 2) - np.log(wishPDFofC)
+dims = - np.log(wishPDFofC) / np.log(np.pi * 2) # 8.277  # P * (P + 1) / 2 
+## elijo los grados de libertad tal que c tenga error cero, el minimo
+#dims = (4 * P
+#        - 2 * np.log(wishartConstant)
+#        + (P+1) * np.log(np.linalg.det(c))) / np.log(np.pi * 2)
+
+norLog =  dims * np.log(np.pi * 2)  # constante de la gaussiana
+def E2(gaussPDF):
+    return - np.log(gaussPDF) - norLog
+
+e2 = E2(wishartPDFs)
+ import matplotlib.pyplot as plt
+plt.hist(e2, 100)
+er = np.sqrt(e2)
+print(np.min(E), np.sqrt(E2(wishPDFofC)))
+
+# %% covariance matrix
+# https://www.statlect.com/probability-distributions/wishart-distribution
+cKron = np.kron(c,c)
+
+PvecA = np.eye(P*P) # como c es simetrica vec(c)=vec(c')
+
+Var = (2/N) * cKron
+
+
+
+
+
+
+
 
 
 
