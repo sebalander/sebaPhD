@@ -227,7 +227,7 @@ def varVar(c, N):
     return const.dot(cKron) / N
 
 # tomo dos de las matrices estimadas
-i = 0
+i = 1234
 j = 100
 
 ci = cest[i]
@@ -308,6 +308,8 @@ mahMU = mahMU.sum(axis=(1,2))
 
 mahC = difC2.reshape((-1,3,1)) * presC.reshape((1,3,3)) * difC2.reshape((-1,1,3))
 mahC = mahC.sum(axis=(1,2))
+
+rankings = sts.chi2.cdf(mahC,3)
 
 # grafico y comparo con chi cuadrado
 plt.figure()
