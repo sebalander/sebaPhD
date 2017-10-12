@@ -16,6 +16,7 @@ import numdifftools as ndf
 from calibration import calibrator as cl
 import matplotlib.pyplot as plt
 
+from dev import bayesLib as bl
 from importlib import reload
 
 
@@ -213,10 +214,10 @@ plt.figure()
 plt.imshow(plt.imread(imagenFile), origin='lower')
 plt.scatter(imagePoints[j,0,:,0], imagePoints[j,0,:,1])
 
-nSampl = int(1e6)  # cantidad de samples
+nSampl = int(3e4)  # cantidad de samples
 
-ep = 1e-3 # relative standard deviation in parameters
-stdIm = 1e-1
+ep = 1e-5 # relative standard deviation in parameters
+stdIm = 1e-2
 
 sacaCeros = {'poly' : [0,1,4],
           'rational' : [0,1,4,5,6],
@@ -249,7 +250,7 @@ rG, tG, kG, dG = sacoParmams(parsGen.T)
 
 # %% TEST EACH STEP. STEP 1: CCD TO DISTORTED HOMOGENOUS ===================
 
-#### COMPARACION DE JACOBIANOS
+#### COMPARACION DE JACOBIANOS ####
 # parte ANALITICA jacobianos
 Jd_i, Jd_k = cl.ccd2homJacobian(imagePoints[j,0], cameraMatrix)
 
@@ -293,26 +294,42 @@ plt.legend(loc=0)
 
 #### COMPARACION DE COVARIANZAS ####
 
-## Solo incerteza en coordenadas imagen ##
+# %% montecarlo vs analitico comparo covarianzas
+mahalanobis = np.zeros([n, m])
 
-# parte ANALITICA propagacion de incerteza
-xpp, ypp, Cpp = cl.ccd2hom(imagePoints[j,0], cameraMatrix, Cccd=Cccd)
+for j in range(n):
+    # parte ANALITICA propagacion de incerteza
+    xpp, ypp, Cpp = cl.ccd2hom(imagePoints[j,0], cameraMatrix, Cccd=Cccd, Cf=Cf)
+    
+    posIgen = imagePoints[j,0].reshape((1,-1,2)) + noisePos * stdIm
+    
+    xyp = np.zeros((nSampl,m,2))
+    # parte MONTE CARLO
+    for i in range(nSampl):
+        # posMap[i,:,0], posMap[i,:,1], _ = cl.ccd2hom(posIgen[i], cameraMatrix)
+        xyp[i,:,0], xyp[i,:,1], _ = cl.ccd2hom(posIgen[i], kG[i])
+#    # COMPARO VARIANZAS
+#    # medias y varianzas de las nubes de puntos
+#    posIMean = np.mean(posIgen, axis=0)
+#    dif = (posIgen - posIMean).T
+#    posIVar = np.sum([dif[0] * dif, dif[1] * dif], axis=-1) / (nSampl - 1)
+#    posIVar = posIVar.transpose((2,0,1))
+    
+    xypMean = np.mean(xyp, axis=0)
+    dif = (xyp - xypMean).T
+    xypVar = np.sum([dif[0] * dif, dif[1] * dif], axis=-1).T / (nSampl - 1)
+#    posMapVar = posMapVar.transpose((2,0,1))
 
-# parte MONTE CARLO
-for i in range(nSampl):
-    posMap[i,:,0], posMap[i,:,1], _ = cl.ccd2hom(posIgen[i], cameraMatrix)
+    
+    # mido la distancia mahalanobis
+    mahalanobis[j] = [bl.varMahal(xypVar[i], nSampl, Cpp[i]) for i in range(m)]
 
-# COMPARO VARIANZAS
-# medias y varianzas de las nubes de puntos
-posIMean = np.mean(posIgen, axis=0)
-dif = (posIgen - posIMean).T
-posIVar = np.sum([dif[0] * dif, dif[1] * dif], axis=-1) / (nSampl - 2)
-posIVar = posIVar.transpose((2,0,1))
+plt.figure()
+nh, bins, patches = plt.hist(np.reshape(mahalanobis,-1), 100, normed=True)
+ch2pdf = bl.chi2.pdf(bins,3)
+plt.plot(bins, ch2pdf)
 
-posMapMean = np.mean(posMap, axis=0)
-dif = (posMap - posMapMean).T
-posMapVar = np.sum([dif[0] * dif, dif[1] * dif], axis=-1) / (nSampl - 1)
-posMapVar = posMapVar.transpose((2,0,1))
+# %%
 
 #fig = plt.figure()
 #ax = fig.gca()
@@ -322,7 +339,7 @@ posMapVar = posMapVar.transpose((2,0,1))
 #cl.plotPointsUncert(ax, posIVar, posIMean[:,0], posIMean[:,1], 'b')
 
 cAnal = Cpp[:, [0,1,0],[0,1,1]]
-cDif = np.abs(posMapVar[:, [0,1,0],[0,1,1]] - cAnal)
+cDif = np.abs(xypVar[:, [0,1,0],[0,1,1]] - cAnal)
 plt.plot(cAnal.T, cDif.T / np.linalg.norm(Cpp, axis=(1,2)), '+b')
 
 
@@ -331,13 +348,11 @@ ax = fig.gca()
 ax.set_title('propagacion')
 ax.scatter(posMap[:,:,0], posMap[:,:,1], marker='.', c='b', s=1)
 cl.plotPointsUncert(ax, Cpp, xpp, ypp, 'k')
-cl.plotPointsUncert(ax, posMapVar, posMapMean[:,0], posMapMean[:,1], 'b')
+cl.plotPointsUncert(ax, xypVar, xypMean[:,0], xypMean[:,1], 'b')
 
-posMapVar / Cpp
-posMapMean[:,0] / xpp
-posMapMean[:,1] / ypp
-
-
+xypVar / Cpp
+xypMean[:,0] / xpp
+xypMean[:,1] / ypp
 
 
 

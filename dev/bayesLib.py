@@ -24,7 +24,8 @@ parámetros optimos dado los datos de test
 import numpy as np
 from calibration import calibrator as cl
 from numpy import any as anny
-
+from scipy.stats import chi2
+from scipy.linalg import inv
 import numdifftools as ndf
 
 from multiprocess import Process, Queue
@@ -245,3 +246,53 @@ def jacobianos(Xint, Ns, XextList, params, hessianos=True):
         return jInt, hInt, jExt, hExt
     else:
         return jInt, jExt
+
+# %% calculo de varianza de una matriz de covarianza de MC
+#PvecA = np.array([[1,0,0,0],
+#                  [0,0,1,0],
+#                  [0,1,0,0],
+#                  [0,0,0,1]])
+#
+#const = (PvecA + np.eye(4))
+# I matrix + transposition permutation matrix
+const = np.array([[2, 0, 0, 0],
+                  [0, 1, 1, 0],
+                  [0, 1, 1, 0],
+                  [0, 0, 0, 2]])
+
+def varVar(c, N):
+    '''
+    para c de 2x2. calculates variance matrix 4x4 asuming wishart distribution
+    https://www.statlect.com/probability-distributions/wishart-distribution
+    '''
+    cKron = np.kron(c,c)
+    
+    return const.dot(cKron) / N
+
+
+def varMahal(c1, n, c2, rank=False):
+    '''
+    calculate mahalanobis distance between two matrices, taking the first one
+    as reference (order is important)
+    if rank enabled, also returns the accumulated probability up to that 
+    mahalanobis distance taking into account 3 degrees of freedom
+    '''
+    # se elimina la fina y columna redundante porque no aportan nada
+    c1Var = varVar(c1, n)[[0,1,3]].T[[0,1,3]].T
+    c1Pres = inv(c1Var) # precision matrix
+    
+    c1flat = c1[[0,0,1],[0,1,1]]
+    c2flat = c2[[0,0,1],[0,1,1]]
+    
+    cFlatDif = c1flat - c2flat
+    
+    mahDist = cFlatDif.dot(c1Pres).dot(cFlatDif)
+    
+    if rank:
+        ranking = chi2.cdf(mahDist, 3)
+        return mahDist, ranking
+    else:
+        return mahDist
+
+
+
