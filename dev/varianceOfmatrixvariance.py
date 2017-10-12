@@ -228,10 +228,35 @@ def varVar(c, N):
 
 # tomo dos de las matrices estimadas
 i = 0
-j = 1
+j = 100
 
 ci = cest[i]
 cj = cest[j]
+
+
+def varMahal(c1, n, c2, rank=False):
+    '''
+    calculate mahalanobis distance between two matrices, taking the first one
+    as reference (order is important)
+    if rank enabled, also returns the accumulated probability up to that 
+    mahalanobis distance taking into account 3 degrees of freedom
+    '''
+    # se elimina la fina y columna redundante porque no aportan nada
+    c1Var = varVar(c1, n)[[0,1,3]].T[[0,1,3]].T
+    c1Pres = np.linalg.inv(c1Var) # precision matrix
+    
+    c1flat = c1[[0,0,1],[0,1,1]]
+    c2flat = c2[[0,0,1],[0,1,1]]
+    
+    cFlatDif = c1flat - c2flat
+    
+    mahDist = cFlatDif.dot(c1Pres).dot(cFlatDif)
+    
+    if rank:
+        ranking = sts.chi2.cdf(mahDist, 3)
+        return mahDist, ranking
+    else:
+        return mahDist
 
 # elimino uno de los componentes que es redundante # y lo multiplico
 # mul = np.array([[1],[2],[1]])
@@ -255,9 +280,18 @@ cjPres = np.linalg.inv(cjVar)
 dMahi = cFlatDif.dot(ciPres).dot(cFlatDif)
 dMahj = cFlatDif.dot(cjPres).dot(cFlatDif)
 
+varMahal(ci, N, cj)
+varMahal(cj, N, ci)
+
+from dev import bayesLib as bl
+bl.varMahal(ci, N, cj, rank=True)
+
 # intuyo que la manera de juntar las dos covarianzas es sumar las distancias al cuadrado:
 
 dM = np.sqrt(dMahi + dMahj)
+# on, poque en realidad voy a tener solo varianza asociada auna de las matrices
+# la otra es teorica y no sale de MC. en todo caso habría que saber que error
+# tiene acotando el error de taylosr
 
 # %% testeo las distancias mahalanobis de las esperanzas wrt lo estimado
 
