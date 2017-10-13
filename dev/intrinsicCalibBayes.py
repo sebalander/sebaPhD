@@ -19,9 +19,10 @@ parámetros optimos dado los datos de test
 """
 
 # %%
-#import glob
+import glob
 import numpy as np
 import scipy.linalg as ln
+import scipy.stats as sts
 import matplotlib.pyplot as plt
 from importlib import reload
 from copy import deepcopy as dc
@@ -47,100 +48,73 @@ cornersFile =      imagesFolder + camera + "Corners.npy"
 patternFile =      imagesFolder + camera + "ChessPattern.npy"
 imgShapeFile =     imagesFolder + camera + "Shape.npy"
 
+# model data files
+distCoeffsFile =   imagesFolder + camera + model + "DistCoeffs.npy"
+linearCoeffsFile = imagesFolder + camera + model + "LinearCoeffs.npy"
+tVecsFile =        imagesFolder + camera + model + "Tvecs.npy"
+rVecsFile =        imagesFolder + camera + model + "Rvecs.npy"
+
+intrinsicHessianFile = imagesFolder + camera + model + "intrinsicHessian.npy"
+
+imageSelection = np.arange(5) # selecciono con que imagenes trabajar
+
 # load data
-imagePoints = np.load(cornersFile)
+imagePoints = np.load(cornersFile)[imageSelection]
 n = len(imagePoints)  # cantidad de imagenes
-#indexes = np.arange(n)
-#
-#np.random.shuffle(indexes)
-#indexes = indexes
-#
-#imagePoints = imagePoints[indexes]
-#n = len(imagePoints)  # cantidad de imagenes
 
 chessboardModel = np.load(patternFile)
 imgSize = tuple(np.load(imgShapeFile))
-#images = glob.glob(imagesFolder+'*.png')
+# images = glob.glob(imagesFolder+'*.png')
 
 # Parametros de entrada/salida de la calibracion
 objpoints = np.array([chessboardModel]*n)
 m = chessboardModel.shape[1]  # cantidad de puntos
 
 
-# model data files
-distCoeffsFile =   imagesFolder + camera + model + "DistCoeffs.npy"
-linearCoeffsFile = imagesFolder + camera + model + "LinearCoeffs.npy"
-tVecsFile =        imagesFolder + camera + model + "Tvecs.npy"
-rVecsFile =        imagesFolder + camera + model + "Rvecs.npy"
 # load model specific data
 distCoeffs = np.load(distCoeffsFile)
 cameraMatrix = np.load(linearCoeffsFile)
-rVecs = np.load(rVecsFile)#[indexes]
-tVecs = np.load(tVecsFile)#[indexes]
+rVecs = np.load(rVecsFile)[imageSelection]
+tVecs = np.load(tVecsFile)[imageSelection]
 
+# parametros auxiliares
+Ci = 100 * np.repeat([ np.eye(2)],n*m, axis=0).reshape(n,m,2,2)  # 1px de std
+params = [n, m, imagePoints, model, chessboardModel, Ci]
 
+# pongo en forma flat los valores iniciales
+Xint, Ns = bl.int2flat(cameraMatrix, distCoeffs)
+XextList = [bl.ext2flat(rVecs[i], tVecs[i])for i in range(n)]
 
-intrinsicHessianFile = imagesFolder + camera + model + "intrinsicHessian.npy"
+# pruebo con una imagen
+j = 0
+ErIm = bl.errorCuadraticoImagen(XextList[j], Xint, Ns, params, j, mahDist=False)
+print(ErIm.sum())
 
+# pruebo el error total
+Erto = bl.errorCuadraticoInt(Xint, Ns, XextList, params, mahDist=False)
+print(Erto.sum())
 
-# %%
-reload(bl)
-reload(bl.cl)
-testearFunc = True
-if testearFunc:
-    # parametros auxiliares
-    # Ci = None
-    Ci = np.repeat([np.eye(2)],n*m, axis=0).reshape(n,m,2,2)
-    params = [n, m, imagePoints, model, chessboardModel, Ci]
-    
-    # pongo en forma flat los valores iniciales
-    Xint, Ns = bl.int2flat(cameraMatrix, distCoeffs)
-    XextList = [bl.ext2flat(rVecs[i], tVecs[i])for i in range(n)]
-    
-    # pruebo con una imagen
-    j=0
-    Xext = XextList[0]
-    print(bl.errorCuadraticoImagen(Xext, Xint, Ns, params, j))
-    
-    # pruebo el error total
-    print(bl.errorCuadraticoInt(Xint, Ns, XextList, params))
+# saco distancia mahalanobis de cada proyeccion
+mahDistance = bl.errorCuadraticoInt(Xint, Ns, XextList, params, mahDist=True)
 
+plt.figure()
+nhist, bins, _ = plt.hist(mahDistance, 50, normed=True)
+chi2pdf = sts.chi2.pdf(bins, 2)
+plt.plot(bins, chi2pdf)
+plt.yscale('log')
 
 # %% pruebo evaluar las funciones para los processos
-testearFunc = False
-if testearFunc:
-    Ci = np.repeat([np.eye(2)],n*m, axis=0).reshape(n,m,2,2)
-    params = [n, m, imagePoints, model, chessboardModel, Ci]
-    
-    jInt = Queue()  # np.zeros((Ns[-1]), dtype=float)
-    hInt = Queue()  # np.zeros((Ns[-1], Ns[-1]), dtype=float)
-    
-    pp = list()
-    pp.append(Process(target=bl.procJint, args=(Xint, Ns, XextList, params, jInt)))
-    pp.append(Process(target=bl.procHint, args=(Xint, Ns, XextList, params, hInt)))
-    
-    
-    jExt = Queue()  # np.zeros(6, dtype=float)
-    hExt = Queue()  # np.zeros((6, 6), dtype=float)
-    
-    j = 23
-    pp.append(Process(target=bl.procJext, args=(Xext, Xint, Ns, params, j, jExt)))
-    pp.append(Process(target=bl.procHext, args=(Xext, Xint, Ns, params, j, hExt)))
-    
-    [p.start() for p in pp]
-    
-    jInt = jInt.get()
-    hInt = hInt.get()
-    jExt = jExt.get()
-    hExt = hExt.get()
-    
-    print(jInt)
-    print(hInt)
-    print(jExt)
-    print(hExt)
-    
-    [p.join() for p in pp]
+#jacIntrin = bl.Jint(Xint, Ns, XextList, params)
 
+def etotal(Xint, Ns, XextList, params):
+    return bl.errorCuadraticoInt(Xint, Ns, XextList, params).sum()
+
+hint = bl.ndf.Hessian(etotal, method='central')
+hint.step.base_step = 1e-3 * Xint
+
+hesIntrin = hint(Xint, Ns, XextList, params)
+
+np.real(ln.eigvals(hesIntrin))
 
 # %%
 testearFunc = False
@@ -150,7 +124,7 @@ if testearFunc:
     # pruebo de evaluar jacobianos y hessianos
     Xint, Ns = bl.int2flat(cameraMatrix, distCoeffs)
     XextList = [bl.ext2flat(rVecs[i], tVecs[i])for i in range(n)]
-    
+
     jInt, hInt, jExt, hExt = bl.jacobianos(Xint, Ns, XextList, params)
     plt.matshow(hInt)
     [plt.matshow(h) for h in hExt]
@@ -206,16 +180,16 @@ if runAllMeths:
         print(me)
         print(res[me])
         print(np.abs((res[me].x - Xint0)/ Xint0))
-        
+
         if res[me].success is True:
             hInt[me] = Hint(res[me].x, Ns, XextList, params)  #  (Ns, Ns)
-            
+
             print(np.real(ln.eig(hInt[me])[0]))
-            
+
             cov = ln.inv(hInt[me])
             plt.matshow(cov)
             #fun, hess_inv, jac, message, nfev, nit, njev, status, success, x = res
-            
+
             sigs = np.sqrt(np.diag(cov))
             plt.figure()
             plt.plot(np.abs(sigs / res[me].x), 'x')
@@ -227,16 +201,16 @@ else:
     print(meths[elijo])
     print(res)
     print(np.abs((res.x - Xint0) / Xint0))
-    
+
     if res.success is True:
         hInt = Hint(res.x, Ns, XextList, params)  #  (Ns, Ns)
-        
+
         print(np.real(ln.eig(hInt)[0]))
-        
+
         cov = ln.inv(hInt)
         plt.matshow(cov)
         #fun, hess_inv, jac, message, nfev, nit, njev, status, success, x = res
-        
+
         sigs = np.sqrt(np.diag(cov))
         plt.figure()
         plt.plot(np.abs(sigs / res.x), 'x')
@@ -475,22 +449,22 @@ for i in range(8): # [1,2,3]:
     print(i)
     xSam = np.repeat([Xint], Nsam, axis=0)
     xSam[:, i] = np.linspace(rangos[i][0], rangos[i][1], Nsam)
-    
+
     ySam = [bl.errorCuadraticoInt(x, Ns, XextList, params) for x in xSam]
-    
+
     xList.append(xSam[:, i])
     yList.append(ySam)
-    
+
 #    plt.figure(i)
 #    ax[i].title(i)
     ax[i].plot(xSam[:, i], ySam, 'b-')
 #    plt.plot(xSam[:, i], ypoly, 'g-')
     ax[i].plot([Xint[i], Xint[i]], [np.min(ySam), np.max(ySam)], '-r')
-    
+
 #    # fiteo una parabola
 #    p = np.polyfit(xSam[:, i], ySam, 2)
 #    ypoly = np.polyval(p, xSam[:, i])
-    
+
 #    plt.figure(i*2+1)
 #    plt.title(i)
 #    ysqrt = np.sqrt(ySam)
@@ -521,7 +495,7 @@ def coefs2mats(coefs, n=8):
     jac = coefs[1:n+1]
     hes = np.zeros((n,n)) # los diagonales aparecen solo una vez
     hes[np.triu_indices(n)] = hes.T[np.triu_indices(n)] = coefs[n+1:]
-    
+
     hes[np.diag_indices(n)] *= 2
     return const, jac, hes
 
@@ -534,9 +508,9 @@ def mapListofParams(X, Ns, XextList, params):
     for  x in X:
         ret.append(bl.errorCuadraticoInt(x, Ns, XextList, params))
         mapCounter.value += 1
-        print("%d de %d calculos: %2.3f por 100; error %g" % 
+        print("%d de %d calculos: %2.3f por 100; error %g" %
               (mapCounter.value, npts, mapCounter.value/npts*100, ret[-1]))
-    
+
     return np.array(ret)
 
 
@@ -553,11 +527,11 @@ def mapManyParams(Xlist, Ns, XextList, params, nThre=4):
     N = Xlist.shape[0] # cantidad de vectores a procesar
     procs = list()  # lista de procesos
     er = [Queue() for i in range(nThre)]  # donde comunicar el resultado
-    retVals = np.zeros(N)  # 
-    
+    retVals = np.zeros(N)  #
+
     inds = np.linspace(0, N, nThre + 1, endpoint=True, dtype=int)
     #print(inds)
-    
+
     for i in range(nThre):
         #print('vecores', Xlist[inds[i]:inds[i+1]].shape)
         p = Process(target=procMapParams,
@@ -565,7 +539,7 @@ def mapManyParams(Xlist, Ns, XextList, params, nThre=4):
                           er[i]))
         procs.append(p)
         p.start()
-    
+
     [p.join() for p in procs]
 
     for i in range(nThre):
@@ -573,9 +547,9 @@ def mapManyParams(Xlist, Ns, XextList, params, nThre=4):
         #print('loque dio', ret.shape)
         #print('donde meterlo', retVals[inds[i]:inds[i+1]].shape)
         retVals[inds[i]:inds[i+1]] = ret
-    
-    
-    
+
+
+
     return retVals
 
 
@@ -722,7 +696,7 @@ for i in range(8):
     Xmod = vert + perturb  # modified parameters
     Ymod = np.array([bl.errorCuadraticoInt(x, Ns, XextList, params) for x in Xmod])
     Xdist = ln.norm(perturb, axis=1) * np.sign(etasI)
-    
+
     plt.figure()
     plt.plot(Xdist, Ymod, '-*')
 
@@ -743,7 +717,7 @@ for fact in factores:
     step = anchos/fact
     Hint = ndf.Hessian(bl.errorCuadraticoInt, step=step)
     hes1step = Hint(Xint, Ns, XextList, params)
-    
+
     autovalores.append(np.real(ln.eig(hes1step)[0]))
     print(fact, autovalores[-1])
 
@@ -776,10 +750,10 @@ autovalores3 = np.zeros_like(diffSteps3)
 
 for i in range(nLogSteps):
     print('paso', i)
-    
+
     Hint = ndf.Hessian(bl.errorCuadraticoInt, step=diffSteps3[i])
     hes1step = Hint(Xint, Ns, XextList, params)
-    
+
     autovalores3[i] = np.real(ln.eig(hes1step)[0])
     print('autovalores', autovalores3[i])
 
@@ -789,7 +763,7 @@ for i in range(nLogSteps):
 falta explorar un poco mas para algunos steps, haciendolo mas chico.
 se nota que no es facil determinar el paso optimo, es bastante complicado
 y quiza haya que terminar haciendo algo iterativo tipo metropolis.
-comparar con lo que de el hessiano de la hiperparabola. si da parecido ya 
+comparar con lo que de el hessiano de la hiperparabola. si da parecido ya
 está.
 '''
 
