@@ -312,7 +312,7 @@ errorMuestras3 = np.zeros(Nmuestras)
 # primera
 old = dc(Xint) # sampleador() # rn(8) * intervalo + cotas[:,0]
 oldE = etotal(old, Ns, XextList, params)
-paraMuest2[0], errorMuestras2[0] = (old, oldE)
+paraMuest3[0], errorMuestras3[0] = (old, oldE)
 
 for i in range(1, Nmuestras):
     paraMuest3[i], errorMuestras3[i] = nuevo(paraMuest3[i-1], errorMuestras3[i-1])
