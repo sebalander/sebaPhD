@@ -56,7 +56,7 @@ rVecsFile =        imagesFolder + camera + model + "Rvecs.npy"
 
 intrinsicHessianFile = imagesFolder + camera + model + "intrinsicHessian.npy"
 
-imageSelection = np.arange(5) # selecciono con que imagenes trabajar
+imageSelection = np.arange(33) # selecciono con que imagenes trabajar
 
 # load data
 imagePoints = np.load(cornersFile)[imageSelection]
@@ -78,7 +78,7 @@ rVecs = np.load(rVecsFile)[imageSelection]
 tVecs = np.load(tVecsFile)[imageSelection]
 
 # parametros auxiliares
-Ci = 100 * np.repeat([ np.eye(2)],n*m, axis=0).reshape(n,m,2,2)  # 1px de std
+Ci = np.repeat([ np.eye(2)],n*m, axis=0).reshape(n,m,2,2)  # 1px de std
 params = [n, m, imagePoints, model, chessboardModel, Ci]
 
 # pongo en forma flat los valores iniciales
@@ -91,8 +91,16 @@ ErIm = bl.errorCuadraticoImagen(XextList[j], Xint, Ns, params, j, mahDist=False)
 print(ErIm.sum())
 
 # pruebo el error total
+def etotal(Xint, Ns, XextList, params):
+    '''
+    calcula el error total como la suma de los errore de cada punto en cada
+    imagen
+    '''
+    return bl.errorCuadraticoInt(Xint, Ns, XextList, params).sum()
+
 Erto = bl.errorCuadraticoInt(Xint, Ns, XextList, params, mahDist=False)
-print(Erto.sum())
+E0 = etotal(Xint, Ns, XextList, params)
+print(Erto.sum(), E0)
 
 # saco distancia mahalanobis de cada proyeccion
 mahDistance = bl.errorCuadraticoInt(Xint, Ns, XextList, params, mahDist=True)
@@ -103,11 +111,219 @@ chi2pdf = sts.chi2.pdf(bins, 2)
 plt.plot(bins, chi2pdf)
 plt.yscale('log')
 
+# %% grafico para saber en que rangos hayq ue tomar en cuenta el error
+'''
+me quedo con una region tal que la probabilidad no sea mucho menor a 10^3 veces
+la probabilidad del optimo de OCV. o sea que el error tiene que ser como mucho
+Emax = E0 - 2 * np.log(1e-3)
+donde la diferencia de error Emax - E0 ~ 14
+'''
+difE = 6 * np.log(10)
+Emax = E0 + difE
+
+
+# %%muevo en cada dirección buscando esa cota de error
+Xint2 = dc(Xint)
+Xint2[7] = -4.21e-03
+E2 = etotal(Xint2, Ns, XextList, params)
+print(difE, E2 - E0)
+
+# %%
+'''
+encontre por prueba y error estos rangos:
+
+Xint2[0] = [397.9 : 398.6]
+Xint2[1] = [410.5 : 411.7]
+Xint2[2] = [807.9 : 808.4]
+Xint2[3] = [466.8 : 467.4]
+Xint2[4] = [9.52e-02 : 9.7e-02]
+Xint2[5] = [-1.78e-02 : -1.815e-02]
+Xint2[6] = [1.704e-02 : 1.726e-02]
+Xint2[7] = [-4.08e-03 : -4.22e-03]
+
+Xint = 
+array([  398.213410,   411.227681,   808.169868,
+         467.122082,   9.58412207e-02,  -1.79782432e-02,
+         1.71556081e-02,  -4.14991879e-03])
+    '''
+
+
+cotas = np.array([[398.1, 398.34],          #  398.213410
+                  [411.03, 411.42],         #  411.227681
+                  [808.07, 808.27],         #  808.169868
+                  [467.03, 467.21],         #  467.122082
+                  [9.56e-02, 9.61e-02],     #  9.58412207e-02
+                  [-1.815e-02, -1.78e-02],  #  -1.79782432e-02
+                  [1.704e-02, 1.727e-02],   #  1.71556081e-02
+                  [-4.08e-03, -4.22e-03]])  #  -4.14991879e-03
+
+errores = np.zeros((8,2))
+for i in range(8):
+    Xint2 = dc(Xint)
+    Xint2[i] = cotas[i,0]
+    errores[i,0] = etotal(Xint2, Ns, XextList, params)
+
+    Xint2[i] = cotas[i,1]
+    errores[i,1] = etotal(Xint2, Ns, XextList, params)
+
+print(errores - E0)
+
+
+
+
+
+# %% ploteo en cada direccion, duplicando los intervalos si quiero
+cotasDuplicadas = ((cotas.T - Xint) * 2 + Xint).T
+
+Npts = 100
+etas = np.linspace(0,1,Npts).reshape((1,-1))
+
+intervalo = (cotasDuplicadas[:,1] - cotasDuplicadas[:,0])
+
+barreParams = intervalo.reshape((-1,1)) * etas
+barreParams += cotasDuplicadas[:,0].reshape((-1,1))
+
+ers = np.zeros((8, Npts))
+
+for i in range(8):
+    Xint2 = dc(Xint)
+    for j in range(Npts):
+        Xint2[i] = barreParams[i,j]
+        ers[i,j] = etotal(Xint2, Ns, XextList, params)
+        print(i,j,ers[i,j])
+
+paramsNormaliz = (barreParams.T - Xint) / intervalo
+
+plt.plot(paramsNormaliz, ers.T, '-+')
+
+
+'''
+me quedo con las cotas que defini como la region de donde sacar samples
+'''
+
+# %% metropolis hastings
+from numpy.random import rand as rn
+
+def nuevo(old, oldE):
+    global generados
+    global aceptados
+    global avance
+    global retroceso
+    
+    # genero nuevo
+    new = sampleador() # rn(8) * intervalo + cotas[:,0]
+    newE = etotal(new, Ns, XextList, params)
+    generados += 1
+    print(generados, aceptados, avance, retroceso)
+    
+    # cambio de error
+    deltaE = newE - oldE
+    accept = deltaE < 0
+    
+    if accept:
+        aceptados +=1
+        avance += 1
+        print("avance directo")
+        return new, newE # tiene menor error, listo
+    else:
+        # nueva opoertunidad, sampleo contra rand
+        accept = np.exp(- deltaE / 2) > rn()
+        if accept:
+            aceptados += 1
+            retroceso += 1
+            print("retroceso")
+            return new, newE # aceptado a la segunda oportunidad
+        else:
+            # vuelvo recursivamente al paso2 hasta aceptar
+            new, newE = nuevo(old, oldE)
+    
+    return new, newE
+
+# %%
+# matriz diagonal sacada brutamente de las cotas encontradas
+covar = np.diag(np.mean(((cotas.T - Xint) / 10)**2, 0))
+sampleador = sts.multivariate_normal(Xint, covar).rvs
+
+Nmuestras = int(1e3)
+
+generados = 0
+aceptados = 0
+avance = 0
+retroceso = 0
+
+paraMuest = np.zeros((Nmuestras,8))
+errorMuestras = np.zeros(Nmuestras)
+
+# primera
+old = dc(Xint) # sampleador() # rn(8) * intervalo + cotas[:,0]
+oldE = etotal(old, Ns, XextList, params)
+paraMuest[0], errorMuestras[0] = (old, oldE)
+
+for i in range(1, Nmuestras):
+    paraMuest[i], errorMuestras[i] = nuevo(paraMuest[i-1], errorMuestras[i-1])
+
+
+for i in range(8):
+    plt.figure()
+    plt.hist(paraMuest[:,i],30)
+
+# %% new estimated covariance run Metropolis again
+covar2 = np.cov(paraMuest.T)
+sampleador = sts.multivariate_normal(Xint, covar2).rvs
+
+Nmuestras = int(1e3)
+
+generados = 0
+aceptados = 0
+avance = 0
+retroceso = 0
+
+paraMuest2 = np.zeros((Nmuestras,8))
+errorMuestras2 = np.zeros(Nmuestras)
+
+# primera
+old = dc(Xint) # sampleador() # rn(8) * intervalo + cotas[:,0]
+oldE = etotal(old, Ns, XextList, params)
+paraMuest2[0], errorMuestras2[0] = (old, oldE)
+
+for i in range(1, Nmuestras):
+    paraMuest2[i], errorMuestras2[i] = nuevo(paraMuest2[i-1], errorMuestras2[i-1])
+
+
+for i in range(8):
+    plt.figure()
+    plt.hist(paraMuest2[:,i],30)
+
+
+# %% new estimated covariance run Metropolis again
+covar3 = np.cov(paraMuest2.T)
+sampleador = sts.multivariate_normal(Xint, covar3).rvs
+
+Nmuestras = int(1e6)
+
+generados = 0
+aceptados = 0
+avance = 0
+retroceso = 0
+
+paraMuest3 = np.zeros((Nmuestras,8))
+errorMuestras3 = np.zeros(Nmuestras)
+
+# primera
+old = dc(Xint) # sampleador() # rn(8) * intervalo + cotas[:,0]
+oldE = etotal(old, Ns, XextList, params)
+paraMuest2[0], errorMuestras2[0] = (old, oldE)
+
+for i in range(1, Nmuestras):
+    paraMuest3[i], errorMuestras3[i] = nuevo(paraMuest3[i-1], errorMuestras3[i-1])
+
+
+for i in range(8):
+    plt.figure()
+    plt.hist(paraMuest3[:,i],30)
+
 # %% pruebo evaluar las funciones para los processos
 #jacIntrin = bl.Jint(Xint, Ns, XextList, params)
-
-def etotal(Xint, Ns, XextList, params):
-    return bl.errorCuadraticoInt(Xint, Ns, XextList, params).sum()
 
 hint = bl.ndf.Hessian(etotal, method='central')
 hint.step.base_step = 1e-3 * Xint
@@ -116,104 +332,41 @@ hesIntrin = hint(Xint, Ns, XextList, params)
 
 np.real(ln.eigvals(hesIntrin))
 
-# %%
-testearFunc = False
-if testearFunc:
-    Ci = np.repeat([np.eye(2)],n*m, axis=0).reshape(n,m,2,2)
-    params = [n, m, imagePoints, model, chessboardModel, Ci]
-    # pruebo de evaluar jacobianos y hessianos
-    Xint, Ns = bl.int2flat(cameraMatrix, distCoeffs)
-    XextList = [bl.ext2flat(rVecs[i], tVecs[i])for i in range(n)]
-
-    jInt, hInt, jExt, hExt = bl.jacobianos(Xint, Ns, XextList, params)
-    plt.matshow(hInt)
-    [plt.matshow(h) for h in hExt]
-    print(ln.det(hInt))
-    plt.figure()
-    plt.plot(jInt[0], 'b+-')
-    plt.figure()
-    [plt.plot(j[0], '-+') for j in jExt]
-
-    # pruebo solo con los jacobianos
-    jInt,  jExt = bl.jacobianos(Xint, Ns, XextList, params, hessianos=False)
-    plt.figure()
-    plt.plot(jInt[0], 'b+-')
-    plt.figure()
-    [plt.plot(j[0], '-+') for j in jExt]
-
-
-# %%
-# parametros auxiliares
-params = [n, m, imagePoints, model, chessboardModel, Ci]
-
-# pongo en forma flat los valores iniciales
-Xint0, Ns = bl.int2flat(cameraMatrix, distCoeffs)
-XextList0 = [bl.ext2flat(rVecs[i], tVecs[i])for i in range(n)]
-e0 = bl.errorCuadraticoInt(Xint0, Ns, XextList0, params)
-
 
 # %% intento optimizacion con leastsq
 from scipy.optimize import minimize
-Ci = np.repeat([np.eye(2)],n*m, axis=0).reshape(n,m,2,2)
-params = [n, m, imagePoints, model, chessboardModel, Ci]
-# pongo en forma flat los valores iniciales
-Xint0, Ns = bl.int2flat(cameraMatrix, distCoeffs)
-XextList0 = [bl.ext2flat(rVecs[i], tVecs[i])for i in range(n)]
 
-# %%
 #meths = ['Nelder-Mead', 'Powell', 'CG', 'BFGS', 'Newton-CG', 'L-BFGS-B',
 #         'TNC', 'COBYLA', 'SLSQP', 'dogleg', 'trust-ncg']
 
 meths = ["Nelder-Mead", "Powell", "L-BFGS-B", "COBYLA", "SLSQP"]
-meths = ['CG', 'BFGS', 'Newton-CG','TNC','dogleg', 'trust-ncg']
-elijo = 1
-
-Hint = ndf.Hessian(bl.errorCuadraticoInt)
-
-runAllMeths = True
-if runAllMeths:
-    res = dict()
-    hInt = dict()
-    for me in meths:
-        res[me] = minimize(bl.errorCuadraticoInt, Xint0,
-                       args=(Ns, XextList0, params), method=me)
-        print(me)
-        print(res[me])
-        print(np.abs((res[me].x - Xint0)/ Xint0))
-
-        if res[me].success is True:
-            hInt[me] = Hint(res[me].x, Ns, XextList, params)  #  (Ns, Ns)
-
-            print(np.real(ln.eig(hInt[me])[0]))
-
-            cov = ln.inv(hInt[me])
-            plt.matshow(cov)
-            #fun, hess_inv, jac, message, nfev, nit, njev, status, success, x = res
-
-            sigs = np.sqrt(np.diag(cov))
-            plt.figure()
-            plt.plot(np.abs(sigs / res[me].x), 'x')
+#meths = ['CG', 'BFGS', 'Newton-CG','TNC','dogleg', 'trust-ncg']
 
 
-else:
-    res = minimize(bl.errorCuadraticoInt, Xint0,
-                       args=(Ns, XextList0, params), method=meths[elijo])
-    print(meths[elijo])
-    print(res)
-    print(np.abs((res.x - Xint0) / Xint0))
 
-    if res.success is True:
-        hInt = Hint(res.x, Ns, XextList, params)  #  (Ns, Ns)
+res = dict()
+hInt = dict()
 
-        print(np.real(ln.eig(hInt)[0]))
+for me in meths:
+    res[me] = minimize(etotal, Xint,
+                        args=(Ns, XextList, params), method=me)
+    print(me)
+    print(res[me])
+    print(np.abs((res[me].x - Xint)/ Xint))
 
-        cov = ln.inv(hInt)
+    if res[me].success is True:
+        hInt[me] = hint(res[me].x, Ns, XextList, params)  #  (Ns, Ns)
+
+        print(np.real(ln.eigvals(hInt[me])))
+
+        cov = ln.inv(hInt[me])
         plt.matshow(cov)
         #fun, hess_inv, jac, message, nfev, nit, njev, status, success, x = res
 
         sigs = np.sqrt(np.diag(cov))
         plt.figure()
-        plt.plot(np.abs(sigs / res.x), 'x')
+        plt.plot(np.abs(sigs / res[me].x), 'x')
+
 
 
 # %% trato de resolver el problema del hessiano no positivo en los parametros intrinsecos
