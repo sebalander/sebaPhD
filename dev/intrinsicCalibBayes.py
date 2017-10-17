@@ -54,6 +54,9 @@ linearCoeffsFile = imagesFolder + camera + model + "LinearCoeffs.npy"
 tVecsFile =        imagesFolder + camera + model + "Tvecs.npy"
 rVecsFile =        imagesFolder + camera + model + "Rvecs.npy"
 
+intrinsicParamsFile =   imagesFolder + camera + model + "intrinsicParamsML.npy"
+
+
 intrinsicHessianFile = imagesFolder + camera + model + "intrinsicHessian.npy"
 
 imageSelection = np.arange(33) # selecciono con que imagenes trabajar
@@ -299,7 +302,7 @@ for i in range(8):
 covar3 = np.cov(paraMuest2.T)
 sampleador = sts.multivariate_normal(Xint, covar3).rvs
 
-Nmuestras = int(1e6)
+Nmuestras = int(1e4)
 
 generados = 0
 aceptados = 0
@@ -321,6 +324,29 @@ for i in range(1, Nmuestras):
 for i in range(8):
     plt.figure()
     plt.hist(paraMuest3[:,i],30)
+
+mu4 = np.mean(paraMuest3, axis=0)
+covar4 = np.cov(paraMuest3.T)
+
+mu4Covar = covar4 / Nmuestras
+covar4Covar = bl.varVarN(covar4, Nmuestras)
+
+resultsML = dict()
+
+resultsML['Nsamples'] = Nmuestras
+resultsML['paramsMU'] = mu4
+resultsML['paramsVAR'] = covar4
+resultsML['paramsMUvar'] = mu4Covar
+resultsML['paramsVARvar'] = covar4Covar
+
+save = False
+if save:
+    np.save(intrinsicParamsFile, resultsML)
+
+
+# el error relativo aproximadamente
+np.sqrt(np.diag(covar4)) / mu4
+
 
 # %% pruebo evaluar las funciones para los processos
 #jacIntrin = bl.Jint(Xint, Ns, XextList, params)

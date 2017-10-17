@@ -261,19 +261,21 @@ def jacobianos(Xint, Ns, XextList, params, hessianos=True):
 #
 #const = (PvecA + np.eye(4))
 # I matrix + transposition permutation matrix
-const = np.array([[2, 0, 0, 0],
+const2 = np.array([[2, 0, 0, 0],
                   [0, 1, 1, 0],
                   [0, 1, 1, 0],
                   [0, 0, 0, 2]])
 
-def varVar(c, N):
+def varVar2(c, N):
     '''
     para c de 2x2. calculates variance matrix 4x4 asuming wishart distribution
     https://www.statlect.com/probability-distributions/wishart-distribution
     '''
     cKron = np.kron(c,c)
 
-    return const.dot(cKron) / N
+    return const2.dot(cKron) / N
+
+
 
 
 def varMahal(c1, n, c2, rank=False):
@@ -284,7 +286,7 @@ def varMahal(c1, n, c2, rank=False):
     mahalanobis distance taking into account 3 degrees of freedom
     '''
     # se elimina la fina y columna redundante porque no aportan nada
-    c1Var = varVar(c1, n)[[0,1,3]].T[[0,1,3]].T
+    c1Var = varVar2(c1, n)[[0,1,3]].T[[0,1,3]].T
     c1Pres = inv(c1Var) # precision matrix
 
     c1flat = c1[[0,0,1],[0,1,1]]
@@ -299,6 +301,47 @@ def varMahal(c1, n, c2, rank=False):
         return mahDist, ranking
     else:
         return mahDist
+
+
+def trasPerMAt(k,l):
+    '''
+    returns the trasposition permutation matrix of matrix A of size (k, l)
+    https://www.statlect.com/probability-distributions/wishart-distribution#refMuirhead
+    '''
+    n = k*l 
+    
+    vecA = np.arange(n, dtype=int)
+    A = vecA.reshape((k,l))
+    vecAT = A.T.reshape(-1)
+    
+    mat = np.zeros((n,n), dtype=int)
+    
+    mat[[vecA],[vecAT]] = 1
+    
+    return mat
+
+
+
+def varVarN(c, Nsamples):
+    '''
+    returns the variance of a covariance matriz of size NxN calculated with 
+    Nsamples samples
+    '''
+    cKron = np.kron(c,c)
+    n = c.shape[0]
+    
+    const = np.eye(n**2) + trasPerMAt(n, n)
+    
+    return const.dot(cKron) / Nsamples
+
+
+
+
+
+
+
+
+
 
 
 
