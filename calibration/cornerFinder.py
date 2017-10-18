@@ -38,9 +38,10 @@ pattH = 6  # height
 patternSize = (pattW, pattH) 
 
 # criterio de finalizacion de cornerSubPix
-subpixCriteria = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, # termination criteria type
-            30, # max number of iterations
+subpixCriteria = (cv2.TERM_CRITERIA_EPS, # + cv2.TERM_CRITERIA_MAX_ITER, # termination criteria type
+            1000000, # max number of iterations
             0.001) # min accuracy
+
 
 # %%
 #Arrays para pts del objeto y pts de imagen para from all the images.

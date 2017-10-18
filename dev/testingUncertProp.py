@@ -34,6 +34,11 @@ cornersFile =      imagesFolder + camera + "Corners.npy"
 patternFile =      imagesFolder + camera + "ChessPattern.npy"
 imgShapeFile =     imagesFolder + camera + "Shape.npy"
 
+# model data files
+distCoeffsFile =   imagesFolder + camera + model + "DistCoeffs.npy"
+linearCoeffsFile = imagesFolder + camera + model + "LinearCoeffs.npy"
+tVecsFile =        imagesFolder + camera + model + "Tvecs.npy"
+rVecsFile =        imagesFolder + camera + model + "Rvecs.npy"
 # %% load data
 imagePoints = np.load(cornersFile)
 n = len(imagePoints)  # cantidad de imagenes
@@ -53,12 +58,6 @@ imgSize = tuple(np.load(imgShapeFile))
 objpoints = np.array([chessboardModel]*n)
 m = chessboardModel.shape[1]  # cantidad de puntos
 
-
-# model data files
-distCoeffsFile =   imagesFolder + camera + model + "DistCoeffs.npy"
-linearCoeffsFile = imagesFolder + camera + model + "LinearCoeffs.npy"
-tVecsFile =        imagesFolder + camera + model + "Tvecs.npy"
-rVecsFile =        imagesFolder + camera + model + "Rvecs.npy"
 # load model specific data
 distCoeffs = np.load(distCoeffsFile)
 cameraMatrix = np.load(linearCoeffsFile)
