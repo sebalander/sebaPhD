@@ -86,7 +86,7 @@ rVecs = np.load(rVecsFile)[imageSelection]
 tVecs = np.load(tVecsFile)[imageSelection]
 
 # parametros auxiliares
-std = 0.001 # standar deviation from subpixel epsilon used
+std = 0.01 # standar deviation from subpixel epsilon used
 Ci = np.repeat([ std**2 * np.eye(2)],n*m, axis=0).reshape(n,m,2,2)
 params = [n, m, imagePoints, model, chessboardModel, Ci]
 
@@ -166,31 +166,33 @@ cotas = np.array([[398.1, 398.34],          #  398.213410
                   [1.704e-02, 1.727e-02],   #  1.71556081e-02
                   [-4.08e-03, -4.22e-03]])  #  -4.14991879e-03
 '''
-# %%
-cotas = np.array([[398.2110749, 398.213417],        #  398.213410
-                  [411.223, 411.227686],          #  411.227681
-                  [808.169831, 808.170075],        #  808.169868
-                  [467.1220505, 467.122087],         #  467.122082
-                  [9.583614e-02, 9.58414564e-02], #  9.58412207e-02
-                  [-1.797826e-02, -1.797823e-02],  #  -1.79782432e-02
-                  [1.715338e-02, 1.7155645e-02],   #  1.71556081e-02
-                  [-4.14992e-03, -4.1498e-03]])  #  -4.14991879e-03
+
+# %%estas cotas para 0.01pix
+cotas = np.array([[398.211, 398.21415],        # [0] 398.213410
+                  [411.2204, 411.2287],          # [1]  411.227681
+                  [808.16982, 808.171],        # [2]  808.169868
+                  [467.1217, 467.1224],         # [3]  467.122082
+                  [9.58345e-02, 9.584205e-02], # [4]  9.58412207e-02
+                  [-1.7981e-02, -1.7977e-02],  # [5]  -1.79782432e-02
+                  [1.71532e-02, 1.715599e-02],   # [6]  1.71556081e-02
+                  [-4.15123e-03, -4.14956e-03]])  # [7]  -4.14991879e-03
 
 errores = np.zeros((8,2))
 
-for i in range(8):
+for i in range(8): #  [7]
     Xint2 = dc(Xint)
     Xint2[i] = cotas[i,0]
     errores[i,0] = etotal(Xint2, Ns, XextList, params)
 
     Xint2[i] = cotas[i,1]
     errores[i,1] = etotal(Xint2, Ns, XextList, params)
+    print((errores[i] - E0) / difE)
 
+#print((errores - E0) / difE)
 
-print((errores - E0) / difE)
+print(cotas[:,0] < Xint)
 
-cotas[:,1] - cotas[:,0]
-
+print(Xint < cotas[:,1])
 
 
 # %% ploteo en cada direccion, duplicando los intervalos si quiero
@@ -230,93 +232,203 @@ def nuevo(old, oldE):
     global aceptados
     global avance
     global retroceso
+    global sampleador
     
     # genero nuevo
-    new = sampleador() # rn(8) * intervalo + cotas[:,0]
+    new = sampleador.rvs() # rn(8) * intervalo + cotas[:,0]
     newE = etotal(new, Ns, XextList, params)
     generados += 1
     print(generados, aceptados, avance, retroceso)
     
     # cambio de error
     deltaE = newE - oldE
-    accept = deltaE < 0
     
-    if accept:
+    if deltaE < 0:
         aceptados +=1
         avance += 1
         print("avance directo")
         return new, newE # tiene menor error, listo
     else:
         # nueva opoertunidad, sampleo contra rand
-        accept = np.exp(- deltaE / 2) > rn()
-        if accept:
+        pb = np.exp(- deltaE / 2)
+         
+        if pb > rn():
             aceptados += 1
             retroceso += 1
-            print("retroceso")
+            print("retroceso, pb=", pb)
             return new, newE # aceptado a la segunda oportunidad
         else:
             # vuelvo recursivamente al paso2 hasta aceptar
+            print('rechazado, pb=', pb)
             new, newE = nuevo(old, oldE)
     
     return new, newE
 
 # %%
-# matriz diagonal sacada brutamente de las cotas encontradas
-#covar = np.diag(np.mean(((cotas.T - Xint) / 10)**2, 0))
-#sampleador = sts.multivariate_normal(Xint, covar).rvs
-#sampleador = sts.uniform(cotas[:,0], cotas[:,1]).rvs
-a = cotas[:,0]
-b = cotas[:,1]
-## sobrescribo con 10 valires que me dieron al ppio
-#a = np.array([  3.98212241e+02,   4.11223455e+02,   8.08169850e+02,
-#         4.67122052e+02,   9.58381202e-02,  -1.79782590e-02,
-#         1.71546081e-02,  -4.14991879e-03])
-#b = np.array([  3.98213412e+02,   4.11227681e+02,   8.08170032e+02,
-#         4.67122082e+02,   9.58412207e-02,  -1.79782381e-02,
-#         1.71556081e-02,  -4.14980928e-03])
-cen = (b + a) / 2
-#a = np.min(paraMuest[:i],0)
-#b = np.max(paraMuest[:i],0)
-ab = b - a # cotas[:,1] - cotas[:,0]
 
-def sampleador():
-    return a + ab * np.random.rand(8)
+class pdfSampler:
+    '''
+    para samplear de la uniforme entre las cotas puestas a mano
+    '''
+    def __init__(self, a, ab):
+        self.a = a
+        self.ab = ab
+    
+    def rvs(self, n=False):
+        if not n:
+            return np.random.rand(8) * self.ab + self.a
+        else:
+            return np.random.rand(n,8) * self.ab + self.a
 
-Nmuestras = int(1e2)
+sampleador = pdfSampler(cotas[:,0],  cotas[:,1] - cotas[:,0])
+
+# saco 1000 muestras
+Xsamples = sampleador.rvs(1000)
+esamples = np.array([etotal(x, Ns, XextList, params) for x in Xsamples]) - E0
+probsamples = np.exp(-esamples/2)
+
+# media pesada por la probabilidad
+xaverg = np.average(Xsamples, axis=0, weights=probsamples)
+eaverg = etotal(xaverg, Ns, XextList, params) - E0
+paverg = np.exp(-eaverg/2)
+# covarianza pesada por la probabilidad
+xcovar = np.cov(Xsamples.T, ddof=0, aweights=probsamples)
+
+'''
+para el caso de 0.01pix no se puede seguir, se ve que la gaussian es tan
+delgada que la precisiond e maquina no le da para samplear de ahi. quedamos con este resultado de 1e3 muestras y sus promedi pesados pro la probabilidad:
+In [605]: xaverg
+Out[605]: 
+array([  3.98213026e+02,   4.11224737e+02,   8.08170193e+02,
+         4.67122212e+02,   9.58407914e-02,  -1.79776236e-02,
+         1.71549092e-02,  -4.14964878e-03])
+In [606]: xcovar
+Out[606]: 
+array([[  6.85800443e-08,   1.31206035e-07,  -1.45551229e-08,
+          2.44610849e-08,  -1.12849690e-10,   1.03414534e-11,
+         -4.66874789e-11,   4.70931149e-11],
+       [  1.31206035e-07,   2.64439268e-07,  -2.79405274e-08,
+          4.56025943e-08,  -2.31231060e-10,   1.13446555e-11,
+         -8.34053911e-11,   8.86781723e-11],
+       [ -1.45551229e-08,  -2.79405274e-08,   5.10576258e-09,
+         -5.13012253e-09,   2.10102671e-11,  -5.84561655e-12,
+          1.36781236e-11,  -1.10723016e-11],
+       [  2.44610849e-08,   4.56025943e-08,  -5.13012253e-09,
+          1.26867969e-08,  -4.77800981e-11,   5.14399464e-12,
+         -1.51466889e-11,   1.79526904e-11],
+       [ -1.12849690e-10,  -2.31231060e-10,   2.10102671e-11,
+         -4.77800981e-11,   2.62114897e-13,  -2.16803353e-15,
+          5.00418223e-14,  -7.56914305e-14],
+       [  1.03414534e-11,   1.13446555e-11,  -5.84561655e-12,
+          5.14399464e-12,  -2.16803353e-15,   1.59767172e-14,
+         -1.86103848e-14,   1.07514983e-14],
+       [ -4.66874789e-11,  -8.34053911e-11,   1.36781236e-11,
+         -1.51466889e-11,   5.00418223e-14,  -1.86103848e-14,
+          4.58597406e-14,  -3.46909652e-14],
+       [  4.70931149e-11,   8.86781723e-11,  -1.10723016e-11,
+          1.79526904e-11,  -7.56914305e-14,   1.07514983e-14,
+         -3.46909652e-14,   3.35212763e-14]])
+'''
+
+# %%
+std = 0.1 # standar deviation from subpixel epsilon used
+Ci = np.repeat([ std**2 * np.eye(2)],n*m, axis=0).reshape(n,m,2,2)
+params = [n, m, imagePoints, model, chessboardModel, Ci]
+E0 = etotal(Xint, Ns, XextList, params)
+
+#estas cotas andan para 0.1pix
+cotas = np.array([[398.2, 398.225],        #  398.213410
+                  [411.2, 411.25],          #  411.227681
+                  [808.16, 808.18],        #  808.169868
+                  [467.112, 467.132],         #  467.122082
+                  [9.581e-02, 9.5865e-02], #  9.58412207e-02
+                  [-1.8e-02, -1.796e-02],  #  -1.79782432e-02
+                  [1.7143e-02, 1.7167e-02],   #  1.71556081e-02
+                  [-4.1575e-03, -4.143e-03]])  #  -4.14991879e-03
+errores = np.zeros((8,2))
+
+for i in range(8): #  [7]
+    Xint2 = dc(Xint)
+    Xint2[i] = cotas[i,0]
+    errores[i,0] = etotal(Xint2, Ns, XextList, params)
+
+    Xint2[i] = cotas[i,1]
+    errores[i,1] = etotal(Xint2, Ns, XextList, params)
+    print((errores[i] - E0) / difE)
+
+#print((errores - E0) / difE)
+
+print(cotas[:,0] < Xint)
+
+print(Xint < cotas[:,1])
+
+
+# %%
+sampleador = pdfSampler(cotas[:,0],  cotas[:,1] - cotas[:,0])
+
+# saco 1000 muestras
+Xsamples = sampleador.rvs(1000)
+esamples = np.array([etotal(x, Ns, XextList, params) for x in Xsamples]) - E0
+probsamples = np.exp(-esamples/2)
+
+# media pesada por la probabilidad
+xaverg = np.average(Xsamples, axis=0, weights=probsamples)
+eaverg = etotal(xaverg, Ns, XextList, params) - E0
+paverg = np.exp(-eaverg/2)
+# covarianza pesada por la probabilidad
+xcovar = np.cov(Xsamples.T, ddof=0, aweights=probsamples)
+
+ln.det(xcovar)
+
+# %%
+for i in range(8):
+    plt.figure()
+    plt.hist(Xsamples[:,i], weights=probsamples, normed=True)
+
+
+# %% ahora arranco con Metropolis, primera etapa
+Nmuestras = int(5e2)
 
 generados = 0
 aceptados = 0
 avance = 0
 retroceso = 0
 
+sampleador = sts.multivariate_normal(xaverg, xcovar)
+
 paraMuest = np.zeros((Nmuestras,8))
 errorMuestras = np.zeros(Nmuestras)
 
 # primera
-old = dc(Xint) # sampleador() # rn(8) * intervalo + cotas[:,0]
-oldE = etotal(old, Ns, XextList, params)
-paraMuest[0], errorMuestras[0] = (old, oldE)
+start = sampleador.rvs() # dc(Xint)
+startE = etotal(start, Ns, XextList, params)
+paraMuest[0], errorMuestras[0] = nuevo(start, startE)
 
-for i in range(1, Nmuestras):
+# primera parte saco 10 puntos asi como esta
+for i in range(1, 10):
     paraMuest[i], errorMuestras[i] = nuevo(paraMuest[i-1], errorMuestras[i-1])
-    cen = cen * 0.9 + paraMuest[i] * 0.1
-    dif = paraMuest[:i] - cen
-    standev = 15 * np.sqrt(np.mean(dif**2,0))
-    a = a * 0.9 + 0.1 * (cen - standev)
-    b = b * 0.9 + 0.1 * (cen + standev)
-    ab = b - a
 
+# ahora para hacerlo mas rapido voy actualizando la distribucion de propuesta
+for i in range(10, Nmuestras):
+    paraMuest[i], errorMuestras[i] = nuevo(paraMuest[i-1], errorMuestras[i-1])
+    sampleador.cov = np.cov(paraMuest[:i].T)
+    sampleador.mean = np.mean(paraMuest[:i],0)
 
 
 for i in range(8):
     plt.figure()
     plt.hist(paraMuest[:,i],30)
 
-# %% new estimated covariance run Metropolis again
-covar2 = np.cov(paraMuest.T)
-sampleador = sts.multivariate_normal(Xint, covar2).rvs
+# saco la media pesada y la covarinza pesada
+esamples2 = np.array([etotal(x, Ns, XextList, params) for x in paraMuest]) - E0
+psamples2 = np.exp(- esamples2 / 2)
+mu2 = np.average(paraMuest, axis=0, weights=psamples2)
+covar2 = np.cov(paraMuest.T, ddof=0, aweights=psamples2)
 
-Nmuestras = int(1e3)
+# %% ultima etapa de metropolis
+sampleador = sts.multivariate_normal(mu2, covar2)
+
+Nmuestras = int(1e4)
 
 generados = 0
 aceptados = 0
@@ -327,41 +439,15 @@ paraMuest2 = np.zeros((Nmuestras,8))
 errorMuestras2 = np.zeros(Nmuestras)
 
 # primera
-old = dc(Xint) # sampleador() # rn(8) * intervalo + cotas[:,0]
-oldE = etotal(old, Ns, XextList, params)
-paraMuest2[0], errorMuestras2[0] = (old, oldE)
-
-for i in range(1, Nmuestras):
-    paraMuest2[i], errorMuestras2[i] = nuevo(paraMuest2[i-1], errorMuestras2[i-1])
+start = dc(Xint) # sampleador() # rn(8) * intervalo + cotas[:,0]
+startE = etotal(start, Ns, XextList, params)
+paraMuest2[0], errorMuestras2[0] = (start, startE)
 
 
-for i in range(8):
-    plt.figure()
-    plt.hist(paraMuest2[:,i],30)
-
-
-# %% new estimated covariance run Metropolis again
-covar3 = np.cov(paraMuest2.T)
-sampleador = sts.multivariate_normal(Xint, covar3).rvs
-
-Nmuestras = int(1e4)
-
-generados = 0
-aceptados = 0
-avance = 0
-retroceso = 0
-
-paraMuest3 = np.zeros((Nmuestras,8))
-errorMuestras3 = np.zeros(Nmuestras)
-
-# primera
-old = dc(Xint) # sampleador() # rn(8) * intervalo + cotas[:,0]
-oldE = etotal(old, Ns, XextList, params)
-paraMuest3[0], errorMuestras3[0] = (old, oldE)
 
 tiempoIni = time.time()
 for i in range(1, Nmuestras):
-    paraMuest3[i], errorMuestras3[i] = nuevo(paraMuest3[i-1], errorMuestras3[i-1])
+    paraMuest2[i], errorMuestras2[i] = nuevo(paraMuest2[i-1], errorMuestras2[i-1])
     tiempoNow = time.time()
     Dt = tiempoNow - tiempoIni
     frac = i / Nmuestras
@@ -370,6 +456,13 @@ for i in range(1, Nmuestras):
     print('Transcurrido: %.2fmin. Avance %.4f. Tfin: %s'
           %(Dt/60, frac, stringTimeEst) )
 
+
+for i in range(8):
+    plt.figure()
+    plt.hist(paraMuest2[:,i],30)
+
+
+# %% new estimated covariance run Metropolis again
 mu4 = np.mean(paraMuest3, axis=0)
 covar4 = np.cov(paraMuest3.T)
 
