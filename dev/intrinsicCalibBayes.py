@@ -463,24 +463,24 @@ for i in range(8):
 
 
 # %% new estimated covariance run Metropolis again
-mu4 = np.mean(paraMuest3, axis=0)
-covar4 = np.cov(paraMuest3.T)
+mu3 = np.mean(paraMuest2, axis=0)
+covar3 = np.cov(paraMuest2.T)
 
-mu4Covar = covar4 / Nmuestras
-covar4Covar = bl.varVarN(covar4, Nmuestras)
+mu4Covar = covar3 / Nmuestras
+covar4Covar = bl.varVarN(covar3, Nmuestras)
 
 resultsML = dict()
 
 resultsML['Nsamples'] = Nmuestras
-resultsML['paramsMU'] = mu4
-resultsML['paramsVAR'] = covar4
+resultsML['paramsMU'] = mu3
+resultsML['paramsVAR'] = covar3
 resultsML['paramsMUvar'] = mu4Covar
 resultsML['paramsVARvar'] = covar4Covar
 
-save = False
+save = True
 if save:
     np.save(intrinsicParamsFile, resultsML)
-    cameraMatrixOut, distCoeffsOut = bl.flat2int(mu4, Ns)
+    cameraMatrixOut, distCoeffsOut = bl.flat2int(mu3, Ns)
     np.save(linearCoeffsFileOut, cameraMatrixOut)
     np.save(distCoeffsFileOut, distCoeffsOut)
 
@@ -488,9 +488,9 @@ if save:
 import corner
 
 # el error relativo aproximadamente
-np.sqrt(np.diag(covar4)) / mu4
+np.sqrt(np.diag(covar3)) / mu3
 
-corner.corner(paraMuest3, 50)
+corner.corner(paraMuest2, 50)
 
 
 # %% ahora para proyectar con los datos de chessboard a ver como dan
@@ -533,13 +533,13 @@ Cccd = Ci
 Crt = np.zeros((6,6))
 
 # meto los resultados de ML
-Cf = covar4[:4,:4]
-Ck = covar4[4:,4:]
+Cf = covar3[:4,:4]
+Ck = covar3[4:,4:]
 
 nparams = 4 + Ck.shape[0] + 6
 
 # dejo los valores preparados
-parsGen = np.random.multivariate_normal(mu4, covar4, nSampl)
+parsGen = np.random.multivariate_normal(mu3, covar3, nSampl)
 posIgen = imagePoints[j,0].reshape((1,-1,2)) + np.random.randn(nSampl, m, 2)
 posMap = np.zeros_like(posIgen)
 
