@@ -492,6 +492,7 @@ np.sqrt(np.diag(covar3)) / mu3
 
 corner.corner(paraMuest2, 50)
 
+print(np.concatenate([[xaverg], [mu2], [mu3]], axis=0).T)
 
 # %% ahora para proyectar con los datos de chessboard a ver como dan
 
@@ -520,7 +521,7 @@ def sdt2covs(covAll):
     return Cf, Ck, Crt
 
 
-j = 29 # elijo una imagen para trabajar
+j = 14 # elijo una imagen para trabajar
 
 imagenFile = glob.glob(imagesFolder+'*.png')[j]
 plt.figure()
@@ -540,7 +541,8 @@ nparams = 4 + Ck.shape[0] + 6
 
 # dejo los valores preparados
 parsGen = np.random.multivariate_normal(mu3, covar3, nSampl)
-posIgen = imagePoints[j,0].reshape((1,-1,2)) + np.random.randn(nSampl, m, 2)
+posIgen = np.random.multivariate_normal([0,0], Cccd[j,0], (nSampl, m))
+posIgen += imagePoints[j,0].reshape((1,-1,2))
 posMap = np.zeros_like(posIgen)
 
 
@@ -585,13 +587,30 @@ cl.plotPointsUncert(ax, posMapVar, posMapMean[:,0], posMapMean[:,1], 'b')
 
 # %% calculo la distancia mahalanobis entre los puntos proyectados y los reales
 # saco distancia mahalanobis de cada proyeccion
-mahDistance = bl.errorCuadraticoInt(Xint, Ns, XextList, params, mahDist=True)
+mahDistance = bl.errorCuadraticoInt(mu3, Ns, XextList, params, mahDist=True)
 
 plt.figure()
 nhist, bins, _ = plt.hist(mahDistance, 200, normed=True)
 chi2pdf = sts.chi2.pdf(bins, 2)
 plt.plot(bins, chi2pdf)
 plt.yscale('log')
+
+
+# %% para ver de optimizar la pose de cada imagen poque quiza eso jutifica que
+# dé tan lejos de lo esperado
+from scipy.optimize import minimize
+
+def extrError(Xext, Xint, Ns, params, j):
+    return bl.errorCuadraticoImagen(Xext, Xint, Ns, params, j).sum()
+
+
+XextOptiList = list()
+
+for i in range(n):
+    res = minimize(extrError, XextList[i],
+                   args=(mu3, Ns, params, i), method='Powell')
+    print(i,res.success, res.nit)
+    XextOptiList.append(res.x)
 
 
 
