@@ -29,27 +29,40 @@ camera = 'vcaWide'
 modelos = ['poly', 'rational', 'fisheye']
 model = modelos[2]
 
-imagesFolder = "/home/sebalander/Desktop/Code/sebaPhD/resources/intrinsicCalib/" + camera + "/"
+imagesFolder = "./resources/intrinsicCalib/" + camera + "/"
+cornersFile =      imagesFolder + camera + "Corners.npy"
+patternFile =      imagesFolder + camera + "ChessPattern.npy"
 imgShapeFile =     imagesFolder + camera + "Shape.npy"
 
-calibptsFile = "/home/sebalander/Code/VisionUNQextra/Videos y Mediciones/2016-11-13 medicion/calibrExtr/puntosCalibracion.txt"
-
-# load data
 # model data files
 distCoeffsFile =   imagesFolder + camera + model + "DistCoeffs.npy"
 linearCoeffsFile = imagesFolder + camera + model + "LinearCoeffs.npy"
-intrinsicHessianFile = imagesFolder + camera + model + "intrinsicHessian.npy"
+tVecsFile =        imagesFolder + camera + model + "Tvecs.npy"
+rVecsFile =        imagesFolder + camera + model + "Rvecs.npy"
+
+# model data files
+intrinsicParamsOutFile = imagesFolder + camera + model + "intrinsicParamsML"
+intrinsicParamsOutFile = intrinsicParamsOutFile + "0.5.npy"
+
+# calibration points
+calibptsFile = "/home/sebalander/Code/VisionUNQextra/Videos y Mediciones/2016-11-13 medicion/calibrExtr/puntosCalibracion.txt"
 
 # load model specific data
 distCoeffs = np.load(distCoeffsFile)
 cameraMatrix = np.load(linearCoeffsFile)
-intHess = np.load(intrinsicHessianFile)
-'''
-los indices del hessiano corresponden a [fx, fy, u, v, k1, k2, ...]
-'''
+
+# load intrinsic calib uncertainty
+resultsML = np.load(intrinsicParamsOutFile).all()  # load all objects
+Nmuestras = resultsML["Nsamples"]
+muDist = resultsML['paramsMU']
+covarDist = resultsML['paramsVAR']
+muCovar = resultsML['paramsMUvar']
+covarCovar = resultsML['paramsVARvar']
+Ns = resultsML['Ns']
+cameraMatrixOut, distCoeffsOut = bl.flat2int(muDist, Ns)
+
 # Calibration points
 calibPts = np.loadtxt(calibptsFile)
-intCov = ln.inv(intHess)
 
 # according to google earth, a good a priori position is
 # -34.629344, -58.370350

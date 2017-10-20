@@ -56,15 +56,6 @@ linearCoeffsFile = imagesFolder + camera + model + "LinearCoeffs.npy"
 tVecsFile =        imagesFolder + camera + model + "Tvecs.npy"
 rVecsFile =        imagesFolder + camera + model + "Rvecs.npy"
 
-# output files
-intrinsicParamsFile = imagesFolder + camera + model + "intrinsicParamsML.npy"
-distCoeffsFileOut =   imagesFolder + camera + model + "DistCoeffsML.npy"
-linearCoeffsFileOut = imagesFolder + camera + model + "LinearCoeffsML.npy"
-intrPAramsVarianceFileOut =   imagesFolder + camera + model + "intrParamsMLvariance.npy"
-
-
-intrinsicHessianFile = imagesFolder + camera + model + "intrinsicHessian.npy"
-
 imageSelection = np.arange(33) # selecciono con que imagenes trabajar
 
 # load data
@@ -85,14 +76,21 @@ cameraMatrix = np.load(linearCoeffsFile)
 rVecs = np.load(rVecsFile)[imageSelection]
 tVecs = np.load(tVecsFile)[imageSelection]
 
-# parametros auxiliares
-std = 0.01 # standar deviation from subpixel epsilon used
-Ci = np.repeat([ std**2 * np.eye(2)],n*m, axis=0).reshape(n,m,2,2)
-params = [n, m, imagePoints, model, chessboardModel, Ci]
 
 # pongo en forma flat los valores iniciales
 Xint, Ns = bl.int2flat(cameraMatrix, distCoeffs)
 XextList = [bl.ext2flat(rVecs[i], tVecs[i])for i in range(n)]
+
+
+# standar deviation from subpixel epsilon used
+std = 1.0
+
+# output file
+intrinsicParamsOutFile = imagesFolder + camera + model + "intrinsicParamsML"
+intrinsicParamsOutFile = intrinsicParamsOutFile + str(std) + ".npy"
+
+Ci = np.repeat([ std**2 * np.eye(2)],n*m, axis=0).reshape(n,m,2,2)
+params = [n, m, imagePoints, model, chessboardModel, Ci]
 
 # pruebo con una imagen
 j = 0
@@ -137,6 +135,9 @@ Xint2[7] = -4.21e-03
 E2 = etotal(Xint2, Ns, XextList, params)
 print(difE, E2 - E0)
 
+
+
+
 # %%
 '''
 encontre por prueba y error estos rangos:
@@ -166,6 +167,17 @@ cotas = np.array([[398.1, 398.34],          #  398.213410
                   [1.704e-02, 1.727e-02],   #  1.71556081e-02
                   [-4.08e-03, -4.22e-03]])  #  -4.14991879e-03
 '''
+
+# %%
+# standar deviation from subpixel epsilon used
+std = 0.01
+
+# output file
+intrinsicParamsOutFile = imagesFolder + camera + model + "intrinsicParamsML"
+intrinsicParamsOutFile = intrinsicParamsOutFile + str(std) + ".npy"
+
+Ci = np.repeat([ std**2 * np.eye(2)],n*m, axis=0).reshape(n,m,2,2)
+params = [n, m, imagePoints, model, chessboardModel, Ci]
 
 # %%estas cotas para 0.01pix
 cotas = np.array([[398.211, 398.21415],        # [0] 398.213410
@@ -264,8 +276,6 @@ def nuevo(old, oldE):
     
     return new, newE
 
-# %%
-
 class pdfSampler:
     '''
     para samplear de la uniforme entre las cotas puestas a mano
@@ -280,6 +290,7 @@ class pdfSampler:
         else:
             return np.random.rand(n,8) * self.ab + self.a
 
+# %%
 sampleador = pdfSampler(cotas[:,0],  cotas[:,1] - cotas[:,0])
 
 # saco 1000 muestras
@@ -331,9 +342,16 @@ array([[  6.85800443e-08,   1.31206035e-07,  -1.45551229e-08,
 '''
 
 # %%
-std = 0.1 # standar deviation from subpixel epsilon used
+# standar deviation from subpixel epsilon used
+std = 0.1
+
+# output file
+intrinsicParamsOutFile = imagesFolder + camera + model + "intrinsicParamsML"
+intrinsicParamsOutFile = intrinsicParamsOutFile + str(std) + ".npy"
+
 Ci = np.repeat([ std**2 * np.eye(2)],n*m, axis=0).reshape(n,m,2,2)
 params = [n, m, imagePoints, model, chessboardModel, Ci]
+
 E0 = etotal(Xint, Ns, XextList, params)
 
 #estas cotas andan para 0.1pix
@@ -465,24 +483,39 @@ for i in range(8):
 # %% new estimated covariance run Metropolis again
 mu3 = np.mean(paraMuest2, axis=0)
 covar3 = np.cov(paraMuest2.T)
+cameraMatrixOut, distCoeffsOut = bl.flat2int(mu3, Ns)
 
-mu4Covar = covar3 / Nmuestras
-covar4Covar = bl.varVarN(covar3, Nmuestras)
+mu3Covar = covar3 / Nmuestras
+covar3Covar = bl.varVarN(covar3, Nmuestras)
 
 resultsML = dict()
 
 resultsML['Nsamples'] = Nmuestras
 resultsML['paramsMU'] = mu3
 resultsML['paramsVAR'] = covar3
-resultsML['paramsMUvar'] = mu4Covar
-resultsML['paramsVARvar'] = covar4Covar
+resultsML['paramsMUvar'] = mu3Covar
+resultsML['paramsVARvar'] = covar3Covar
+resultsML['Ns'] = Ns
 
-save = True
+# %%
+save = False
 if save:
-    np.save(intrinsicParamsFile, resultsML)
+    np.save(intrinsicParamsOutFile, resultsML)
+
+load = False
+if load:
+    resultsML = np.load(intrinsicParamsOutFile).all()  # load all objects
+    
+    Nmuestras = resultsML["Nsamples"]
+    mu3 = resultsML['paramsMU']
+    covar3 = resultsML['paramsVAR']
+    mu3Covar = resultsML['paramsMUvar']
+    covar3Covar = resultsML['paramsVARvar']
+    Ns = resultsML['Ns']
+    
     cameraMatrixOut, distCoeffsOut = bl.flat2int(mu3, Ns)
-    np.save(linearCoeffsFileOut, cameraMatrixOut)
-    np.save(distCoeffsFileOut, distCoeffsOut)
+
+
 
 # %%
 import corner
@@ -616,672 +649,206 @@ for i in range(n):
 
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 # %%
-#jacIntrin = bl.Jint(Xint, Ns, XextList, params)
+# standar deviation set manually so that distribution
+std = 0.5
 
-hint = bl.ndf.Hessian(etotal, method='central')
-hint.step.base_step = 1e-3 * Xint
+# output file
+intrinsicParamsOutFile = imagesFolder + camera + model + "intrinsicParamsML"
+intrinsicParamsOutFile = intrinsicParamsOutFile + str(std) + ".npy"
 
-hesIntrin = hint(Xint, Ns, XextList, params)
-
-np.real(ln.eigvals(hesIntrin))
-
-
-# %% intento optimizacion con leastsq
-from scipy.optimize import minimize
-
-#meths = ['Nelder-Mead', 'Powell', 'CG', 'BFGS', 'Newton-CG', 'L-BFGS-B',
-#         'TNC', 'COBYLA', 'SLSQP', 'dogleg', 'trust-ncg']
-
-meths = ["Nelder-Mead", "Powell", "L-BFGS-B", "COBYLA", "SLSQP"]
-#meths = ['CG', 'BFGS', 'Newton-CG','TNC','dogleg', 'trust-ncg']
-
-
-
-res = dict()
-hInt = dict()
-
-for me in meths:
-    res[me] = minimize(etotal, Xint,
-                        args=(Ns, XextList, params), method=me)
-    print(me)
-    print(res[me])
-    print(np.abs((res[me].x - Xint)/ Xint))
-
-    if res[me].success is True:
-        hInt[me] = hint(res[me].x, Ns, XextList, params)  #  (Ns, Ns)
-
-        print(np.real(ln.eigvals(hInt[me])))
-
-        cov = ln.inv(hInt[me])
-        plt.matshow(cov)
-        #fun, hess_inv, jac, message, nfev, nit, njev, status, success, x = res
-
-        sigs = np.sqrt(np.diag(cov))
-        plt.figure()
-        plt.plot(np.abs(sigs / res[me].x), 'x')
-
-
-
-# %% trato de resolver el problema del hessiano no positivo en los parametros intrinsecos
-
-Ci = np.repeat([np.eye(2)],n*m, axis=0).reshape(n,m,2,2)
+Ci = np.repeat([ std**2 * np.eye(2)],n*m, axis=0).reshape(n,m,2,2)
 params = [n, m, imagePoints, model, chessboardModel, Ci]
 
-# pongo en forma flat los valores iniciales
-Xint, Ns = bl.int2flat(cameraMatrix, distCoeffs)
-XextList = [bl.ext2flat(rVecs[i], tVecs[i])for i in range(n)]
 
-jInt = bl.Jint(Xint, Ns, XextList, params)  # (Ns,)
-hInt = bl.Hint(Xint, Ns, XextList, params)  #  (Ns, Ns)
+Erto = bl.errorCuadraticoInt(Xint, Ns, XextList, params, mahDist=False)
+E0 = etotal(Xint, Ns, XextList, params)
+print(Erto.sum(), E0)
 
-# %%
-deter = ln.det(hInt)
-
-diagonal = np.diag(hInt)
-
-u, s, v = ln.svd(hInt)
-
-
-# %%
-plt.figure()
-plt.plot(Xint0, res.x, 'x')
-
-(Xint0 - res.x) / Xint0
+# %% saco distancia mahalanobis de cada proyeccion
+mahDistance0 = bl.errorCuadraticoInt(Xint, Ns, XextList, params, mahDist=True)
 
 plt.figure()
-plt.plot((Xint0 - res.x) / Xint0, 'x')
-
-
-# %% ploteo en cada direccion
-Npts = 10
-etaM = 1e-4 # variacion total para cada lado
-etas = 1 + np.linspace(-etaM, etaM, Npts)
-
-XintFin = res.x
-XmodAll = np.repeat([XintFin], Npts, axis=0) * etas.reshape((Npts, -1))
-erAll = np.zeros_like(XmodAll)
-
-
-for j in range(len(XintFin)):
-    for i in range(Npts):
-        print(j, i)
-        X = dc(XintFin)
-        X[j] = XmodAll[i, j]
-        erAll[i, j] = bl.errorCuadraticoInt(X, Ns, XextList0, params)
-        print(erAll[i, j])
-
-plt.plot(etas, erAll, '-x')
-plt.plot([etas[0], etas[-1]], [res.fun, res.fun])
-
-
+nhist, bins, _ = plt.hist(mahDistance0, 50, normed=True)
+chi2pdf = sts.chi2.pdf(bins, 2)
+plt.plot(bins, chi2pdf)
+plt.yscale('log')
 
 
 # %%
-# metodos que funcionan:
-meths = ["Nelder-Mead", "Powell", "L-BFGS-B", "COBYLA", "SLSQP"]
-resss = []
+# estas cotas son para desv estandar de 1pixel
+cotas = np.array([[398.16, 398.27],         # [0]  398.213410
+                  [411.13, 411.32],         # [1]  411.227681
+                  [808.125, 808.22],         # [2]  808.169868
+                  [467.07, 467.17],         # [3]  467.122082
+                  [9.571e-02, 9.597e-02],     # [4]  9.58412207e-02
+                  [-1.807e-02, -1.79e-02],  # [5]  -1.79782432e-02
+                  [1.71e-02, 1.721e-02],   # [6]  1.71556081e-02
+                  [-4.187e-03, -4.115e-03]])  # [7]  -4.14991879e-03
 
-for me in meths:
-    res = minimize(bl.errorCuadraticoInt, Xint0,
-                   args=(Ns, XextList0, params), method=me)
-    print(me)
-    print(res)
-    resss.append(res)
+errores = np.zeros((8,2))
 
-# %% como la libreria que hace ndiftools tiene problemas para calcularl el
-# hessiano lo calculo por mi cuenta usando el resultado de los varias metodos
+for i in range(8): # [7]
+    Xint2 = dc(Xint)
+    Xint2[i] = cotas[i,0]
+    errores[i,0] = etotal(Xint2, Ns, XextList, params)
 
+    Xint2[i] = cotas[i,1]
+    errores[i,1] = etotal(Xint2, Ns, XextList, params)
+    print((errores[i] - E0) / difE)
 
-XX = np.array([r.x for r in resss])
-YY = np.array([r.fun for r in resss])
+#print((errores - E0) / difE)
 
-armi = np.argmin(YY)
-X0 = XX[armi]
-Y0 = YY[armi] # bl.errorCuadraticoInt(X0, Ns, XextList0, params)
+print(cotas[:,0] < Xint)
 
-
-coefs, exps = mpf.multipolyfit(XX - X0, YY, 2, powers_out=True)
-
-# asume first of 9 element in exponent is for 1
-const = 0
-jac = np.zeros((8))
-hes = np.zeros((8,8))
-
-const = coefs[0]
-jac = coefs[1:9]
-hes = np.zeros((8,8))
-hes[np.tril_indices(8)] = hes[np.triu_indices(8)] = coefs[9:]
-
-
-print(const)
-print(jac)
-print(hes)
-
-# testeo
-[const + jac.dot(x) + x.dot(hes).dot(x)/2 for x in (XX - X0)]
-
-# %% ahora augmento las soluciones obtenidas
-XXX = np.zeros((5,5,5,5,5,5,5,5,8))
-
-for i in range(5):
-    for j in range(5):
-        for k in range(5):
-            for l in range(5):
-                for m in range(5):
-                    for n in range(5):
-                        for o in range(5):
-                            for p in range(5):
-                                XXX[i,j,k,l,m,n,o,p] = XX[[i,j,k,l,m,n,o,p],
-                                                          [0,1,2,3,4,5,6,7]]
-
-XXX.shape = (-1,8)
-
-np.save('XXX.npy', XXX)
-
-#import timeit
-#statement = '''
-#bl.errorCuadraticoInt(XX[0], Ns, XextList0, params)
-#'''
-#t1 = timeit.timeit(statement, globals=globals(), number=100) / 1e2
-#print('horas que va atardar', t1 * XXX.shape[0] / 3600)
-
-#indprueba = np.random.randint(0, XXX.shape[0], 500)
-YYY = [bl.errorCuadraticoInt(x, Ns, XextList0, params) for x in XXX]
-np.save('YYY.npy', YYY)
-prob = np.exp(-np.array(YYY))  # peso proporcional a la probabilidad,
-# YYY = np.load('YYY.npy')
-# XXX = np.load('XXX.npy')
-
-XXX0 = np.average(XXX,axis=0,weights=prob)
-
-
-coefs, exps = mpf.multipolyfit(XXX - XXX0, YYY, 2, powers_out=True)
-
-# asume first of 9 element in exponent is for 1
-const = coefs[0]
-jac = coefs[1:9]
-hes = np.zeros((8,8))
-hes.T[np.triu_indices(8)] = hes[np.triu_indices(8)] = coefs[9:]
-
-
-print(const)
-print(jac)
-print(hes)
-print(hes==hes)
-# testeo
-test = [const + jac.dot(x) + x.dot(hes).dot(x)/2 for x in (XXX - XXX0)]
-# deberia dar la identidad +- error de taylor
-plt.plot(YYY, test, 'x')
-
-
-# %% saco el vertice de la hiperparabola calculada
-vert = XXX0 - jac.dot(ln.inv(hes))
-
-# ahora recalculo la hiperparabola
-coefs, exps = mpf.multipolyfit(XXX - vert, YYY, 2, powers_out=True)
-
-# asume first of 9 element in exponent is for 1
-const = coefs[0]
-jac = coefs[1:9]
-hes = np.zeros((8,8))
-hes.T[np.triu_indices(8)] = hes[np.triu_indices(8)] = coefs[9:]
-
-cova = ln.inv(hes)  # esta seria la covarianza asociada
-
-# %% un ultimo refinamiento, sampleo puntos de la gaussiana calculada
-# y con esos puntos recalculo el vertice y todo eso
-
-u,s,v = ln.svd(cova)  # para diagonalizar la elipse de la gaussiana
-
-XXsamples = vert + np.random.randn(1000, 8).dot(s*v)  # sampleo
-
-for i in range(6):
-    print(i)
-    plt.figure()
-    plt.scatter(XXsamples.T[i], XXsamples.T[i+1])
-
-# calculo los errores de esos samples
-YYsamples = [bl.errorCuadraticoInt(x, Ns, XextList0, params) for x in XXsamples]
-prob = np.exp(-np.array(YYsamples))  # peso proporcional a la probabilidad
-
-# saco el valor esperado
-XXsamples0 = np.average(XXsamples,axis=0,weights=prob)
-
-coefs, exps = mpf.multipolyfit(XXsamples - XXsamples0, YYsamples, 2, powers_out=True)
-
-constSam = coefs[0]
-jacSam = coefs[1:9]
-hesSam = np.zeros((8,8))
-hesSam[np.triu_indices(8)] = hesSam.T[np.triu_indices(8)] = coefs[9:]
-
-print(constSam)
-print(jacSam)
-print(hesSam)
-print(ln.eig(hesSam)[0])
-
-# testeo
-testSam = [constSam + jacSam.dot(x) + x.dot(hesSam).dot(x)/2 for x in (XXsamples - XXsamples0)]
-
-plt.plot(YYsamples, testSam, 'x')
-
-# saco el vertice de la hiperparabola calculada
-vert = XXsamples0 - jac.dot(ln.inv(hes))
-cova = ln.inv(hes)  # esta seria la covarianza asociada
-
-# %% grafico el error en cada direccion para ver que sea suave y en que
-# escalas hacer el fiteo
-Ci = np.repeat([np.eye(2)],n*m, axis=0).reshape(n,m,2,2)
-params = [n, m, imagePoints, model, chessboardModel, Ci]
-
-# pongo en forma flat los valores iniciales
-Xint, Ns = bl.int2flat(cameraMatrix, distCoeffs)
-XextList = [bl.ext2flat(rVecs[i], tVecs[i])for i in range(n)]
-
-Nsam = 50
-#                   0    1    2    3    4     5     6     7
-anchos = np.array([7e0, 7e0, 2e1, 2e1, 6e-3, 4e-3, 2e-3, 1e-3])
-rangos = np.array([Xint-anchos, Xint+anchos]).T
-
-
-#np.linspace(0.5,1.5, Nsam)
-
-xList = list()
-yList = list()
-
-fig, ax = plt.subplots(2,4)
-ax = ax.flatten()
-
-for i in range(8): # [1,2,3]:
-    print(i)
-    xSam = np.repeat([Xint], Nsam, axis=0)
-    xSam[:, i] = np.linspace(rangos[i][0], rangos[i][1], Nsam)
-
-    ySam = [bl.errorCuadraticoInt(x, Ns, XextList, params) for x in xSam]
-
-    xList.append(xSam[:, i])
-    yList.append(ySam)
-
-#    plt.figure(i)
-#    ax[i].title(i)
-    ax[i].plot(xSam[:, i], ySam, 'b-')
-#    plt.plot(xSam[:, i], ypoly, 'g-')
-    ax[i].plot([Xint[i], Xint[i]], [np.min(ySam), np.max(ySam)], '-r')
-
-#    # fiteo una parabola
-#    p = np.polyfit(xSam[:, i], ySam, 2)
-#    ypoly = np.polyval(p, xSam[:, i])
-
-#    plt.figure(i*2+1)
-#    plt.title(i)
-#    ysqrt = np.sqrt(ySam)
-#    ypolysqrt = np.sqrt(ypoly)
-#    plt.plot(xSam[:, i], ysqrt, 'b-')
-#    plt.plot(xSam[:, i], ypolysqrt, 'g-')
-#    plt.plot([Xint[i], Xint[i]], [np.min(ysqrt), np.max(ysqrt)], '-r')
-
-xList = np.array(xList).T - Xint
-yList = np.array(yList).T
-
-#xListInf = np.min(xList, axis=0)
-#xListSup = np.max(xList, axis=0)
-#
-#yListInf = np.min(yList)
-#yListSup = np.max(yList, axis=0)
-#
-#plt.plot((xList - xListInf) / (xListSup - xListInf),
-#         (yList - yListInf) / (yListSup - yListInf), '-+')
+print(Xint < cotas[:,1])
 
 
 # %%
-# import funcion para ajustar hiperparabola
-from dev import multipolyfit as mpf
+sampleador = pdfSampler(cotas[:,0],  cotas[:,1] - cotas[:,0])
 
-def coefs2mats(coefs, n=8):
-    const = coefs[0]
-    jac = coefs[1:n+1]
-    hes = np.zeros((n,n)) # los diagonales aparecen solo una vez
-    hes[np.triu_indices(n)] = hes.T[np.triu_indices(n)] = coefs[n+1:]
+# saco 1000 muestras de la uniforme
+Xsamples = sampleador.rvs(1000)
+esamples = np.array([etotal(x, Ns, XextList, params) for x in Xsamples]) - E0
+probsamples = np.exp(-esamples/2)
 
-    hes[np.diag_indices(n)] *= 2
-    return const, jac, hes
+# media pesada por la probabilidad
+xaverg = np.average(Xsamples, axis=0, weights=probsamples)
+eaverg = etotal(xaverg, Ns, XextList, params) - E0
+paverg = np.exp(-eaverg/2)
+# covarianza pesada por la probabilidad
+xcovar = np.cov(Xsamples.T, ddof=0, aweights=probsamples)
 
-
-# %% para hacer en muchos hilos
-def mapListofParams(X, Ns, XextList, params):
-    global mapCounter
-    global npts
-    ret = list()
-    for  x in X:
-        ret.append(bl.errorCuadraticoInt(x, Ns, XextList, params))
-        mapCounter.value += 1
-        print("%d de %d calculos: %2.3f por 100; error %g" %
-              (mapCounter.value, npts, mapCounter.value/npts*100, ret[-1]))
-
-    return np.array(ret)
-
-
-
-def procMapParams(X, Ns, XextList, params, ret):
-    ret.put(mapListofParams(X, Ns, XextList, params))
-
-
-
-def mapManyParams(Xlist, Ns, XextList, params, nThre=4):
-    '''
-    function to map in many threads values of params to error function
-    '''
-    N = Xlist.shape[0] # cantidad de vectores a procesar
-    procs = list()  # lista de procesos
-    er = [Queue() for i in range(nThre)]  # donde comunicar el resultado
-    retVals = np.zeros(N)  #
-
-    inds = np.linspace(0, N, nThre + 1, endpoint=True, dtype=int)
-    #print(inds)
-
-    for i in range(nThre):
-        #print('vecores', Xlist[inds[i]:inds[i+1]].shape)
-        p = Process(target=procMapParams,
-                    args=(Xlist[inds[i]:inds[i+1]], Ns, XextList, params,
-                          er[i]))
-        procs.append(p)
-        p.start()
-
-    [p.join() for p in procs]
-
-    for i in range(nThre):
-        ret = er[i].get()
-        #print('loque dio', ret.shape)
-        #print('donde meterlo', retVals[inds[i]:inds[i+1]].shape)
-        retVals[inds[i]:inds[i+1]] = ret
-
-
-
-    return retVals
-
-
-
-# %% aca testeo que tan rapido es con multithreading para 4 nucleos
-import timeit
-mapCounter=0
-
-statement = '''mapManyParams(Xrand, Ns, XextList, params, nThre=8)'''
-
-timss = list()
-nss = [50, 100, 200, 500, 1000, 2000]
-mapCounter = Value('i', 0)
-
-for npts in nss:
-    print(npts)
-    Xrand = (np.random.rand(npts, 8) * 2 - 1) * anchos + Xint
-    timss.append(timeit.timeit(statement, globals=globals(), number=5) / 5)
-    print(npts, timss[-1])
-
-plt.plot(nss, timss, '-*')
-
-p = np.polyfit(nss, timss, 1)
-p = np.array([ 0.0338636, -0.2550772])
-npts = int(1e5)
-print('tiempo ', np.polyval(p, npts) / 60, 'hs; ptos por eje ', npts**0.125)
-# tomaria como 10hs hacer un milon de puntos
+ln.det(xcovar)
 
 # %%
-# genero muchas perturbaciones de los params intrinsecos alrededor de las cond
-# iniciales en un rango de +-10% que por las graficas parece ser bastante
-# parabolico el comportamiento todavía
-npts = int(1e4)
-mapCounter = Value('i', 0)
-Xrand = (np.random.rand(npts, 8) * 2 - 1) * anchos + Xint
-Yrand = mapManyParams(Xrand, Ns, XextList, params,  nThre=8)
-
-np.save('Xrand', Xrand)
-np.save('Yrand', Yrand)
-
-# prob = np.exp(-Yrand / np.mean(Yrand))  # peso proporcional a la probabilidad
-
-# saco el valor esperado
-# Xrand0 = np.average(Xrand, axis=0) # , weights=prob)
-# centro la cuenta en Xint
-DeltaX = Xrand - Xint
-coefs, exps = mpf.multipolyfit(DeltaX, Yrand, 2, powers_out=True)
-
-constRan, jacRan, hesRan = coefs2mats(coefs)
-np.real(ln.eig(hesRan)[0])
-
-nConsidered = np.arange(100, npts+100, 100, dtype=int)
-autovalsConverg = np.zeros((nConsidered.shape[0], 8))
-
-indShuff = np.arange(Yrand.shape[0])
-np.random.shuffle(indShuff)
-
-Xrand = Xrand[indShuff]
-Yrand = Yrand[indShuff]
-
-
-for i, ncon in enumerate(nConsidered):
-    print(i)
-    coefs, exps = mpf.multipolyfit(DeltaX[:ncon], Yrand[:ncon], 2, powers_out=True)
-    constRan, jacRan, hesRan = coefs2mats(coefs)
-    autovalsConverg[i] = np.real(ln.eig(hesRan)[0])
-    print(autovalsConverg[i])
-
-plt.figure()
-plt.plot(nConsidered, autovalsConverg)
-
-
-## autovectores son las columnas
-#w, vr = ln.eig(hesRan, left=False, right=True)
-#np.dot(vr, ln.diagsvd(np.real(w),8,8).dot(ln.inv(vr)))
-#
-## right singular vectors as rows
-#u, s, v = ln.svd(hesRan)
-#
-#np.allclose(hesRan, np.dot(u, np.dot(ln.diagsvd(s,8,8), v)))
-#
-#plt.matshow(np.log(np.abs(hesRan)))
-#
-#print(l)
-
-# testeo
-testRan = [constRan + jacRan.dot(x) + x.dot(hesRan).dot(x) / 2 for x in DeltaX]
-
-plt.figure()
-plt.plot(Yrand, testRan, 'xk')
-plt.plot(Yrand, testRan, 'xr')
-emin, emax = [np.min(Yrand), np.max(Yrand)]
-plt.plot([emin, emax],[emin, emax])
-
-## saco el vertice de la hiperparabola calculada
-#vert = Xint - jacRan.dot(ln.inv(hesRan))
-#cova = ln.inv(hesRan)  # esta seria la covarianza asociada
-
-#hesChancho = vr.dot(ln.diagsvd(s,8,8)).dot(ln.inv(vr))
-#
-#testChan = [constRan + jacRan.dot(x) + x.dot(hesChancho).dot(x) / 2 for x in DeltaX]
-#
-#plt.figure()
-#plt.plot(Yrand, testChan, 'xk')
-#plt.plot(Yrand, testChan, 'xr')
-#emin, emax = [np.min(Yrand), np.max(Yrand)]
-#plt.plot([emin, emax],[emin, emax])
-# no le pega ni por asomo
-
-# %%
-
-#from scipy.stats import multivariate_normal
-#rv = multivariate_normal(mean=vert, cov=cova)
-#
-## make positive semidefinite, asume simetry
-#print(ln.eig(hesRan)[0])
-## https://www.mathworks.com/matlabcentral/fileexchange/42885-nearestspd
-#A = hesRan
-#B = (A + A.T) / 2
-#u, s, v = ln.svd(B)
-##% Compute the symmetric polar factor of B. Call it H.
-##% Clearly H is itself SPD.
-#H = v.dot(s).dot(v.T)
-#Ahat = (A + H) / 2
-#Ahat = (Ahat + Ahat.T) /2
-#
-#ln.cho_factor(Ahat)
-#
-#ln.eig(Ahat)[0]
-
-
-
-# %% ahora miro en los autovectores del hessiano
-#u, s, v = np.linalg.svd(hesRan)
-l, v = ln.eig(hesRan)
-s = np.sqrt(np.abs(np.real(l)))
-npts = int(2e1)
-etasI = np.linspace(-1e3, 1e3, npts)
-
-i = 0
 for i in range(8):
-    direc = v[:,i]
-    perturb = np.repeat([direc], npts, axis=0) * etasI.reshape((-1,1)) / s[i]
-    Xmod = vert + perturb  # modified parameters
-    Ymod = np.array([bl.errorCuadraticoInt(x, Ns, XextList, params) for x in Xmod])
-    Xdist = ln.norm(perturb, axis=1) * np.sign(etasI)
-
     plt.figure()
-    plt.plot(Xdist, Ymod, '-*')
+    plt.hist(Xsamples[:,i], weights=probsamples, normed=True)
+
+
+# %% ahora arranco con Metropolis, primera etapa
+Nmuestras = int(5e2)
+
+generados = 0
+aceptados = 0
+avance = 0
+retroceso = 0
+
+sampleador = sts.multivariate_normal(xaverg, xcovar)
+
+paraMuest = np.zeros((Nmuestras,8))
+errorMuestras = np.zeros(Nmuestras)
+
+# primera
+start = sampleador.rvs() # dc(Xint)
+startE = etotal(start, Ns, XextList, params)
+paraMuest[0], errorMuestras[0] = nuevo(start, startE)
+
+# primera parte saco 10 puntos asi como esta
+for i in range(1, 10):
+    paraMuest[i], errorMuestras[i] = nuevo(paraMuest[i-1], errorMuestras[i-1])
+
+# ahora para hacerlo mas rapido voy actualizando la distribucion de propuesta
+for i in range(10, Nmuestras):
+    paraMuest[i], errorMuestras[i] = nuevo(paraMuest[i-1], errorMuestras[i-1])
+    sampleador.cov = np.cov(paraMuest[:i].T)
+    sampleador.mean = np.mean(paraMuest[:i],0)
+
+
+for i in range(8):
+    plt.figure()
+    plt.hist(paraMuest[:,i],30)
+
+# saco la media pesada y la covarinza pesada
+esamples2 = np.array([etotal(x, Ns, XextList, params) for x in paraMuest]) - E0
+psamples2 = np.exp(- esamples2 / 2)
+mu2 = np.average(paraMuest, axis=0, weights=psamples2)
+covar2 = np.cov(paraMuest.T, ddof=0, aweights=psamples2)
+
+# %% ultima etapa de metropolis
+sampleador = sts.multivariate_normal(mu2, covar2)
+
+Nmuestras = int(1e4)
+
+generados = 0
+aceptados = 0
+avance = 0
+retroceso = 0
+
+paraMuest2 = np.zeros((Nmuestras,8))
+errorMuestras2 = np.zeros(Nmuestras)
+
+# primera
+start = dc(Xint) # sampleador() # rn(8) * intervalo + cotas[:,0]
+startE = etotal(start, Ns, XextList, params)
+paraMuest2[0], errorMuestras2[0] = (start, startE)
 
 
 
-# %% pruebo de calcular el hessiano poniendo paso fijo sabiendo la escala
+tiempoIni = time.time()
+for i in range(1, Nmuestras):
+    paraMuest2[i], errorMuestras2[i] = nuevo(paraMuest2[i-1], errorMuestras2[i-1])
+    tiempoNow = time.time()
+    Dt = tiempoNow - tiempoIni
+    frac = i / Nmuestras
+    DtEstimeted = (tiempoNow - tiempoIni) / frac
+    stringTimeEst = time.asctime(time.localtime(tiempoIni + DtEstimeted))
+    print('Transcurrido: %.2fmin. Avance %.4f. Tfin: %s'
+          %(Dt/60, frac, stringTimeEst) )
 
-#                   0    1    2    3    4     5     6     7
-anchos = np.array([7e0, 7e0, 2e1, 2e1, 6e-3, 4e-3, 2e-3, 1e-3])
 
-autovalores = list() # aca guardar la lista de autovalores
+for i in range(8):
+    plt.figure()
+    plt.hist(paraMuest2[:,i],30)
 
-# en cuánto reducir los anchos especificados a ojo
-factores = [0.1, 0.2, 0.5, 1, 2, 5, 10, 20, 50, 100, 200, 500,
-            1e3, 2e3, 5e3, 1e4, 2e4, 5e4]
 
-for fact in factores:
-    step = anchos/fact
-    Hint = ndf.Hessian(bl.errorCuadraticoInt, step=step)
-    hes1step = Hint(Xint, Ns, XextList, params)
+# %% new estimated covariance run Metropolis again
+mu3 = np.mean(paraMuest2, axis=0)
+covar3 = np.cov(paraMuest2.T)
+cameraMatrixOut, distCoeffsOut = bl.flat2int(mu3, Ns)
 
-    autovalores.append(np.real(ln.eig(hes1step)[0]))
-    print(fact, autovalores[-1])
+mu3Covar = covar3 / Nmuestras
+covar3Covar = bl.varVarN(covar3, Nmuestras)
 
-autovalores = np.array(autovalores)
+resultsML = dict()
 
-for i,aut in enumerate(autovalores.T):
-    plt.figure(i)
-    plt.plot(factores, aut, '-*')
+resultsML['Nsamples'] = Nmuestras
+resultsML['paramsMU'] = mu3
+resultsML['paramsVAR'] = covar3
+resultsML['paramsMUvar'] = mu3Covar
+resultsML['paramsVARvar'] = covar3Covar
+resultsML['Ns'] = Ns
 
-# %% estos son los rangos de step dond eveo que hay estabilidad
-# o algo razonable
-rangoNunDiffStep = np.array([[1e-3, 1e-1],    # 0
-                             [1e-5, 1e-1],  # 1
-                             [1e-3, 1e-1],   # 2
-                             [1e-3, 1e-1],   # 3
-                             [1e-3, 1e-1],     # 4
-                             [1e-3, 1e-1],      # 5
-                             [1e-3, 1e-1],      # 6
-                             [1e-3, 1e-1]]).T * anchos
+# %%
+save = False
+if save:
+    np.save(intrinsicParamsOutFile, resultsML)
 
-nLogSteps = 100  # cantidad de pasos en los que samplear el diff step
-logFactor = (rangoNunDiffStep[1] / rangoNunDiffStep[0])**(1 / (nLogSteps-1))
+load = False
+if load:
+    resultsML = np.load(intrinsicParamsOutFile).all()  # load all objects
+    
+    Nmuestras = resultsML["Nsamples"]
+    mu3 = resultsML['paramsMU']
+    covar3 = resultsML['paramsVAR']
+    mu3Covar = resultsML['paramsMUvar']
+    covar3Covar = resultsML['paramsVARvar']
+    Ns = resultsML['Ns']
+    
+    cameraMatrixOut, distCoeffsOut = bl.flat2int(mu3, Ns)
 
-# calculate list of steps
-diffSteps3 = (rangoNunDiffStep[0].reshape((1,-1))
-             * np.cumproduct([logFactor]*nLogSteps, axis=0)
-             / logFactor)
-
-autovalores3 = np.zeros_like(diffSteps3)
-
-for i in range(nLogSteps):
-    print('paso', i)
-
-    Hint = ndf.Hessian(bl.errorCuadraticoInt, step=diffSteps3[i])
-    hes1step = Hint(Xint, Ns, XextList, params)
-
-    autovalores3[i] = np.real(ln.eig(hes1step)[0])
-    print('autovalores', autovalores3[i])
 
 
 # %%
-'''
-falta explorar un poco mas para algunos steps, haciendolo mas chico.
-se nota que no es facil determinar el paso optimo, es bastante complicado
-y quiza haya que terminar haciendo algo iterativo tipo metropolis.
-comparar con lo que de el hessiano de la hiperparabola. si da parecido ya
-está.
-'''
+import corner
 
-autovTotal = np.concatenate([autovalores[:73],
-                             autovalores2,
-                             autovalores3], axis=0)
+# el error relativo aproximadamente
+np.sqrt(np.diag(covar3)) / mu3
 
-diffStepsTotal =  np.concatenate([diffSteps[:73],
-                             diffSteps2,
-                             diffSteps3], axis=0)
+corner.corner(paraMuest2, 50)
 
-
-np.save('autovaloresHess', autovTotal)
-np.save('diffSteps', diffStepsTotal)
-
-diffStepsTotal = np.load('diffSteps.npy')
-autovTotal = np.load('autovaloresHess.npy')
-
-for j in range(8):
-    plt.figure()
-    plt.title(j)
-    plt.plot(diffStepsTotal[:,j], autovTotal[:,j], '-+')
-    plt.xscale('log')
-    plt.yscale('log')
-    plt.grid('on')
-
-'''
-en base a los graficos defino los steps con los que sacar el hessiano numerico
-'''
-stepsGraph = [0.3, 0.7, 2.5, 3.0, 1e-3, 4e-4, 4e-6, 3e-6]
-
-
-Hint = ndf.Hessian(bl.errorCuadraticoInt, step=stepsGraph)
-hesGraphStep = Hint(Xint, Ns, XextList, params)
-
-np.real(ln.eig(hesGraphStep)[0])
-
-
-
-
-
-
-
-
-
-
+print(np.concatenate([[xaverg], [mu2], [mu3]], axis=0).T)
 
 
 
