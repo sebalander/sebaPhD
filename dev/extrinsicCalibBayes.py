@@ -14,6 +14,7 @@ import scipy.linalg as ln
 import matplotlib.pyplot as plt
 from importlib import reload
 from copy import deepcopy as dc
+import pyproj as pj
 
 from dev import bayesLib as bl
 
@@ -63,11 +64,95 @@ cameraMatrixOut, distCoeffsOut = bl.flat2int(muDist, Ns)
 
 # Calibration points
 calibPts = np.loadtxt(calibptsFile)
+lats = calibPts[:,2]
+lons = calibPts[:,3]
 
 # according to google earth, a good a priori position is
 # -34.629344, -58.370350
 y0, x0 = -34.629344, -58.370350
 z0 = 15.7 # metros, as measured by oliva
+elev = 7 # altura msnm en parque lezama segun google earth
+# EGM96 sobre WGS84: https://geographiclib.sourceforge.io/cgi-bin/GeoidEval?input=-34.629344%2C+-58.370350&option=Submit
+geoideval = 16.1066
+h = elev + geoideval # altura dle terreno sobre WGS84
 
+
+
+# %%
+a = 6378137
+f = 1 /298.257223563
+b = a * (1 - f) # 6356752.31424518
+e = np.sqrt(a** - b**2) / a
+ep = e * a / b
+
+# LLA 2 ECEF
+# phi es latitude 
+# lambda es longitud
+# h heigth above ellipsoid (meters)
+# N/rad ardius of curvatiure meters
+
+def lla2ecef(lat, lon, alt):
+    '''
+    convierte lat lon y elevacion sobre WGS a ECEF
+    
+    fuente: 
+        
+    '''
+    la = np.deg2rad(lat)
+    lo = np.deg2rad(lon)
+    cla = np.cos(la)
+    sla = np.sin(la)
+    clo = np.cos(lo)
+    slo = np.sin(lo)
+    
+    rad = a / np.sqrt(1 - e**2 * sla**2)
+    
+    r = rad + alt
+    
+    X = r * cla * clo
+    Y = r * cla * slo
+    Z = (b**2 * rad / a**2 + alt) * sla
+    
+    return np.array([X, Y, Z]).T
+
+# convierto a ECEF en metros
+XYZ = lla2ecef(lats, lons, h)
+xyzOrig = lla2ecef(y0, x0, h) # el origen de coords del mapa
+xyz0 = lla2ecef(y0, x0, h + z0)
+
+# %% Ahora saco los vectores para proyectar esto a un plano tanghente local
+theta = np.deg2rad(x0) # longitud desde el eje x horizontal
+fi = np.pi / 2 - np.deg2rad(y0) # decliancion desde el eje z
+
+ct = np.cos(theta)
+st = np.sin(theta)
+cf = np.cos(fi)
+sf = np.sin(fi)
+
+'''
+defiuno los versores este oeste y altura
+http://mathworld.wolfram.com/SphericalCoordinates.html
+'''
+# versor en la direccion radial
+rVersor = xyzOrig / ln.norm(xyzOrig)
+# e direccion este, versor theta
+eastVersor = np.array([-st, ct, 0])
+# versor norte, opueto el versor fi
+northVersor = - np.array([ct * cf, st * cf, -sf])
+
+# resto el origen
+deltaXYZ = XYZ - xyzOrig
+delta0 = xyz0 - xyzOrig
+
+# proyecto sobre la rotacion que interesa
+# matriz de rotacion para post multiplicar
+R = np.array([eastVersor, northVersor, rVersor]).T
+
+xyzPts = deltaXYZ.dot(R)
+xyzCam =  delta0.dot(R)
+
+
+plt.plot(xyzPts[:,0], xyzPts[:,1], '+')
+plt.plot(xyzCam[0], xyzCam[1], 'x')
 
 
