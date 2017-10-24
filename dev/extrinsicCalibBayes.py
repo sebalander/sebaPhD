@@ -114,6 +114,9 @@ def etotal(Xext, Ns, Xint, params):
     return bl.errorCuadraticoImagen(Xext, Xint, Ns, params, 0).sum()
 
 std = 2.0
+# output file
+extrinsicParamsOutFile = imagesFolder + camera + model + "extrinsicParamsML"
+extrinsicParamsOutFile = extrinsicParamsOutFile + str(std) + ".npy"
 Ci = np.repeat([ std**2 * np.eye(2)],n*m, axis=0).reshape(n,m,2,2)
 params = [n, m, xIm.reshape((1,1,-1,2)),model, calibPts[:,:2].reshape((1,-1,2)), Ci]
 
@@ -147,11 +150,6 @@ for i in range(6): # [5]
 print(cotas[:,0] < Xext0)
 
 print(Xext0 < cotas[:,1])
-
-# %% reduzco las cotas a la mitad para que el error no de tan grande
-
-semiancho = (cotas.T - Xext0) / 2
-cotas = (Xext0 + semiancho).T
 
 # %% metropolis hastings
 from numpy.random import rand as rn
@@ -211,13 +209,13 @@ class pdfSampler:
 sampleador = pdfSampler(cotas[:,0],  cotas[:,1] - cotas[:,0])
 
 # saco 1000 muestras
-Xsamples = sampleador.rvs(10000)
+Xsamples = sampleador.rvs(1000)
 esamples = np.array([etotal(x, Ns, Xint, params) for x in Xsamples])
 plt.hist(esamples, 100)
 #meErr = (np.max(esamples) + np.min(esamples)) / 2
 # pongo una constante que me baja la escala porque me dan nros muy grandes
 # eto me deforma la gaussiana per es un comienzo
-probsamples = np.exp(- esamples * 1e-1 / 2)
+probsamples = np.exp(- esamples * 1e-2 / 2)
 
 for i in range(6):
     plt.figure()
@@ -226,17 +224,17 @@ for i in range(6):
 # %%
 # media pesada por la probabilidad
 xaverg = np.average(Xsamples, axis=0, weights=probsamples)
-eaverg = etotal(xaverg, Ns, Xint, params) - E0
-paverg = np.exp(- eaverg * 1e-3 / 2 )
+eaverg = etotal(xaverg, Ns, Xint, params)
+paverg = np.exp(- eaverg * 1e-2 / 2 )
 # covarianza pesada por la probabilidad
 xcovar = np.cov(Xsamples.T, ddof=0, aweights=probsamples)
 
 ln.eigvals(xcovar)
 
 # %% segunda ronda de proponer samples para sacar una pdf
-# repetir ete bloque varias veces me ayuda a ir corriendo la pdf
-# sampleo de una pdf, no uniforme com oantes
-sampleador = sts.multivariate_normal(xaverg2, xcovar2)
+# repetir este bloque varias veces me ayuda a ir corriendo la pdf
+# sampleo de una pdf, no uniforme como antes
+sampleador = sts.multivariate_normal(xaverg, xcovar)
 
 # saco 1000 muestras
 Xsamples2 = sampleador.rvs(1000)
@@ -281,7 +279,7 @@ xcovar = np.array([[  2.92403190e-08,   1.29185352e-08,   4.04071807e-08,
 
 
 # %% ahora arranco con Metropolis, primera etapa
-Nmuestras = int(5e2)
+Nmuestras = int(1e4)
 
 generados = 0
 aceptados = 0
@@ -292,6 +290,7 @@ sampleador = sts.multivariate_normal(xaverg, xcovar)
 
 paraMuest = np.zeros((Nmuestras,6))
 errorMuestras = np.zeros(Nmuestras)
+probMuestras = np.zeros(Nmuestras)
 
 # primera
 start = sampleador.rvs() # dc(Xint)
@@ -299,8 +298,29 @@ startE = etotal(start, Ns, Xint, params)
 paraMuest[0], errorMuestras[0] = nuevo(start, startE)
 
 # primera parte saco 10 puntos asi como esta
-for i in range(1, Nmuestras):
+for i in range(1, 10):
     paraMuest[i], errorMuestras[i] = nuevo(paraMuest[i-1], errorMuestras[i-1])
+    sampleador.mean = paraMuest[i] # corro el centro
+
+
+# ahora actualizo con media y covarianza moviles
+for i in range(10, 100):
+    paraMuest[i], errorMuestras[i] = nuevo(paraMuest[i-1], errorMuestras[i-1])
+    sampleador.mean = paraMuest[i] # corro el centro
+    sampleador.cov = np.cov(paraMuest[:i].T)
+
+probMuestras[:i] = np.exp(- errorMuestras[:i] / 2)
+
+
+# ahora actualizo pesando por la probabilidad
+for i in range(100, Nmuestras):
+    paraMuest[i], errorMuestras[i] = nuevo(paraMuest[i-1], errorMuestras[i-1])
+    probMuestras[i] = np.exp(- errorMuestras[i] / 2)
+    
+    sampleador.mean = np.average(paraMuest[:i], 0, weights=probMuestras[:i])
+    sampleador.cov = np.cov(paraMuest[:i].T, ddof=0, aweights=probMuestras[:i])
+
+
 
 
 # %%
@@ -309,11 +329,11 @@ for i in range(1, Nmuestras):
 
 for i in range(6):
     plt.figure()
-    plt.hist(paraMuest[:,i],30)
+    plt.hist(paraMuest[200:,i],30)
 
 # saco la media pesada y la covarinza si peso porque asi es metropolis
-mu2 = np.average(paraMuest, axis=0)
-covar2 = np.cov(paraMuest.T)
+mu2 = np.average(paraMuest[200:], 0, weights=probMuestras[200:])
+covar2 = np.cov(paraMuest[200:].T, ddof=0, aweights=probMuestras[200:])
 
 ln.eigvals(covar2)
 
@@ -321,7 +341,7 @@ ln.eigvals(covar2)
 # %% ultima etapa de metropolis
 sampleador = sts.multivariate_normal(mu2, covar2)
 
-Nmuestras = int(1e4)
+Nmuestras = int(1e6)
 
 generados = 0
 aceptados = 0
@@ -353,3 +373,53 @@ for i in range(1, Nmuestras):
 for i in range(6):
     plt.figure()
     plt.hist(paraMuest2[:,i],30)
+
+# %% new estimated covariance
+mu3 = np.mean(paraMuest2, axis=0)
+covar3 = np.cov(paraMuest2.T)
+cameraMatrixOut, distCoeffsOut = bl.flat2int(mu3, Ns)
+
+mu3Covar = covar3 / Nmuestras
+covar3Covar = bl.varVarN(covar3, Nmuestras)
+
+resultsML = dict()
+
+resultsML['Nsamples'] = Nmuestras
+resultsML['paramsMU'] = mu3
+resultsML['paramsVAR'] = covar3
+resultsML['paramsMUvar'] = mu3Covar
+resultsML['paramsVARvar'] = covar3Covar
+resultsML['Ns'] = Ns
+
+# %%
+save = False
+if save:
+    np.save(extrinsicParamsOutFile, resultsML)
+
+load = False
+if load:
+    resultsML = np.load(extrinsicParamsOutFile).all()  # load all objects
+    
+    Nmuestras = resultsML["Nsamples"]
+    mu3 = resultsML['paramsMU']
+    covar3 = resultsML['paramsVAR']
+    mu3Covar = resultsML['paramsMUvar']
+    covar3Covar = resultsML['paramsVARvar']
+    Ns = resultsML['Ns']
+    
+    cameraMatrixOut, distCoeffsOut = bl.flat2int(mu3, Ns)
+
+
+# %%
+import corner
+
+# el error relativo aproximadamente
+np.sqrt(np.diag(covar3)) / mu3
+
+corner.corner(paraMuest2, 50)
+
+print(np.concatenate([[xaverg], [mu2], [mu3]], axis=0).T)
+
+
+# %% ahora le pongo un prior en los parametros extrinsecos
+
