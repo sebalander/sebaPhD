@@ -105,16 +105,24 @@ def errorCuadraticoImagen(Xext, Xint, Ns, params, j, mahDist=False):
     cameraMatrix, distCoeffs = flat2int(Xint, Ns)
     rvec, tvec = flat2ext(Xext)
     # saco los parametros auxiliares
-    n, m, imagePoints, model, chessboardModel, Ci = params
-
+    #n = params["n"]
+    # m = params["m"]
+    imagePoints = params["imagePoints"]
+    model = params["model"]
+    chessboardModel = params["chessboardModel"]
+    Cccd = params["Cccd"]
+    Cf = params["Cf"]
+    Ck = params["Ck"]
+    Crt = params["Crt"]
+    
     try: # check if there is covariance for this image
-        Cov = Ci[j]
+        Cov = Cccd[j]
     except:
         Cov = None
 
     # hago la proyeccion
     xm, ym, Cm = cl.inverse(imagePoints[j,0], rvec, tvec, cameraMatrix,
-                            distCoeffs, model, Cccd=Cov)
+                            distCoeffs, model, Cov, Cf, Ck, Crt)
 
     # error
     er = ([xm, ym] - chessboardModel[0,:,:2].T).T

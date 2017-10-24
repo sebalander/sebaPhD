@@ -81,7 +81,8 @@ h = elev + geoideval # altura del terreno sobre WGS84
 
 # according to google earth, a good a priori position is
 # -34.629344, -58.370350
-LLAcam = np.array([-34.629344, -58.370350, h + 15.7]) # a priori position of camera
+hcam = 15.7 # camera heigh measured
+LLAcam = np.array([-34.629344, -58.370350, h + hcam]) # a priori position of camera
 
 # lat lon alt of the data points
 hvec = np.zeros_like(dataPts[:,3]) + h
@@ -89,7 +90,7 @@ LLA = np.concatenate((dataPts[:,2:], hvec.reshape((-1,1))), axis=1)
 LLA0 = np.array([LLAcam[0], LLAcam[1], h]) # frame of reference origin
 
 calibPts = llef.lla2ltp(LLA, LLA0)  # PUNTOS DE CALIB EN METROS
-camPrior = llef.lla2ltp(LLAcam, LLA0)  # PRIOR CAMERA COORDS EN METROS
+camPrior = np.array([0,0,hcam]) # llef.lla2ltp(LLAcam, LLA0)  # PRIOR CAMERA COORDS EN METROS
 
 plt.plot(calibPts[:,0], calibPts[:,1], '+')
 plt.plot(camPrior[0], camPrior[1], 'x')
@@ -99,7 +100,6 @@ plt.plot(camPrior[0], camPrior[1], 'x')
 ret, rvecIni, tvecIni, inliers = cv2.solvePnPRansac(calibPts, xIm, cameraMatrixOut, distCoeffsOut)
 
 xpr, ypr, c = cl.inverse(xIm, rvecIni, tvecIni, cameraMatrixOut, distCoeffsOut, model=model)
-
 
 plt.scatter(xpr, ypr)
 plt.scatter(calibPts[:,0], calibPts[:,1])
@@ -118,7 +118,18 @@ std = 2.0
 extrinsicParamsOutFile = imagesFolder + camera + model + "extrinsicParamsML"
 extrinsicParamsOutFile = extrinsicParamsOutFile + str(std) + ".npy"
 Ci = np.repeat([ std**2 * np.eye(2)],n*m, axis=0).reshape(n,m,2,2)
-params = [n, m, xIm.reshape((1,1,-1,2)),model, calibPts[:,:2].reshape((1,-1,2)), Ci]
+
+params = dict()
+params["n"] = n
+params["m"] = m
+params["imagePoints"] = xIm.reshape((1,1,-1,2)) 
+params["model"] = model
+params["chessboardModel"] = calibPts[:,:2].reshape((1,-1,2))
+params["Cccd"] = Ci
+params["Cf"] = covarDist[:4,:4]
+params["Ck"] = covarDist[4:,4:]
+params["Crt"] = False
+#params = [n, m, xIm.reshape((1,1,-1,2)),model, calibPts[:,:2].reshape((1,-1,2)), Ci]
 
 Xext0 = bl.ext2flat(rvecIni, tvecIni)
 
@@ -423,3 +434,122 @@ print(np.concatenate([[xaverg], [mu2], [mu3]], axis=0).T)
 
 # %% ahora le pongo un prior en los parametros extrinsecos
 
+# pongo 3m de sigma en x,y y 20cm en z
+camPrior
+W = 1 / np.array([3,3,0.2])**2
+
+def ePrior(Xext):
+    return W.dot((Xext[3:] - camPrior)**2)
+
+# error total
+def etotal(Xext, Ns, Xint, params):
+    '''
+    calcula el error total como la suma de los errore de cada punto en cada
+    imagen
+    '''
+    ep = ePrior(Xext)
+    
+    return ep + bl.errorCuadraticoImagen(Xext, Xint, Ns, params, 0).sum()
+
+ePrior(mu3)
+etotal(mu3, Ns, Xint, params)
+
+# saco una gaussiana que es el producto de lo que se obtiene por ML y la priori
+# solo en la posicion
+covar4 = np.zeros_like(covar3)
+covar4[:3,:3] = covar3[:3,:3] # para angulos dejo como esta
+S1 = ln.inv(covar3[3:,3:])
+S2 = np.diag(W)
+covar4[3:,3:] = ln.inv(S1 + S2)
+
+mu4 = dc(mu3)
+mu4[3:] = covar4[3:,3:].dot(S1.dot(mu3[3:]) + S2.dot(camPrior)) # cambio la media pesandola
+# parece que no va a afectar casi nada porque el likelihood pesa muchisimo mas,
+# la gaussiana es mucho mas finita.
+
+# %%
+sampleador = sts.multivariate_normal(mu5, covar5)
+
+Nmuestras = int(1e6)
+
+generados = 0
+aceptados = 0
+avance = 0
+retroceso = 0
+
+paraMuest5 = np.zeros((Nmuestras,6))
+errorMuestras5 = np.zeros(Nmuestras)
+
+# primera
+start = sampleador.rvs() # sampleador() # rn(8) * intervalo + cotas[:,0]
+startE = etotal(start, Ns, Xint, params)
+paraMuest5[0], errorMuestras5[0] = (start, startE)
+
+
+
+tiempoIni = time.time()
+for i in range(1, Nmuestras):
+    paraMuest5[i], errorMuestras5[i] = nuevo(paraMuest5[i-1], errorMuestras5[i-1])
+    tiempoNow = time.time()
+    Dt = tiempoNow - tiempoIni
+    frac = i / Nmuestras
+    DtEstimeted = (tiempoNow - tiempoIni) / frac
+    stringTimeEst = time.asctime(time.localtime(tiempoIni + DtEstimeted))
+    print('Transcurrido: %.2fmin. Avance %.4f. Tfin: %s'
+          %(Dt/60, frac, stringTimeEst) )
+
+#
+#for i in range(6):
+#    plt.figure()
+#    plt.hist(paraMuest5[:,i],30)
+
+corner.corner(paraMuest5, 50)
+
+# %%
+mu5 = np.mean(paraMuest5, axis=0)
+covar5 = np.cov(paraMuest5.T)
+cameraMatrixOut, distCoeffsOut = bl.flat2int(mu5, Ns)
+
+mu5Covar = covar5 / Nmuestras
+covar5Covar = bl.varVarN(covar5, Nmuestras)
+
+resultsAP = dict()
+
+resultsAP['Nsamples'] = Nmuestras
+resultsAP['paramsMU'] = mu5
+resultsAP['paramsVAR'] = covar5
+resultsAP['paramsMUvar'] = mu5Covar
+resultsAP['paramsVARvar'] = covar5Covar
+resultsAP['Ns'] = Ns
+
+# %%
+extrinsicParamsOutFile = imagesFolder + camera + model + "extrinsicParamsAP"
+extrinsicParamsOutFile = extrinsicParamsOutFile + str(std) + ".npy"
+
+save = False
+if save:
+    np.save(extrinsicParamsOutFile, resultsAP)
+
+load = False
+if load:
+    resultsAP = np.load(extrinsicParamsOutFile).all()  # load all objects
+    
+    Nmuestras = resultsAP["Nsamples"]
+    mu5 = resultsAP['paramsMU']
+    covar5 = resultsAP['paramsVAR']
+    mu5Covar = resultsAP['paramsMUvar']
+    covar5Covar = resultsAP['paramsVARvar']
+    Ns = resultsAP['Ns']
+    
+
+# %%
+
+xm, ym, Cm = cl.inverse(xIm, mu3[:3], mu3[3:], cameraMatrix,
+                        distCoeffs, model, params['Cccd'], params['Cf'], params['Ck'], Crt=covar3)
+
+fig = plt.figure()
+ax = fig.gca()
+
+ax.plot(calibPts[:,0], calibPts[:,1], '+')
+ax.plot(camPrior[0], camPrior[1], 'x')
+cl.plotPointsUncert(ax, Cm, xm, ym, 'b')
