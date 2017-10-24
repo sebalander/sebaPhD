@@ -118,7 +118,7 @@ def errorCuadraticoImagen(Xext, Xint, Ns, params, j, mahDist=False):
 
     # error
     er = ([xm, ym] - chessboardModel[0,:,:2].T).T
-
+    
     Cmbool = anny(Cm)
     if Cmbool:
         # devuelvo error cuadratico pesado por las covarianzas
@@ -153,6 +153,8 @@ def errorCuadraticoInt(Xint, Ns, XextList, params, mahDist=False):
                                         j, mahDist=mahDist))
 
     return np.concatenate(Er)
+
+
 
 # %% funciones para calcular jacobiano y hessiano in y externo
 Jint = ndf.Jacobian(errorCuadraticoInt)  # (Ns,)
