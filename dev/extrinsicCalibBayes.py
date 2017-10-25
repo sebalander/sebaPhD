@@ -44,10 +44,10 @@ patternFile =      imagesFolder + camera + "ChessPattern.npy"
 imgShapeFile =     imagesFolder + camera + "Shape.npy"
 
 # model data files
-distCoeffsFile =   imagesFolder + camera + model + "DistCoeffs.npy"
-linearCoeffsFile = imagesFolder + camera + model + "LinearCoeffs.npy"
-tVecsFile =        imagesFolder + camera + model + "Tvecs.npy"
-rVecsFile =        imagesFolder + camera + model + "Rvecs.npy"
+#distCoeffsFile =   imagesFolder + camera + model + "DistCoeffs.npy"
+#linearCoeffsFile = imagesFolder + camera + model + "LinearCoeffs.npy"
+#tVecsFile =        imagesFolder + camera + model + "Tvecs.npy"
+#rVecsFile =        imagesFolder + camera + model + "Rvecs.npy"
 
 # model data files
 intrinsicParamsOutFile = imagesFolder + camera + model + "intrinsicParamsML"
@@ -56,9 +56,12 @@ intrinsicParamsOutFile = intrinsicParamsOutFile + "0.5.npy"
 # calibration points
 calibptsFile = "/home/sebalander/Code/VisionUNQextra/Videos y Mediciones/2016-11-13 medicion/calibrExtr/puntosCalibracion.txt"
 
+extrinsicFolder = "./resources/intrinsicCalib/" + camera + "/"
+
+
 # load model specific data
-distCoeffs = np.load(distCoeffsFile)
-cameraMatrix = np.load(linearCoeffsFile)
+#distCoeffs = np.load(distCoeffsFile)
+#cameraMatrix = np.load(linearCoeffsFile)
 
 # load intrinsic calib uncertainty
 resultsML = np.load(intrinsicParamsOutFile).all()  # load all objects
@@ -68,7 +71,7 @@ covarDist = resultsML['paramsVAR']
 #muCovar = resultsML['paramsMUvar']
 #covarCovar = resultsML['paramsVARvar']
 Ns = resultsML['Ns']
-cameraMatrixOut, distCoeffsOut = bl.flat2int(Xint, Ns)
+cameraMatrix, distCoeffs = bl.flat2int(Xint, Ns)
 
 # Calibration points
 dataPts = np.loadtxt(calibptsFile)
@@ -108,9 +111,9 @@ plt.plot(camPrior[0], camPrior[1], 'x')
 
 # %% determino la pose a prior
 # saco una pose inicial con opencv
-ret, rvecIni, tvecIni, inliers = cv2.solvePnPRansac(calibPts, xIm, cameraMatrixOut, distCoeffsOut)
+ret, rvecIni, tvecIni, inliers = cv2.solvePnPRansac(calibPts, xIm, cameraMatrix, distCoeffs)
 
-xpr, ypr, c = cl.inverse(xIm, rvecIni, tvecIni, cameraMatrixOut, distCoeffsOut, model=model)
+xpr, ypr, c = cl.inverse(xIm, rvecIni, tvecIni, cameraMatrix, distCoeffs, model=model)
 
 plt.plot(xpr, ypr, '*')
 
@@ -128,7 +131,7 @@ def etotal(Xext, Ns, Xint, params):
 
 std = 2.0
 # output file
-extrinsicParamsOutFile = imagesFolder + camera + model + "extrinsicParamsAP"
+extrinsicParamsOutFile = extrinsicFolder + camera + model + "intrinsicParamsAP"
 extrinsicParamsOutFile = extrinsicParamsOutFile + str(std) + ".npy"
 Ci = np.repeat([ std**2 * np.eye(2)],n*m, axis=0).reshape(n,m,2,2)
 
@@ -145,35 +148,6 @@ params["Crt"] = False
 #params = [n, m, xIm.reshape((1,1,-1,2)),model, calibPts[:,:2].reshape((1,-1,2)), Ci]
 
 Xext0 = bl.ext2flat(rvecIni, tvecIni)
-
-#E0 = etotal(Xext0, Ns, Xint, params)
-#difE = 6 * np.log(10)
-#Emax = E0 + difE
-
-## %%
-#cotas = np.array([[2.4944859, 2.82924],  # [0]
-#                  [1.11983, 1.4141],    # [1]
-#                  [-0.5572, -0.2562328], # [2]
-#                  [-0.11, 0.596],    # [3]
-#                  [1.4521, 2.7999], # [4]
-#                  [10.0466, 16.0076]])  # [5] 
-#
-#errores = np.zeros((6,2))
-#
-#for i in [4]: # range(6)
-#    Xext2 = dc(Xext0)
-#    Xext2[i] = cotas[i,0]
-#    errores[i,0] = etotal(Xext2, Ns, Xint, params)
-#
-#    Xext2[i] = cotas[i,1]
-#    errores[i,1] = etotal(Xext2, Ns, Xint, params)
-#    print((errores[i] - E0) / difE)
-#
-##print((errores - E0) / difE)
-#
-#print(cotas[:,0] < Xext0)
-#
-#print(Xext0 < cotas[:,1])
 
 # %% metropolis hastings
 
@@ -228,80 +202,6 @@ class pdfSampler:
         else:
             return np.random.rand(n,6) * self.ab + self.a
 
-## %% sampleo simplemente para sacar una pdf desde donde proponer
-#
-#sampleador = pdfSampler(cotas[:,0],  cotas[:,1] - cotas[:,0])
-#
-## saco 1000 muestras
-#Xsamples = sampleador.rvs(100)
-#esamples = np.array([etotal(x, Ns, Xint, params) for x in Xsamples])
-#plt.hist(esamples)
-##meErr = (np.max(esamples) + np.min(esamples)) / 2
-## pongo una constante que me baja la escala porque me dan nros muy grandes
-## eto me deforma la gaussiana per es un comienzo
-#probsamples = np.exp(- esamples * 1e-2 / 2)
-#
-#for i in range(6):
-#    plt.figure()
-#    plt.hist(Xsamples[:,i],100, weights=probsamples, normed=True)
-#
-## %%
-## media pesada por la probabilidad
-#xaverg = np.average(Xsamples, axis=0, weights=probsamples)
-#eaverg = etotal(xaverg, Ns, Xint, params)
-#paverg = np.exp(- eaverg * 1e-2 / 2 )
-## covarianza pesada por la probabilidad
-#xcovar = np.cov(Xsamples.T, ddof=0, aweights=probsamples)
-#
-#ln.eigvals(xcovar)
-#
-## %% segunda ronda de proponer samples para sacar una pdf
-## repetir este bloque varias veces me ayuda a ir corriendo la pdf
-## sampleo de una pdf, no uniforme como antes
-#
-#sampleador = sts.multivariate_normal(xaverg, xcovar)
-#
-## saco 1000 muestras
-#Xsamples2 = sampleador.rvs(1000)
-#esamples2 = np.array([etotal(x, Ns, Xint, params) for x in Xsamples2])
-#plt.figure(6)
-#plt.hist(esamples2, 30)
-##meErr = (np.max(esamples) + np.min(esamples)) / 2
-## pongo una constante que me baja la escala porque me dan nros muy grandes
-## eto me deforma la gaussiana per es un comienzo
-#probsamples2 = np.exp(- (esamples2 - eaverg2) / 2)
-#
-#for i in range(7,13):
-#    plt.figure(i)
-#    plt.hist(Xsamples2[:,i-7],100, weights=probsamples2, normed=True)
-#
-## media pesada por la probabilidad
-#xaverg2 = np.average(Xsamples2, axis=0, weights=probsamples2)
-#xcovar2 = np.cov(Xsamples2.T, ddof=0, aweights=probsamples2)
-#eaverg2 = etotal(xaverg2, Ns, Xint, params)
-#
-#ln.eigvals(xcovar2)
-
-'''
-aca los resultados para no tener que correr todo de nuevo:
-    
-xaverg = np.array([  2.63083507,   1.17600421,  -0.25493875,   0.58739594,
-         2.77222218,  14.43985677])
-
-xcovar = np.array([[  2.92403190e-08,   1.29185352e-08,   4.04071807e-08,
-          7.73672211e-07,   9.08206166e-08,   7.74763196e-07],
-       [  1.29185352e-08,   2.23554054e-08,   2.57425254e-08,
-          1.19069512e-07,  -5.50744593e-08,   6.22587094e-08],
-       [  4.04071807e-08,   2.57425254e-08,   8.09630927e-08,
-          1.48667380e-06,   1.88325788e-07,   5.77312247e-07],
-       [  7.73672211e-07,   1.19069512e-07,   1.48667380e-06,
-          3.62999187e-05,   6.32766340e-06,   1.52757301e-05],
-       [  9.08206166e-08,  -5.50744593e-08,   1.88325788e-07,
-          6.32766340e-06,   1.37343873e-06,   2.15822184e-06],
-       [  7.74763196e-07,   6.22587094e-08,   5.77312247e-07,
-          1.52757301e-05,   2.15822184e-06,   3.17442496e-05]])
-'''
-
 
 # %% ahora arranco con Metropolis, primera etapa
 mu0 = Xext0
@@ -350,26 +250,17 @@ for i in range(200, Nmuestras):
     sampleador.cov = np.cov(paraMuest[:i].T, ddof=0, aweights=probMuestras[:i])
 
 
-# saco la media pesada y la covarinza si peso porque asi es metropolis
+# saco la media pesada y la covarinza pesadas
 mu1 = np.average(paraMuest, 0, weights=probMuestras)
 covar1 = np.cov(paraMuest.T, ddof=0, aweights=probMuestras)
 
 ln.eigvals(covar1)
 
-# %%
-
-#plt.plot(paraMuest-np.mean(paraMuest, axis=0))
-
-for i in range(6):
-    plt.figure()
-    plt.hist(paraMuest[200:,i],30)
-
-
 
 # %% ultima etapa de metropolis, no se actualiza online la pds sampling
-sampleador = sts.multivariate_normal(mu1, covar1)
+sampleador = sts.multivariate_normal(mu2, covar2)
 
-Nmuestras = int(2e5)
+Nmuestras = int(1e5)
 
 generados = 0
 aceptados = 0
@@ -388,6 +279,7 @@ paraMuest2[0], errorMuestras2[0] = (start, startE)
 tiempoIni = time.time()
 for i in range(1, Nmuestras):
     paraMuest2[i], errorMuestras2[i] = nuevo(paraMuest2[i-1], errorMuestras2[i-1])
+    
     tiempoNow = time.time()
     Dt = tiempoNow - tiempoIni
     frac = i / Nmuestras
@@ -404,10 +296,31 @@ corner.corner(paraMuest2, 50)
 
 # %%
 
-cameraMatrixOut, distCoeffsOut = bl.flat2int(mu2, Ns)
-
 mu2Covar = covar2 / Nmuestras
+extr = np.max(np.abs(mu2Covar))
+plt.matshow(mu2Covar, cmap='RdBu', vmin=-extr, vmax=extr)
+
+print('error relativo del mu')
+eRelMu = mu2Covar / (mu2.reshape((-1,1)) * mu2.reshape((1,-1)))
+
+wm, vm = ln.eigh(mu2Covar)
+plt.matshow(vm, cmap='RdBu', vmin=-1, vmax=1)
+
+wMu, vMu = ln.eigh(eRelMu)
+np.prod(wMu)
+plt.matshow(vMu, cmap='RdBu')
+
+print(np.sqrt(np.diag(mu2Covar)) / mu2)
+
 covar2Covar = bl.varVarN(covar2, Nmuestras)
+print('error relativo de la covarianza')
+eRelCovar = covar2Covar / (covar2.reshape((-1,1)) * covar2.reshape((1,-1)))
+wCo, vCo = ln.eigh(eRelCovar)
+np.prod(wCo)
+plt.matshow(vCo, cmap='RdBu')
+
+print(eRelCovar)
+print(np.sqrt(np.mean(eRelCovar**2)))
 
 resultsAP = dict()
 
@@ -421,151 +334,30 @@ resultsAP['Ns'] = Ns
 # %%
 save = True
 if save:
-    np.save(extrinsicParamsOutFile, resultsML)
+    np.save(extrinsicParamsOutFile, resultsAP)
 
 load = False
 if load:
-    resultsML = np.load(extrinsicParamsOutFile).all()  # load all objects
+    resultsAP = np.load(extrinsicParamsOutFile).all()  # load all objects
     
-    Nmuestras = resultsML["Nsamples"]
-    mu3 = resultsML['paramsMU']
-    covar3 = resultsML['paramsVAR']
-    mu3Covar = resultsML['paramsMUvar']
-    covar3Covar = resultsML['paramsVARvar']
-    Ns = resultsML['Ns']
-    
-    cameraMatrixOut, distCoeffsOut = bl.flat2int(mu3, Ns)
-
-
-# %%
-#
-#
-## el error relativo aproximadamente
-#np.sqrt(np.diag(covar3)) / mu3
-#
-#
-#
-#print(np.concatenate([[xaverg], [mu2], [mu3]], axis=0).T)
-#
-#
-## %% ahora le pongo un prior en los parametros extrinsecos
-#
-## pongo 3m de sigma en x,y y 20cm en z
-#camPrior
-#W = 1 / np.array([3,3,0.2])**2
-#
-#def ePrior(Xext):
-#    return W.dot((Xext[3:] - camPrior)**2)
-#
-## error total
-#def etotal(Xext, Ns, Xint, params):
-#    '''
-#    calcula el error total como la suma de los errore de cada punto en cada
-#    imagen
-#    '''
-#    ep = ePrior(Xext)
-#    
-#    return ep + bl.errorCuadraticoImagen(Xext, Xint, Ns, params, 0).sum()
-#
-#ePrior(mu3)
-#etotal(mu3, Ns, Xint, params)
-#
-## saco una gaussiana que es el producto de lo que se obtiene por ML y la priori
-## solo en la posicion
-#covar4 = np.zeros_like(covar3)
-#covar4[:3,:3] = covar3[:3,:3] # para angulos dejo como esta
-#S1 = ln.inv(covar3[3:,3:])
-#S2 = np.diag(W)
-#covar4[3:,3:] = ln.inv(S1 + S2)
-#
-#mu4 = dc(mu3)
-#mu4[3:] = covar4[3:,3:].dot(S1.dot(mu3[3:]) + S2.dot(camPrior)) # cambio la media pesandola
-## parece que no va a afectar casi nada porque el likelihood pesa muchisimo mas,
-## la gaussiana es mucho mas finita.
-#
-## %%
-#sampleador = sts.multivariate_normal(mu5, covar5)
-#
-#Nmuestras = int(1e6)
-#
-#generados = 0
-#aceptados = 0
-#avance = 0
-#retroceso = 0
-#
-#paraMuest5 = np.zeros((Nmuestras,6))
-#errorMuestras5 = np.zeros(Nmuestras)
-#
-## primera
-#start = sampleador.rvs() # sampleador() # rn(8) * intervalo + cotas[:,0]
-#startE = etotal(start, Ns, Xint, params)
-#paraMuest5[0], errorMuestras5[0] = (start, startE)
-#
-#
-#
-#tiempoIni = time.time()
-#for i in range(1, Nmuestras):
-#    paraMuest5[i], errorMuestras5[i] = nuevo(paraMuest5[i-1], errorMuestras5[i-1])
-#    tiempoNow = time.time()
-#    Dt = tiempoNow - tiempoIni
-#    frac = i / Nmuestras
-#    DtEstimeted = (tiempoNow - tiempoIni) / frac
-#    stringTimeEst = time.asctime(time.localtime(tiempoIni + DtEstimeted))
-#    print('Transcurrido: %.2fmin. Avance %.4f. Tfin: %s'
-#          %(Dt/60, frac, stringTimeEst) )
-#
-##
-##for i in range(6):
-##    plt.figure()
-##    plt.hist(paraMuest5[:,i],30)
-#
-#corner.corner(paraMuest5, 50)
-#
-## %%
-#mu5 = np.mean(paraMuest5, axis=0)
-#covar5 = np.cov(paraMuest5.T)
-#cameraMatrixOut, distCoeffsOut = bl.flat2int(mu5, Ns)
-#
-#mu5Covar = covar5 / Nmuestras
-#covar5Covar = bl.varVarN(covar5, Nmuestras)
-#
-#resultsAP = dict()
-#
-#resultsAP['Nsamples'] = Nmuestras
-#resultsAP['paramsMU'] = mu5
-#resultsAP['paramsVAR'] = covar5
-#resultsAP['paramsMUvar'] = mu5Covar
-#resultsAP['paramsVARvar'] = covar5Covar
-#resultsAP['Ns'] = Ns
-#
-## %%
-#extrinsicParamsOutFile = imagesFolder + camera + model + "extrinsicParamsAP"
-#extrinsicParamsOutFile = extrinsicParamsOutFile + str(std) + ".npy"
-#
-#save = False
-#if save:
-#    np.save(extrinsicParamsOutFile, resultsAP)
-#
-#load = False
-#if load:
-#    resultsAP = np.load(extrinsicParamsOutFile).all()  # load all objects
-#    
-#    Nmuestras = resultsAP["Nsamples"]
-#    mu5 = resultsAP['paramsMU']
-#    covar5 = resultsAP['paramsVAR']
-#    mu5Covar = resultsAP['paramsMUvar']
-#    covar5Covar = resultsAP['paramsVARvar']
-#    Ns = resultsAP['Ns']
-#    
+    Nmuestras = resultsAP["Nsamples"]
+    mu2 = resultsAP['paramsMU']
+    covar2 = resultsAP['paramsVAR']
+    mu2Covar = resultsAP['paramsMUvar']
+    covar2Covar = resultsAP['paramsVARvar']
+    Ns = resultsAP['Ns']
 
 # %%
 
 xm, ym, Cm = cl.inverse(xIm, mu2[:3], mu2[3:], cameraMatrix,
                         distCoeffs, model, params['Cccd'], params['Cf'], params['Ck'], Crt=covar2)
 
+# %%
 fig = plt.figure()
 ax = fig.gca()
 
 ax.plot(calibPts[:,0], calibPts[:,1], '+')
 ax.plot(camPrior[0], camPrior[1], 'x')
+ax.plot(mu2[3], mu2[4], '.r')
+cl.plotEllipse(ax, mu2Covar[3:5,3:5], mu2[3], mu2[4], 'r')
 cl.plotPointsUncert(ax, Cm, xm, ym, 'b')
