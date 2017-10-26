@@ -440,7 +440,7 @@ covar0 = np.array([[  6.85800443e-08,   1.31206035e-07,  -1.45551229e-08,
           1.79526904e-11,  -7.56914305e-14,   1.07514983e-14,
          -3.46909652e-14,   3.35212763e-14]])
 
-covar0 += np.eye(8) * 1e-9  # regulaizo un poco
+covar0 += np.eye(8) * 1e-9  # regularizo un poco
 # %% ahora arranco con Metropolis, primera etapa
 # defino una pdf sacada de la galera a partir ed lo que me daba opencv
 mu0 = Xint.copy()
@@ -454,38 +454,38 @@ aceptados = 0
 avance = 0
 retroceso = 0
 
-paraMuest = np.zeros((Nmuestras,8))
-errorMuestras = np.zeros(Nmuestras)
+paraMuest1 = np.zeros((Nmuestras,8))
+errorMuestras1 = np.zeros(Nmuestras)
 
 # primera
 start = sampleador.rvs() # dc(Xint)
 startE = etotal(start, Ns, XextList, params)
-paraMuest[0], errorMuestras[0] = nuevo(start, startE)
+paraMuest1[0], errorMuestras1[0] = nuevo(start, startE)
 
 # primera parte saco 10 puntos asi como esta
 for i in range(1, 20):
-    paraMuest[i], errorMuestras[i] = nuevo(paraMuest[i-1], errorMuestras[i-1])
-    sampleador.mean = paraMuest[i]
+    paraMuest1[i], errorMuestras1[i] = nuevo(paraMuest1[i-1], errorMuestras1[i-1])
+    sampleador.mean = paraMuest1[i]
 
 # ahora para hacerlo mas rapido voy actualizando la distribucion de propuesta
-for i in range(20, 200):
-    paraMuest[i], errorMuestras[i] = nuevo(paraMuest[i-1], errorMuestras[i-1])
-    sampleador.mean = paraMuest[i]
-    sampleador.cov = sampleador.cov * 0.7 + 0.3 * np.cov(paraMuest[i-10:i].T)
+for i in range(20, Nmuestras):
+    paraMuest1[i], errorMuestras1[i] = nuevo(paraMuest1[i-1], errorMuestras1[i-1])
+    sampleador.mean = paraMuest1[i]
+    sampleador.cov = np.cov(paraMuest1[:i].T)
 
-# ahora actualizo pesando por la probabilidad
-for i in range(200, Nmuestras):
-    paraMuest[i], errorMuestras[i] = nuevo(paraMuest[i-1], errorMuestras[i-1])
-#    probMuestras[i] = np.exp(- errorMuestras[i] / 2)
-    
-    sampleador.mean = paraMuest[i]
-    sampleador.cov = np.cov(paraMuest[100:i].T)
+## ahora actualizo pesando por la probabilidad
+#for i in range(200, Nmuestras):
+#    paraMuest[i], errorMuestras[i] = nuevo(paraMuest[i-1], errorMuestras[i-1])
+##    probMuestras[i] = np.exp(- errorMuestras[i] / 2)
+#    
+#    sampleador.mean = paraMuest[i]
+#    sampleador.cov = np.cov(paraMuest[100:i].T)
 
 
-corner.corner(paraMuest)
+corner.corner(paraMuest1)
 
-mu1 = np.mean(paraMuest, 0)
-covar1 = np.cov(paraMuest.T)
+mu1 = np.mean(paraMuest1, 0)
+covar1 = np.cov(paraMuest1.T)
 
 ## %%
 ## saco la media pesada y la covarinza pesada
@@ -495,48 +495,10 @@ covar1 = np.cov(paraMuest.T)
 #covar2 = np.cov(paraMuest.T, ddof=0, aweights=psamples2)
 
 # %% ultima etapa de metropolis
-sampleador = sts.multivariate_normal(mu1, covar1)
+# achico la covarianza para perder menos puntos y que haya uqe iterar menos
+sampleador = sts.multivariate_normal(mu2, covar2/6)
 
-Nmuestras = int(2e3)
-
-generados = 0
-aceptados = 0
-avance = 0
-retroceso = 0
-
-paraMuest2 = np.zeros((Nmuestras,8))
-errorMuestras2 = np.zeros(Nmuestras)
-
-# primera
-start = dc(Xint) # sampleador() # rn(8) * intervalo + cotas[:,0]
-startE = etotal(start, Ns, XextList, params)
-paraMuest2[0], errorMuestras2[0] = (start, startE)
-
-
-
-tiempoIni = time.time()
-for i in range(1, Nmuestras):
-    paraMuest2[i], errorMuestras2[i] = nuevo(paraMuest2[i-1], errorMuestras2[i-1])
-    sampleador.mean = paraMuest2[i]
-    
-    tiempoNow = time.time()
-    Dt = tiempoNow - tiempoIni
-    frac = i / Nmuestras
-    DtEstimeted = (tiempoNow - tiempoIni) / frac
-    stringTimeEst = time.asctime(time.localtime(tiempoIni + DtEstimeted))
-    print('Transcurrido: %.2fmin. Avance %.4f. Tfin: %s'
-          %(Dt/60, frac, stringTimeEst) )
-
-mu2 = np.mean(paraMuest2, 0)
-covar2 = np.cov(paraMuest2.T)
-
-corner.corner(paraMuest2)
-
-
-# %% ultima etapa de metropolis
-sampleador = sts.multivariate_normal(mu2, covar2)
-
-Nmuestras = int(2e3)
+Nmuestras = int(1e5)
 
 generados = 0
 aceptados = 0
@@ -566,26 +528,65 @@ for i in range(1, Nmuestras):
     print('Transcurrido: %.2fmin. Avance %.4f. Tfin: %s'
           %(Dt/60, frac, stringTimeEst) )
 
-mu3 = np.mean(paraMuest3, 0)
-covar3 = np.cov(paraMuest3.T)
+mu2 = np.mean(paraMuest3, 0)
+covar2 = np.cov(paraMuest3.T)
 
 corner.corner(paraMuest3)
+#
+#
+## %% ultima etapa de metropolis
+#sampleador = sts.multivariate_normal(mu2, covar2)
+#
+#Nmuestras = int(2e3)
+#
+#generados = 0
+#aceptados = 0
+#avance = 0
+#retroceso = 0
+#
+#paraMuest3 = np.zeros((Nmuestras,8))
+#errorMuestras3 = np.zeros(Nmuestras)
+#
+## primera
+#start = dc(Xint) # sampleador() # rn(8) * intervalo + cotas[:,0]
+#startE = etotal(start, Ns, XextList, params)
+#paraMuest3[0], errorMuestras3[0] = (start, startE)
+#
+#
+#
+#tiempoIni = time.time()
+#for i in range(1, Nmuestras):
+#    paraMuest3[i], errorMuestras3[i] = nuevo(paraMuest3[i-1], errorMuestras3[i-1])
+#    sampleador.mean = paraMuest3[i]
+#    
+#    tiempoNow = time.time()
+#    Dt = tiempoNow - tiempoIni
+#    frac = i / Nmuestras
+#    DtEstimeted = (tiempoNow - tiempoIni) / frac
+#    stringTimeEst = time.asctime(time.localtime(tiempoIni + DtEstimeted))
+#    print('Transcurrido: %.2fmin. Avance %.4f. Tfin: %s'
+#          %(Dt/60, frac, stringTimeEst) )
+#
+#mu3 = np.mean(paraMuest3, 0)
+#covar3 = np.cov(paraMuest3.T)
+#
+#corner.corner(paraMuest3)
 
 # %% new estimated covariance run Metropolis again
-mu3 = np.mean(paraMuest2, axis=0)
-covar3 = np.cov(paraMuest2.T)
-cameraMatrixOut, distCoeffsOut = bl.flat2int(mu3, Ns)
+#mu2 = np.mean(paraMuest2, axis=0)
+#covar2 = np.cov(paraMuest2.T)
+cameraMatrixOut, distCoeffsOut = bl.flat2int(mu2, Ns)
 
-mu3Covar = covar3 / Nmuestras
-covar3Covar = bl.varVarN(covar3, Nmuestras)
+mu2Covar = covar2 / Nmuestras
+covar2Covar = bl.varVarN(covar2, Nmuestras)
 
 resultsML = dict()
 
 resultsML['Nsamples'] = Nmuestras
-resultsML['paramsMU'] = mu3
-resultsML['paramsVAR'] = covar3
-resultsML['paramsMUvar'] = mu3Covar
-resultsML['paramsVARvar'] = covar3Covar
+resultsML['paramsMU'] = mu2
+resultsML['paramsVAR'] = covar2
+resultsML['paramsMUvar'] = mu2Covar
+resultsML['paramsVARvar'] = covar2Covar
 resultsML['Ns'] = Ns
 
 # %%
@@ -608,15 +609,15 @@ if load:
 
 
 
-# %%
-import corner
-
-# el error relativo aproximadamente
-np.sqrt(np.diag(covar3)) / mu3
-
-corner.corner(paraMuest2, 50)
-
-print(np.concatenate([[xaverg], [mu2], [mu3]], axis=0).T)
+## %%
+#import corner
+#
+## el error relativo aproximadamente
+#np.sqrt(np.diag(covar3)) / mu3
+#
+#corner.corner(paraMuest2, 50)
+#
+#print(np.concatenate([[xaverg], [mu2], [mu3]], axis=0).T)
 
 # %% ahora para proyectar con los datos de chessboard a ver como dan
 
@@ -658,13 +659,13 @@ Cccd = Ci
 Crt = np.zeros((6,6))
 
 # meto los resultados de ML
-Cf = covar3[:4,:4]
-Ck = covar3[4:,4:]
+Cf = covar2[:4,:4]
+Ck = covar2[4:,4:]
 
 nparams = 4 + Ck.shape[0] + 6
 
 # dejo los valores preparados
-parsGen = np.random.multivariate_normal(mu3, covar3, nSampl)
+parsGen = np.random.multivariate_normal(mu2, covar2, nSampl)
 posIgen = np.random.multivariate_normal([0,0], Cccd[j,0], (nSampl, m))
 posIgen += imagePoints[j,0].reshape((1,-1,2))
 posMap = np.zeros_like(posIgen)
@@ -711,7 +712,7 @@ cl.plotPointsUncert(ax, posMapVar, posMapMean[:,0], posMapMean[:,1], 'b')
 
 # %% calculo la distancia mahalanobis entre los puntos proyectados y los reales
 # saco distancia mahalanobis de cada proyeccion
-mahDistance = bl.errorCuadraticoInt(mu3, Ns, XextList, params, mahDist=True)
+mahDistance = bl.errorCuadraticoInt(mu2, Ns, XextList, params, mahDist=True)
 
 plt.figure()
 nhist, bins, _ = plt.hist(mahDistance, 200, normed=True)

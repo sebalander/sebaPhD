@@ -50,8 +50,8 @@ imgShapeFile =     imagesFolder + camera + "Shape.npy"
 #rVecsFile =        imagesFolder + camera + model + "Rvecs.npy"
 
 # model data files
-intrinsicParamsOutFile = imagesFolder + camera + model + "intrinsicParamsML"
-intrinsicParamsOutFile = intrinsicParamsOutFile + "0.5.npy"
+intrinsicParamsFile = imagesFolder + camera + model + "intrinsicParamsML"
+intrinsicParamsFile = intrinsicParamsFile + "0.5.npy"
 
 # calibration points
 calibptsFile = "/home/sebalander/Code/VisionUNQextra/Videos y Mediciones/2016-11-13 medicion/calibrExtr/puntosCalibracion.txt"
@@ -64,7 +64,7 @@ extrinsicFolder = "./resources/intrinsicCalib/" + camera + "/"
 #cameraMatrix = np.load(linearCoeffsFile)
 
 # load intrinsic calib uncertainty
-resultsML = np.load(intrinsicParamsOutFile).all()  # load all objects
+resultsML = np.load(intrinsicParamsFile).all()  # load all objects
 #Nmuestras = resultsML["Nsamples"]
 Xint = resultsML['paramsMU']
 covarDist = resultsML['paramsVAR']
@@ -125,9 +125,9 @@ def etotal(Xext, Ns, Xint, params):
     calcula el error total como la suma de los errore de cada punto en cada
     imagen
     '''
-    # ep = ePrior(Xext)
-    
-    return bl.errorCuadraticoImagen(Xext, Xint, Ns, params, 0, mahDist=True).sum()
+    ep = ePrior(Xext)
+    ep += bl.errorCuadraticoImagen(Xext, Xint, Ns, params, 0, mahDist=True).sum()
+    return ep
 
 std = 2.0
 # output file
@@ -215,7 +215,7 @@ aceptados = 0
 avance = 0
 retroceso = 0
 
-paraMuest = np.zeros((Nmuestras,6))
+paraMuest = np.zeros((Nmuestras, 6))
 errorMuestras = np.zeros(Nmuestras)
 probMuestras = np.zeros(Nmuestras)
 
@@ -230,23 +230,25 @@ for i in range(1, 20):
     sampleador.mean = paraMuest[i] # corro el centro
 
 
-# ahora actualizo con media y covarianza moviles
-for i in range(20, 200):
-    paraMuest[i], errorMuestras[i] = nuevo(paraMuest[i-1], errorMuestras[i-1])
-    
-    sampleador.mean = paraMuest[i]
-    sampleador.cov = sampleador.cov * 0.7 + 0.3 * np.cov(paraMuest[i-10:i].T)
+## ahora actualizo con media y covarianza moviles
+#for i in range(20, 200):
+#    paraMuest[i], errorMuestras[i] = nuevo(paraMuest[i-1], errorMuestras[i-1])
+#    
+#    sampleador.mean = paraMuest[i]
+#    sampleador.cov = sampleador.cov * 0.7 + 0.3 * np.cov(paraMuest[i-10:i].T)
 
 
 #probMuestras[:i] = np.exp(- errorMuestras[:i] / 2)
-
+b = 1e3 / (Nmuestras - 20) # para calcular el rango de la covarianza
+a = -b * 20
 # ahora actualizo pesando por la probabilidad
-for i in range(200, Nmuestras):
+for i in range(20, Nmuestras):
     paraMuest[i], errorMuestras[i] = nuevo(paraMuest[i-1], errorMuestras[i-1])
-    probMuestras[i] = np.exp(- errorMuestras[i] / 2)
+#    probMuestras[i] = np.exp(- errorMuestras[i] / 2)
     
     sampleador.mean = paraMuest[i]
-    sampleador.cov = np.cov(paraMuest[100:i].T)
+    iIni = int(a + b * i)
+    sampleador.cov = np.cov(paraMuest[iIni:i].T) / 4
 #    
 #    sampleador.mean = np.average(paraMuest[:i], 0, weights=probMuestras[:i])
 #    sampleador.cov = np.cov(paraMuest[:i].T, ddof=0, aweights=probMuestras[:i])
@@ -255,24 +257,24 @@ for i in range(200, Nmuestras):
 ## saco la media pesada y la covarinza pesadas
 #mu1 = np.average(paraMuest, 0, weights=probMuestras)
 #covar1 = np.cov(paraMuest.T, ddof=0, aweights=probMuestras)
-mu1 = np.average(paraMuest[200:], 0)
-covar1 = np.cov(paraMuest[200:].T)
+mu1 = np.average(paraMuest[500:], 0)
+covar1 = np.cov(paraMuest[500:].T)
 
 ln.eigvals(covar1)
 
 corner.corner(paraMuest)
 
 # %% ultima etapa de metropolis, no se actualiza online la pds sampling
-sampleador = sts.multivariate_normal(mu1, covar1)
+sampleador = sts.multivariate_normal(mu1, covar1 / 4)
 
-Nmuestras = int(1e6)
+Nmuestras = int(1e5)
 
 generados = 0
 aceptados = 0
 avance = 0
 retroceso = 0
 
-paraMuest2 = np.zeros((Nmuestras,6))
+paraMuest2 = np.zeros((Nmuestras, 6))
 errorMuestras2 = np.zeros(Nmuestras)
 
 # primera
@@ -308,7 +310,8 @@ extr = np.max(np.abs(mu2Covar))
 plt.matshow(mu2Covar, cmap='RdBu', vmin=-extr, vmax=extr)
 
 print('error relativo del mu')
-eRelMu = mu2Covar / (mu2.reshape((-1,1)) * mu2.reshape((1,-1)))
+eRelMu = np.abs(mu2Covar / (mu2.reshape((-1,1)) * mu2.reshape((1,-1))))
+plt.matshow(np.log(eRelMu), cmap='inferno')
 
 wm, vm = ln.eigh(mu2Covar)
 plt.matshow(vm, cmap='RdBu', vmin=-1, vmax=1)
@@ -374,24 +377,47 @@ cl.plotPointsUncert(ax, Cm, xm, ym, 'b')
 mahErr = bl.errorCuadraticoImagen(mu2, Xint, Ns, params, 0, mahDist=True)
 
 # hago el cumulativo
-count = np.arange(1, m + 1) / m
-mahCum = np.sort(mahErr)
+count = np.arange(m + 1) / m
+indSort = np.argsort(mahErr)
+mahCum = np.concatenate(([0], mahErr[indSort]))
 
-mahRange = np.linspace(0, mahCum[-1], 300)
-chi2pdf = sts.chi2.cdf(mahRange, 2)
-
+#mahRange = np.linspace(0, mahCum[-1], 100)
+chiError = sts.chi2(2)
+chi2cdf = chiError.cdf(mahCum)
+chi2Invese = chiError.ppf(count)
 
 # %%
 plt.figure()
-plt.step(mahCum, count, where='post')
-plt.step(mahRange, chi2pdf, where='pre')
+plt.step(mahCum, count, where='post', label='data')
+plt.step(chi2Invese, count, where='post')
+plt.step(mahCum, chi2cdf, where='post')
+plt.xlabel('Mah Dist squared')
+plt.legend()
+plt.xscale('log')
 
 
+# %% difference of mah dist with inverse of distribution
+mahTeo = np.empty_like(mahErr)
+mahTeo[indSort] = chi2Invese[1:]  # distancia a la que "tendria que haber dado"
 
+# ratio to calculate teoretical position
+ratio = np.sqrt(mahTeo / mahErr)
 
+Xproj = np.array([xm, ym]).T 
+Xerror = calibPts[:,:2]- Xproj # vector error
+calibTeo = Xproj + Xerror * ratio.reshape((-1,1)) # "theoretical position"
+# rearrange to plot
+xDif = np.array([calibTeo[:,0], calibPts[:,0]]).T
+yDif = np.array([calibTeo[:,1], calibPts[:,1]]).T
 
+cameradist = ln.norm(calibPts - mu2[3:6], axis=1)
 
+fig = plt.figure()
+ax = fig.gca()
 
-
-
-
+ax.plot(calibPts[:,0], calibPts[:,1], '+')
+ax.plot(camPrior[0], camPrior[1], 'x')
+ax.plot(mu2[3], mu2[4], '.r')
+cl.plotEllipse(ax, mu2Covar[3:5,3:5], mu2[3], mu2[4], 'r')
+cl.plotPointsUncert(ax, Cm, xm, ym, 'b')
+ax.plot(xDif.T, yDif.T, '-r')
