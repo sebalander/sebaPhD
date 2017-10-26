@@ -125,9 +125,9 @@ def etotal(Xext, Ns, Xint, params):
     calcula el error total como la suma de los errore de cada punto en cada
     imagen
     '''
-    ep = ePrior(Xext)
+    # ep = ePrior(Xext)
     
-    return ep + bl.errorCuadraticoImagen(Xext, Xint, Ns, params, 0).sum()
+    return bl.errorCuadraticoImagen(Xext, Xint, Ns, params, 0, mahDist=True).sum()
 
 std = 2.0
 # output file
@@ -208,7 +208,7 @@ mu0 = Xext0
 covar0 = np.diag(mu0*1e-2)**2
 sampleador = sts.multivariate_normal(mu0, covar0)
 
-Nmuestras = int(1e3)
+Nmuestras = int(1e4)
 
 generados = 0
 aceptados = 0
@@ -234,33 +234,38 @@ for i in range(1, 20):
 for i in range(20, 200):
     paraMuest[i], errorMuestras[i] = nuevo(paraMuest[i-1], errorMuestras[i-1])
     
-    sampleador.mean = sampleador.mean *0.7 + 0.3 * paraMuest[i]
+    sampleador.mean = paraMuest[i]
     sampleador.cov = sampleador.cov * 0.7 + 0.3 * np.cov(paraMuest[i-10:i].T)
 
 
-probMuestras[:i] = np.exp(- errorMuestras[:i] / 2)
-
+#probMuestras[:i] = np.exp(- errorMuestras[:i] / 2)
 
 # ahora actualizo pesando por la probabilidad
 for i in range(200, Nmuestras):
     paraMuest[i], errorMuestras[i] = nuevo(paraMuest[i-1], errorMuestras[i-1])
     probMuestras[i] = np.exp(- errorMuestras[i] / 2)
     
-    sampleador.mean = np.average(paraMuest[:i], 0, weights=probMuestras[:i])
-    sampleador.cov = np.cov(paraMuest[:i].T, ddof=0, aweights=probMuestras[:i])
+    sampleador.mean = paraMuest[i]
+    sampleador.cov = np.cov(paraMuest[100:i].T)
+#    
+#    sampleador.mean = np.average(paraMuest[:i], 0, weights=probMuestras[:i])
+#    sampleador.cov = np.cov(paraMuest[:i].T, ddof=0, aweights=probMuestras[:i])
 
 
-# saco la media pesada y la covarinza pesadas
-mu1 = np.average(paraMuest, 0, weights=probMuestras)
-covar1 = np.cov(paraMuest.T, ddof=0, aweights=probMuestras)
+## saco la media pesada y la covarinza pesadas
+#mu1 = np.average(paraMuest, 0, weights=probMuestras)
+#covar1 = np.cov(paraMuest.T, ddof=0, aweights=probMuestras)
+mu1 = np.average(paraMuest[200:], 0)
+covar1 = np.cov(paraMuest[200:].T)
 
 ln.eigvals(covar1)
 
+corner.corner(paraMuest)
 
 # %% ultima etapa de metropolis, no se actualiza online la pds sampling
-sampleador = sts.multivariate_normal(mu2, covar2)
+sampleador = sts.multivariate_normal(mu1, covar1)
 
-Nmuestras = int(1e5)
+Nmuestras = int(1e6)
 
 generados = 0
 aceptados = 0
@@ -279,6 +284,8 @@ paraMuest2[0], errorMuestras2[0] = (start, startE)
 tiempoIni = time.time()
 for i in range(1, Nmuestras):
     paraMuest2[i], errorMuestras2[i] = nuevo(paraMuest2[i-1], errorMuestras2[i-1])
+    sampleador.mean = paraMuest2[i] # muevo el centro al ultimo punto
+#    sampleador.cov = np.cov(paraMuest2[:i].T)
     
     tiempoNow = time.time()
     Dt = tiempoNow - tiempoIni
@@ -332,7 +339,7 @@ resultsAP['paramsVARvar'] = covar2Covar
 resultsAP['Ns'] = Ns
 
 # %%
-save = True
+save = False
 if save:
     np.save(extrinsicParamsOutFile, resultsAP)
 
@@ -352,7 +359,6 @@ if load:
 xm, ym, Cm = cl.inverse(xIm, mu2[:3], mu2[3:], cameraMatrix,
                         distCoeffs, model, params['Cccd'], params['Cf'], params['Ck'], Crt=covar2)
 
-# %%
 fig = plt.figure()
 ax = fig.gca()
 
@@ -361,3 +367,31 @@ ax.plot(camPrior[0], camPrior[1], 'x')
 ax.plot(mu2[3], mu2[4], '.r')
 cl.plotEllipse(ax, mu2Covar[3:5,3:5], mu2[3], mu2[4], 'r')
 cl.plotPointsUncert(ax, Cm, xm, ym, 'b')
+
+# %% calculate mahalanobis distance
+
+
+mahErr = bl.errorCuadraticoImagen(mu2, Xint, Ns, params, 0, mahDist=True)
+
+# hago el cumulativo
+count = np.arange(1, m + 1) / m
+mahCum = np.sort(mahErr)
+
+mahRange = np.linspace(0, mahCum[-1], 300)
+chi2pdf = sts.chi2.cdf(mahRange, 2)
+
+
+# %%
+plt.figure()
+plt.step(mahCum, count, where='post')
+plt.step(mahRange, chi2pdf, where='pre')
+
+
+
+
+
+
+
+
+
+
