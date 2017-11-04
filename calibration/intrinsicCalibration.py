@@ -19,10 +19,11 @@ import matplotlib.pyplot as plt
 # cam puede ser ['vca', 'vcaWide', 'ptz'] son los datos que se tienen
 camera = 'vcaWide'
 # puede ser ['rational', 'fisheye', 'poly']
-modelos = ['poly', 'rational', 'fisheye']
-model = modelos[2]
-plotCorners = True
-
+modelos = ['poly', 'rational', 'fisheye', 'stereographic']
+model = modelos[3]
+plotCorners3D = False
+plotCornersDirect = False
+plotCornersInverse = False
 
 imagesFolder = "./resources/intrinsicCalib/" + camera + "/"
 cornersFile =      imagesFolder + camera + "Corners.npy"
@@ -36,14 +37,15 @@ tVecsFile =        imagesFolder + camera + model + "Tvecs.npy"
 rVecsFile =        imagesFolder + camera + model + "Rvecs.npy"
 
 # load data
-imgpoints = np.load(cornersFile)
+imagePoints = np.load(cornersFile)
 chessboardModel = np.load(patternFile)
-imgSize = tuple(np.load(imgShapeFile))
+imgSize = np.load(imgShapeFile)
 images = glob.glob(imagesFolder+'*.png')
 
-n = len(imgpoints)  # cantidad de imagenes
+n = len(imagePoints)  # cantidad de imagenes
 # Parametros de entrada/salida de la calibracion
 objpoints = np.array([chessboardModel]*n)
+m = chessboardModel.shape[1]  # cantidad de puntos
 
 ## %% para que calibrar ocmo fisheye no de error
 ##    flags=flags, criteria=criteria)
@@ -57,15 +59,30 @@ objpoints = np.array([chessboardModel]*n)
 # %% OPTIMIZAR
 #rms, K, D, rVecs, tVecs = cl.calibrateIntrinsic(objpoints[indSelect], imgpoints[indSelect], imgSize, model)
 
-#reload(cl)
+# saco condiciones iniciales para los parametros uso opencv y heuristica
 
-rms, K, D, rVecs, tVecs = cl.calibrateIntrinsic(objpoints, imgpoints, imgSize, model)
+#reload(cl)
+if model is modelos[3]:
+    # saco rVecs, tVecs
+    rms, K, D, rVecs, tVecs = cl.calibrateIntrinsic(objpoints, imagePoints,
+                                                    tuple(imgSize), modelos[2])
+    
+    # la matriz de lineal al CCD, esta no se toca, no se optimiza
+    K = np.eye(3)
+    K[[0,1],2] = imgSize / 2
+    
+    # la constante de distorsion es tal que ebarca toda la imagen
+    D =  np.array([K[0,2]])
+    
+else:
+    rms, K, D, rVecs, tVecs = cl.calibrateIntrinsic(objpoints, imagePoints,
+                                                    tuple(imgSize), model)
 
 
 
 # %% plot fiducial 
 #points and corners to ensure the calibration data is ok
-if plotCorners:
+if plotCorners3D:
     for i in range(n): # [9,15]:
         rVec = rVecs[i]
         tVec = tVecs[i]
@@ -77,10 +94,10 @@ if plotCorners:
 # %% TEST DIRECT MAPPING (DISTORTION MODEL)
 # pruebo con la imagen j-esima
 
-if plotCorners:
+if plotCornersDirect:
     for j in range(n):  # range(len(imgpoints)):
-        imagePntsX = imgpoints[j, 0, :, 0]
-        imagePntsY = imgpoints[j, 0, :, 1]
+        imagePntsX = imagePoints[j, 0, :, 0]
+        imagePntsY = imagePoints[j, 0, :, 1]
     
         rvec = rVecs[j]
         tvec = tVecs[j]
@@ -103,18 +120,193 @@ if plotCorners:
 # %% TEST INVERSE MAPPING (DISTORTION MODEL)
 # pruebo con la imagen j-esima
 
-if plotCorners:
+if plotCornersInverse:
     plt.figure()
-    plt.plot(chessboardModel[:,0], chessboardModel[:,1], 'xr', markersize=10)
+    plt.plot(chessboardModel[0,:,0], chessboardModel[0,:,1], 'xr', markersize=10)
 
     for j in range(n):  # range(len(imgpoints)):
         rvec = rVecs[j]
         tvec = tVecs[j]
     
-        xPos, yPos, cc = cl.inverse(imgpoints[j, 0], rvec, tvec, K, D, model)
+        xPos, yPos, cc = cl.inverse(imagePoints[j, 0], rvec, tvec, K, D, model)
     
+        
         im = plt.imread(images[j])
+        print(j, cc, images[j])
         plt.plot(xPos, yPos, '+b', markersize=10)
+
+
+
+
+
+
+
+
+
+
+
+
+
+# %% START BAYESIAN CALIBRATION
+from dev import bayesLib as bl
+from importlib import reload
+import scipy.stats as sts
+import sys
+sys.path.append("/home/sebalander/Code/sebaPhD")
+reload(cl)
+reload(bl)
+
+# standar deviation from subpixel epsilon used
+std = 1.0
+
+# output file
+intrinsicParamsOutFile = imagesFolder + camera + model + "intrinsicParamsML"
+intrinsicParamsOutFile = intrinsicParamsOutFile + str(std) + ".npy"
+
+# pongo en forma flat los valores iniciales
+XextList = [bl.ext2flat(rVecs[i], tVecs[i])for i in range(n)]
+Xint, Ns = bl.int2flat(K, D, model)
+covar0 = np.diag((Xint*1e-3)**2)
+
+Ci = np.repeat([ std**2 * np.eye(2)],n*m, axis=0).reshape(n,m,2,2)
+params = dict()
+params["n"] = n
+params["m"] = m
+params["imagePoints"] = imagePoints
+params["model"] = model
+params["chessboardModel"] = chessboardModel
+params["Cccd"] = Ci
+params["Cf"] = False
+params["Ck"] = False
+params["Crt"] = False
+params["model"] = model
+#params = [n, m, imagePoints, model, chessboardModel, Ci]
+
+# %%
+# pruebo con una imagen
+
+j = 0
+ErIm = bl.errorCuadraticoImagen(XextList[j], Xint, Ns, params, j, mahDist=False)
+print(ErIm.sum())
+
+# %% pruebo el error total
+
+
+Erto = bl.errorCuadraticoInt(Xint, Ns, XextList, params, mahDist=False)
+E0 = bl.etotalInt(Xint, Ns, XextList, params)
+print(Erto.sum(), E0)
+
+# saco distancia mahalanobis de cada proyeccion
+mahDistance = bl.errorCuadraticoInt(Xint, Ns, XextList, params, mahDist=True)
+
+plt.figure()
+nhist, bins, _ = plt.hist(mahDistance, 50, normed=True)
+chi2pdf = sts.chi2.pdf(bins, 2)
+plt.plot(bins, chi2pdf)
+plt.yscale('log')
+
+
+# %% primera prueba de MH la hago medio adaptativa
+reload(bl)
+from copy import deepcopy as dc
+import time
+import numpy.linalg as ln
+
+# primera propuesta de pdf
+sampleador = sts.multivariate_normal(Xint, covar0)
+
+# objeto que se encarga de una iteracion
+metropolis = bl.metHas(Ns, XextList, params, sampleador)
+
+#Nmuestras = int(1e2)
+Nini = 4**Xint.shape[0]
+#frac = np.arange(Nmuestras) / Nmuestras
+
+paraMuest = list() # np.zeros((Nmuestras, Xint.shape[0]))
+errorMuestras = list() # np.zeros(Nmuestras)
+
+paraMuest.append(Xint)
+errorMuestras.append(E0)
+
+# primero saco muestras solo cambiando el mean
+for i in range(1, Nini):
+    paM, erM = metropolis.nuevo(paraMuest[i-1], errorMuestras[i-1])
+    paraMuest.append(paM)
+    errorMuestras.append(erM)
+    
+    sampleador.mean = paraMuest[-1]
+
+
+# muestras cambiando el mean y covarianza
+covMuestras = list()
+covMuestras.append(covar0)
+while True:
+    paM, erM = metropolis.nuevo(paraMuest[-1], errorMuestras[-1])
+    paraMuest.append(paM)
+    errorMuestras.append(erM)
+    
+    sampleador.mean = paraMuest[-1]
+    # discard outliers and burn-in for covariance
+    indexes = np.argsort(errorMuestras)[:int(len(errorMuestras)*0.95)]
+    sampleador.cov = np.cov(np.array(paraMuest)[indexes].T)
+    
+    covMuestras.append(sampleador.cov)
+    covMuestrasMean = np.mean(covMuestras[-indexes.shape[0]:],0)
+    
+    eps = ln.norm(covMuestras[-1] - covMuestrasMean) / ln.norm(covMuestrasMean )
+    print(eps)
+    
+    if eps < 1e-2:
+        break
+
+covarianzas = np.array(covMuestras).reshape((-1,Xint.shape[0]**2))
+medias = np.array(paraMuest)
+
+plt.figure()
+plt.plot(covarianzas - covarianzas[-1])
+
+plt.figure()
+plt.plot(medias - medias[-1])
+
+# %%
+reload(bl)
+from copy import deepcopy as dc
+import time
+
+sampleador = sts.multivariate_normal(Xint, covar0)
+
+metropolis = bl.metHas(Ns, XextList, params, sampleador)
+
+Nmuestras = int(1e4)
+Mmuestras = int(50)
+nTot = Nmuestras * Mmuestras
+
+paraMuest = np.zeros((Nmuestras,8))
+errorMuestras = np.zeros(Nmuestras)
+
+paraMuest[0], errorMuestras[0] = (Xint, E0)
+
+tiempoIni = time.time()
+
+for j in range(Mmuestras):
+
+    for i in range(1, Nmuestras):
+        paraMuest[i], errorMuestras[i] = metropolis.nuevo(paraMuest[i-1], errorMuestras[i-1])
+        sampleador.mean = paraMuest[i]
+
+        if i < 500: # no repito estas cuentas despues de cierto tiempo
+            tiempoNow = time.time()
+            Dt = tiempoNow - tiempoIni
+            frac = (i  + Nmuestras * j)/ nTot
+            DtEstimeted = (tiempoNow - tiempoIni) / frac
+            stringTimeEst = time.asctime(time.localtime(tiempoIni + DtEstimeted))
+
+        print('Epoch: %d/%d-%d/%d. Transcurrido: %.2fmin. Avance %.4f. Tfin: %s'
+              %(j,Mmuestras,i,Nmuestras,Dt/60, frac, stringTimeEst) )
+    # guardo estos datos
+    np.save("/home/sebalander/Documents/datosMHintrinsic2-%d"%j, paraMuest)
+    # para la proxima realizacion pongo la primera donde dejamos esta
+    paraMuest[0], errorMuestras[0] = (paraMuest[-1], errorMuestras[-1])
 
 
 

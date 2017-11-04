@@ -8,59 +8,59 @@ from numpy import zeros, roots, array, isreal, tan, prod, arctan
 from numpy import any, empty_like, arange, real, pi, abs
 from cv2 import Rodrigues
 #from cv2.fisheye import projectPoints
-from lmfit import  Parameters # , minimize
+#from lmfit import  Parameters # , minimize
 #from calibration import calibrator
 #xypToZplane = calibrator.xypToZplane
-
-# %% ========== ========== Fisheye PARAMETER HANDLING ========== ==========
-def formatParameters(rVec, tVec, linearCoeffs, distCoeffs):
-    params = Parameters()
-    
-    if prod(rVec.shape) == 9:
-        rVec = Rodrigues(rVec)[0]
-    
-    rVec = rVec.reshape(3)
-    
-    for i in range(3):
-        params.add('rvec%d'%i,
-                   value=rVec[i], vary=True)
-        params.add('tvec%d'%i,
-                   value=tVec[i], vary=True)
-    
-    params.add('cameraMatrix0',
-               value=linearCoeffs[0,0], vary=False)
-    params.add('cameraMatrix1',
-               value=linearCoeffs[1,1], vary=False)
-    params.add('cameraMatrix2',
-               value=linearCoeffs[0,2], vary=False)
-    params.add('cameraMatrix3',
-               value=linearCoeffs[1,2], vary=False)
-    
-    for i in range(4):
-        params.add('distCoeffs%d'%i,
-                   value=distCoeffs[i,0], vary=False)
-    
-    return params
-
-def retrieveParameters(params):
-    rvec = zeros((3,1))
-    tvec = zeros((3,1))
-    for i in range(3):
-        rvec[i,0] = params['rvec%d'%i].value
-        tvec[i,0] = params['tvec%d'%i].value
-    
-    cameraMatrix = zeros((3,3))  
-    cameraMatrix[0,0] = params['cameraMatrix0'].value
-    cameraMatrix[1,1] = params['cameraMatrix1'].value
-    cameraMatrix[0,2] = params['cameraMatrix2'].value
-    cameraMatrix[1,2] = params['cameraMatrix3'].value
-    cameraMatrix[2,2] = 1
-    
-    distCoeffs = zeros((4,1))
-    for i in range(4):
-        distCoeffs[i,0] = params['distCoeffs%d'%i].value
-    
-    return rvec, tvec, cameraMatrix, distCoeffs
+#
+## %% ========== ========== Fisheye PARAMETER HANDLING ========== ==========
+#def formatParameters(rVec, tVec, linearCoeffs, distCoeffs):
+#    params = Parameters()
+#    
+#    if prod(rVec.shape) == 9:
+#        rVec = Rodrigues(rVec)[0]
+#    
+#    rVec = rVec.reshape(3)
+#    
+#    for i in range(3):
+#        params.add('rvec%d'%i,
+#                   value=rVec[i], vary=True)
+#        params.add('tvec%d'%i,
+#                   value=tVec[i], vary=True)
+#    
+#    params.add('cameraMatrix0',
+#               value=linearCoeffs[0,0], vary=False)
+#    params.add('cameraMatrix1',
+#               value=linearCoeffs[1,1], vary=False)
+#    params.add('cameraMatrix2',
+#               value=linearCoeffs[0,2], vary=False)
+#    params.add('cameraMatrix3',
+#               value=linearCoeffs[1,2], vary=False)
+#    
+#    for i in range(4):
+#        params.add('distCoeffs%d'%i,
+#                   value=distCoeffs[i,0], vary=False)
+#    
+#    return params
+#
+#def retrieveParameters(params):
+#    rvec = zeros((3,1))
+#    tvec = zeros((3,1))
+#    for i in range(3):
+#        rvec[i,0] = params['rvec%d'%i].value
+#        tvec[i,0] = params['tvec%d'%i].value
+#    
+#    cameraMatrix = zeros((3,3))  
+#    cameraMatrix[0,0] = params['cameraMatrix0'].value
+#    cameraMatrix[1,1] = params['cameraMatrix1'].value
+#    cameraMatrix[0,2] = params['cameraMatrix2'].value
+#    cameraMatrix[1,2] = params['cameraMatrix3'].value
+#    cameraMatrix[2,2] = 1
+#    
+#    distCoeffs = zeros((4,1))
+#    for i in range(4):
+#        distCoeffs[i,0] = params['distCoeffs%d'%i].value
+#    
+#    return rvec, tvec, cameraMatrix, distCoeffs
 
 
 # %% ========== ========== DIRECT Fisheye ========== ==========

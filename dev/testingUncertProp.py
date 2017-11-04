@@ -39,6 +39,7 @@ distCoeffsFile =   imagesFolder + camera + model + "DistCoeffs.npy"
 linearCoeffsFile = imagesFolder + camera + model + "LinearCoeffs.npy"
 tVecsFile =        imagesFolder + camera + model + "Tvecs.npy"
 rVecsFile =        imagesFolder + camera + model + "Rvecs.npy"
+
 # %% load data
 imagePoints = np.load(cornersFile)
 n = len(imagePoints)  # cantidad de imagenes

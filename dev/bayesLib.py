@@ -30,23 +30,54 @@ import numdifftools as ndf
 
 from multiprocess import Process, Queue
 
+modelos = ['poly', 'rational', 'fisheye', 'stereographic']
+
 # https://github.com/uqfoundation/multiprocess/tree/master/py3.6/examples
 
 # %% funcion error
 # MAP TO HOMOGENOUS PLANE TO GET RADIUS
 
-def int2flat(cameraMatrix, distCoeffs):
+def int2flat(cameraMatrix, distCoeffs, model):
     '''
     parametros intrinsecos concatenados como un solo vector
     '''
-    kFlat = cameraMatrix[[0,1,0,1],[0,1,2,2]]
-    dFlat = np.reshape(distCoeffs, -1)
-
+    
+    if model==modelos[3]:
+        # stereographic case is special
+        kFlat = cameraMatrix[[0,1],2]
+        dFlat = np.reshape(distCoeffs, -1)
+        
+    else:
+        kFlat = cameraMatrix[[0,1,0,1],[0,1,2,2]]
+        dFlat = np.reshape(distCoeffs, -1)
+    
     X = np.concatenate((kFlat, dFlat))
     Ns = np.array([len(kFlat), len(dFlat)])
     Ns = np.cumsum(Ns)
 
     return X, Ns
+
+
+def flat2CamMatrix(kFlat, model):
+    cameraMatrix = np.eye(3, dtype=float)
+    if model==modelos[3]:
+        cameraMatrix[[0,1],2] = kFlat
+    else:
+        cameraMatrix[[0,1,0,1],[0,1,2,2]] = kFlat
+    return cameraMatrix
+
+
+def flat2int(X, Ns, model):
+    '''
+    hace lo inverso de int2flat
+    '''
+    kFlat = X[0:Ns[0]]
+    dFlat = X[Ns[0]:Ns[1]]
+
+    cameraMatrix = flat2CamMatrix(kFlat, model)
+    distCoeffs = dFlat
+
+    return cameraMatrix, distCoeffs
 
 
 def ext2flat(rVec, tVec):
@@ -59,26 +90,6 @@ def ext2flat(rVec, tVec):
     X = np.concatenate((rFlat, tFlat))
 
     return X
-
-def fat2CamMAtrix(kFlat):
-    cameraMatrix = np.zeros((3,3), dtype=float)
-    cameraMatrix[[0,1,0,1],[0,1,2,2]] = kFlat
-    cameraMatrix[2,2] = 1
-
-    return cameraMatrix
-
-def flat2int(X, Ns):
-    '''
-    hace lo inverso de int2flat
-    '''
-    kFlat = X[0:Ns[0]]
-    dFlat = X[Ns[0]:Ns[1]]
-
-    cameraMatrix = fat2CamMAtrix(kFlat)
-    distCoeffs = dFlat
-
-    return cameraMatrix, distCoeffs
-
 def flat2ext(X):
     '''
     hace lo inverso de ext2flat
@@ -102,7 +113,7 @@ def errorCuadraticoImagen(Xext, Xint, Ns, params, j, mahDist=False):
     proyection points
     '''
     # saco los parametros de flat para que los use la func de projection
-    cameraMatrix, distCoeffs = flat2int(Xint, Ns)
+    cameraMatrix, distCoeffs = flat2int(Xint, Ns, params['model'])
     rvec, tvec = flat2ext(Xext)
     # saco los parametros auxiliares
     #n = params["n"]
@@ -162,6 +173,64 @@ def errorCuadraticoInt(Xint, Ns, XextList, params, mahDist=False):
 
     return np.concatenate(Er)
 
+
+def etotalInt(Xint, Ns, XextList, params):
+    '''
+    calcula el error total como la suma de los errore de cada punto en cada
+    imagen
+    '''
+    return errorCuadraticoInt(Xint, Ns, XextList, params).sum()
+
+
+
+# %% metropolis hastings
+class metHas:
+    
+    def __init__(self, Ns, XextList, params, sampleador):
+        self.Ns = Ns
+        self.XextList = XextList
+        self.params = params
+        
+        self.generados = 0
+        self.gradPos = 0
+        self.gradNeg = 0
+        self.mismo = 0
+        
+        self.sampleador = sampleador
+    
+    def nuevo(self, old, oldE):
+        # genero nuevo
+        new = self.sampleador.rvs() # rn(8) * intervalo + cotas[:,0]
+        self.generados += 1
+    
+        # cambio de error
+        newE = etotalInt(new, self.Ns, self.XextList, self.params)
+        deltaE = newE - oldE
+    
+        if deltaE < 0:
+            self.gradPos += 1
+            print("Gradiente Positivo")
+            print(self.generados, self.gradPos, self.gradNeg, self.mismo)
+            return new, newE # tiene menor error, listo
+        else:
+            # nueva opoertunidad, sampleo contra rand
+            pb = np.exp(- deltaE / 2)
+    
+            if pb > rn():
+                self.gradNeg += 1
+                print("Gradiente Negativo, pb=", pb)
+                print(self.generados, self.gradPos, self.gradNeg, self.mismo)
+                return new, newE # aceptado a la segunda oportunidad
+            else:
+    #            # vuelvo recursivamente al paso2 hasta aceptar
+    #            print('rechazado, pb=', pb)
+    #            new, newE = nuevo(old, oldE)
+                self.mismo +=1
+                print("Mismo punto,        pb=", pb)
+                print(self.generados, self.gradPos, self.gradNeg, self.mismo)
+                return old, oldE
+    
+        return new, newE
 
 
 # %% funciones para calcular jacobiano y hessiano in y externo

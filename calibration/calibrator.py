@@ -282,7 +282,7 @@ def homDist2homUndist_ratioJacobians(xpp, ypp, distCoeffs, model):
     Jpp_p[[0,1], [0,1], :] += q
     
     # jacobiano PP (distort) respecto a parametros
-    Jpp_k = (array([xp * dQdK, yp * dQdK])).transpose((1, 0, 2))
+    Jpp_k = array([xp * dQdK, yp * dQdK]).transpose((1, 0, 2))
     
     # los invierto
     Jp_pp = linalg.inv(Jpp_p.T)  # jacobiano respecto a xpp, ypp
@@ -327,7 +327,7 @@ def homDist2homUndist(xpp, ypp, distCoeffs, model, Cpp=False, Ck=False):
                    ).sum((2, 3))
 
     else:
-        # calculate ratio of undistortion
+        # calculate ratio of distortion
         rpp = norm([xpp, ypp], axis=0)
         q, _ = undistort[model](rpp, distCoeffs, quot=True, der=False)
         
