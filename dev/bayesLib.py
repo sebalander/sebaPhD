@@ -184,6 +184,8 @@ def etotalInt(Xint, Ns, XextList, params):
 
 
 # %% metropolis hastings
+from numpy.random import rand as rn
+
 class metHas:
     
     def __init__(self, Ns, XextList, params, sampleador):

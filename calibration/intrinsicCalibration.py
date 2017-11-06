@@ -166,7 +166,7 @@ intrinsicParamsOutFile = intrinsicParamsOutFile + str(std) + ".npy"
 # pongo en forma flat los valores iniciales
 XextList = [bl.ext2flat(rVecs[i], tVecs[i])for i in range(n)]
 Xint, Ns = bl.int2flat(K, D, model)
-covar0 = np.diag((Xint*1e-3)**2)
+covar0 = np.diag((Xint*1e-3)**2) # una std que es 1e-3 realitivo al valor
 
 Ci = np.repeat([ std**2 * np.eye(2)],n*m, axis=0).reshape(n,m,2,2)
 params = dict()
@@ -200,17 +200,29 @@ print(Erto.sum(), E0)
 mahDistance = bl.errorCuadraticoInt(Xint, Ns, XextList, params, mahDist=True)
 
 plt.figure()
+#plt.yscale('log')
 nhist, bins, _ = plt.hist(mahDistance, 50, normed=True)
 chi2pdf = sts.chi2.pdf(bins, 2)
 plt.plot(bins, chi2pdf)
-plt.yscale('log')
+plt.ylim(ymax=np.max(nhist)*1.2)
 
 
 # %% primera prueba de MH la hago medio adaptativa
+'''
+esto es medio adaptado de
+Examples of Adaptive MCMC by Gareth O. Roberts and Jeffrey S. Rosenthal
+(September 2006; revised January 2008.)
+pero yo hago diferente porque no me queria complicar con gmm
+no me interesa hacerlo igual porque no pretendo que sea igual de eficiente
+solo que ande
+'''
 reload(bl)
 from copy import deepcopy as dc
 import time
 import numpy.linalg as ln
+#from sklearn import mixture
+
+#clf = mixture.GaussianMixture(n_components=2, covariance_type='full')
 
 # primera propuesta de pdf
 sampleador = sts.multivariate_normal(Xint, covar0)
@@ -219,7 +231,8 @@ sampleador = sts.multivariate_normal(Xint, covar0)
 metropolis = bl.metHas(Ns, XextList, params, sampleador)
 
 #Nmuestras = int(1e2)
-Nini = 4**Xint.shape[0]
+dims = Xint.shape[0]
+Nini = 4**dims
 #frac = np.arange(Nmuestras) / Nmuestras
 
 paraMuest = list() # np.zeros((Nmuestras, Xint.shape[0]))
@@ -240,26 +253,27 @@ for i in range(1, Nini):
 # muestras cambiando el mean y covarianza
 covMuestras = list()
 covMuestras.append(covar0)
-while True:
+
+for i in range(5000):
     paM, erM = metropolis.nuevo(paraMuest[-1], errorMuestras[-1])
     paraMuest.append(paM)
     errorMuestras.append(erM)
     
     sampleador.mean = paraMuest[-1]
     # discard outliers and burn-in for covariance
-    indexes = np.argsort(errorMuestras)[:int(len(errorMuestras)*0.95)]
-    sampleador.cov = np.cov(np.array(paraMuest)[indexes].T)
+    # indexes = np.argsort(errorMuestras)[:int(len(errorMuestras)*0.95)]
+    sampleador.cov = sampleador.cov * 0.7 + 0.3 * np.cov(np.array(paraMuest).T)
     
     covMuestras.append(sampleador.cov)
-    covMuestrasMean = np.mean(covMuestras[-indexes.shape[0]:],0)
+    #covMuestrasMean = np.mean(covMuestras[-indexes.shape[0]:],0)
     
-    eps = ln.norm(covMuestras[-1] - covMuestrasMean) / ln.norm(covMuestrasMean )
-    print(eps)
+    #eps = ln.norm(covMuestras[-1] - covMuestrasMean) / ln.norm(covMuestrasMean )
+    #print(eps)
     
-    if eps < 1e-2:
-        break
+    #if eps < 1e-2:
+    #    break
 
-covarianzas = np.array(covMuestras).reshape((-1,Xint.shape[0]**2))
+covarianzas = np.array(covMuestras).reshape((-1, dims**2))
 medias = np.array(paraMuest)
 
 plt.figure()
