@@ -14,17 +14,17 @@ import numpy as np
 #import scipy.linalg as ln
 import matplotlib.pyplot as plt
 #from importlib import reload
-from copy import deepcopy as dc
+#from copy import deepcopy as dc
 #import pyproj as pj
 from calibration import calibrator as cl
-import time
+#import time
 import corner
 
 import scipy.linalg as ln
 import scipy.stats as sts
 from dev import bayesLib as bl
 from calibration import lla2eceflib as llef
-from numpy.random import rand as rn
+#from numpy.random import rand as rn
 
 #from multiprocess import Process, Queue
 # https://github.com/uqfoundation/multiprocess/tree/master/py3.6/examples
@@ -133,6 +133,9 @@ if model is modelos[3]:
 else:
     ret, rvecIni, tvecIni, inliers = cv2.solvePnPRansac(calibPts, xIm, cameraMatrix, distCoeffs)
 
+
+Xext0 = bl.ext2flat(rvecIni, tvecIni)
+
 xpr, ypr, c = cl.inverse(xIm, rvecIni, tvecIni, cameraMatrix, distCoeffs, model=model)
 
 plt.plot(xpr, ypr, '*')
@@ -141,8 +144,8 @@ plt.plot(xpr, ypr, '*')
 
 std = 2.0
 # output file
-extrinsicParamsOutFile = extrinsicFolder + camera + model + "intrinsicParamsAP"
-extrinsicParamsOutFile = extrinsicParamsOutFile + str(std) + ".npy"
+#extrinsicParamsOutFile = extrinsicFolder + camera + model + "intrinsicParamsAP"
+#extrinsicParamsOutFile = extrinsicParamsOutFile + str(std) + ".npy"
 Ci = np.repeat([ std**2 * np.eye(2)],n*m, axis=0).reshape(n,m,2,2)
 
 params = dict()
@@ -157,7 +160,6 @@ params["Ck"] = Ck
 params["Crt"] = False
 #params = [n, m, xIm.reshape((1,1,-1,2)),model, calibPts[:,:2].reshape((1,-1,2)), Ci]
 
-Xext0 = bl.ext2flat(rvecIni, tvecIni)
 
 # %% ahora arranco con Metropolis, primera etapa
 stdAng = np.pi / 180 * 0.3 # 0.3 grados de std
@@ -195,8 +197,6 @@ plt.plot(paraMuest - paraMuest[-1])
 
 
 # %%
-import corner 
-
 paraMuest = list() # np.zeros((Nmuestras, Xint.shape[0]))
 errorMuestras = list() # np.zeros(Nmuestras)
 covMuestras = list()
@@ -256,89 +256,84 @@ results['Ns'] = Ns
 
 
 
+#
+#
+#
+## %%
+#
+#mu2Covar = covar2 / Nmuestras
+#extr = np.max(np.abs(mu2Covar))
+#plt.matshow(mu2Covar, cmap='RdBu', vmin=-extr, vmax=extr)
+#
+#print('error relativo del mu')
+#eRelMu = np.abs(mu2Covar / (mu2.reshape((-1,1)) * mu2.reshape((1,-1))))
+#plt.matshow(np.log(eRelMu), cmap='inferno')
+#
+#wm, vm = ln.eigh(mu2Covar)
+#plt.matshow(vm, cmap='RdBu', vmin=-1, vmax=1)
+#
+#wMu, vMu = ln.eigh(eRelMu)
+#np.prod(wMu)
+#plt.matshow(vMu, cmap='RdBu')
+#
+#print(np.sqrt(np.diag(mu2Covar)) / mu2)
+#
+#covar2Covar = bl.varVarN(covar2, Nmuestras)
+#print('error relativo de la covarianza')
+#eRelCovar = covar2Covar / (covar2.reshape((-1,1)) * covar2.reshape((1,-1)))
+#wCo, vCo = ln.eigh(eRelCovar)
+#np.prod(wCo)
+#plt.matshow(vCo, cmap='RdBu')
+#
+#print(eRelCovar)
+#print(np.sqrt(np.mean(eRelCovar**2)))
+#
+#resultsAP = dict()
+#
+#resultsAP['Nsamples'] = Nmuestras
+#resultsAP['paramsMU'] = mu2
+#resultsAP['paramsVAR'] = covar2
+#resultsAP['paramsMUvar'] = mu2Covar
+#resultsAP['paramsVARvar'] = covar2Covar
+#resultsAP['Ns'] = Ns
 
 # %% SAVE CALIBRATION
-np.save(extrinsicResultsFile, results)
 
-# tambien las muestras de la corrida solo por las dudas
-np.save("/home/sebalander/Documents/datosMHextrinsicstereo.npy", paraMuest)
-
-
-
-
-
-# %%
-
-mu2Covar = covar2 / Nmuestras
-extr = np.max(np.abs(mu2Covar))
-plt.matshow(mu2Covar, cmap='RdBu', vmin=-extr, vmax=extr)
-
-print('error relativo del mu')
-eRelMu = np.abs(mu2Covar / (mu2.reshape((-1,1)) * mu2.reshape((1,-1))))
-plt.matshow(np.log(eRelMu), cmap='inferno')
-
-wm, vm = ln.eigh(mu2Covar)
-plt.matshow(vm, cmap='RdBu', vmin=-1, vmax=1)
-
-wMu, vMu = ln.eigh(eRelMu)
-np.prod(wMu)
-plt.matshow(vMu, cmap='RdBu')
-
-print(np.sqrt(np.diag(mu2Covar)) / mu2)
-
-covar2Covar = bl.varVarN(covar2, Nmuestras)
-print('error relativo de la covarianza')
-eRelCovar = covar2Covar / (covar2.reshape((-1,1)) * covar2.reshape((1,-1)))
-wCo, vCo = ln.eigh(eRelCovar)
-np.prod(wCo)
-plt.matshow(vCo, cmap='RdBu')
-
-print(eRelCovar)
-print(np.sqrt(np.mean(eRelCovar**2)))
-
-resultsAP = dict()
-
-resultsAP['Nsamples'] = Nmuestras
-resultsAP['paramsMU'] = mu2
-resultsAP['paramsVAR'] = covar2
-resultsAP['paramsMUvar'] = mu2Covar
-resultsAP['paramsVARvar'] = covar2Covar
-resultsAP['Ns'] = Ns
-
-# %%
 save = False
 if save:
-    np.save(extrinsicParamsOutFile, resultsAP)
+    np.save(extrinsicResultsFile, results)
+    # tambien las muestras de la corrida solo por las dudas
+    np.save("/home/sebalander/Documents/datosMHextrinsicstereo.npy", paraMuest)
 
 load = False
 if load:
-    resultsAP = np.load(extrinsicParamsOutFile).all()  # load all objects
+    results = np.load(extrinsicResultsFile).all()  # load all objects
     
-    Nmuestras = resultsAP["Nsamples"]
-    mu2 = resultsAP['paramsMU']
-    covar2 = resultsAP['paramsVAR']
-    mu2Covar = resultsAP['paramsMUvar']
-    covar2Covar = resultsAP['paramsVARvar']
-    Ns = resultsAP['Ns']
+    Nmuestras = results["Nsamples"]
+    mu = results['paramsMU']
+    covar = results['paramsVAR']
+    muCovar = results['paramsMUvar']
+    covarCovar = results['paramsVARvar']
+    Ns = results['Ns']
 
 # %%
 
-xm, ym, Cm = cl.inverse(xIm, mu2[:3], mu2[3:], cameraMatrix,
-                        distCoeffs, model, params['Cccd'], params['Cf'], params['Ck'], Crt=covar2)
+xm, ym, Cm = cl.inverse(xIm, mu[:3], mu[3:], cameraMatrix, distCoeffs, model,
+                        params['Cccd'], params['Cf'], params['Ck'], Crt=covar)
 
 fig = plt.figure()
 ax = fig.gca()
 
 ax.plot(calibPts[:,0], calibPts[:,1], '+')
 ax.plot(camPrior[0], camPrior[1], 'x')
-ax.plot(mu2[3], mu2[4], '.r')
-cl.plotEllipse(ax, mu2Covar[3:5,3:5], mu2[3], mu2[4], 'r')
+ax.plot(mu[3], mu[4], '.r')
+cl.plotEllipse(ax, muCovar[3:5,3:5], mu[3], mu[4], 'r')
 cl.plotPointsUncert(ax, Cm, xm, ym, 'b')
 
 # %% calculate mahalanobis distance
 
 
-mahErr = bl.errorCuadraticoImagen(mu2, Xint, Ns, params, 0, mahDist=True)
+mahErr = bl.errorCuadraticoImagen(mu, Xint, Ns, params, 0, mahDist=True)
 
 # hago el cumulativo
 count = np.arange(m + 1) / m
@@ -374,14 +369,22 @@ calibTeo = Xproj + Xerror * ratio.reshape((-1,1)) # "theoretical position"
 xDif = np.array([calibTeo[:,0], calibPts[:,0]]).T
 yDif = np.array([calibTeo[:,1], calibPts[:,1]]).T
 
-cameradist = ln.norm(calibPts - mu2[3:6], axis=1)
+cameradist = ln.norm(calibPts - mu[3:6], axis=1)
 
 fig = plt.figure()
 ax = fig.gca()
+ax.set_aspect('equal', adjustable='box')
 
 ax.plot(calibPts[:,0], calibPts[:,1], '+')
-ax.plot(camPrior[0], camPrior[1], 'x')
-ax.plot(mu2[3], mu2[4], '.r')
-cl.plotEllipse(ax, mu2Covar[3:5,3:5], mu2[3], mu2[4], 'r')
+ax.plot(camPrior[3], camPrior[4], 'x')
+ax.plot(mu[3], mu[4], '.r')
+cl.plotEllipse(ax, muCovar[3:5,3:5], mu[3], mu[4], 'r')
 cl.plotPointsUncert(ax, Cm, xm, ym, 'b')
 ax.plot(xDif.T, yDif.T, '-r')
+
+
+
+
+
+
+
