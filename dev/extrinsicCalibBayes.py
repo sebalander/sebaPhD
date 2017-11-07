@@ -35,8 +35,8 @@ plotCorners = False
 # cam puede ser ['vca', 'vcaWide', 'ptz'] son los datos que se tienen
 camera = 'vcaWide'
 # puede ser ['rational', 'fisheye', 'poly']
-modelos = ['poly', 'rational', 'fisheye']
-model = modelos[2]
+modelos = ['poly', 'rational', 'fisheye', 'stereographic']
+model = modelos[3]
 
 imagesFolder = "./resources/intrinsicCalib/" + camera + "/"
 cornersFile =      imagesFolder + camera + "Corners.npy"
@@ -50,9 +50,13 @@ imgShapeFile =     imagesFolder + camera + "Shape.npy"
 #rVecsFile =        imagesFolder + camera + model + "Rvecs.npy"
 
 # model data files
-intrinsicParamsFile = imagesFolder + camera + model + "intrinsicParamsML"
-intrinsicParamsFile = intrinsicParamsFile + "0.5.npy"
+intrinsicParamsFile = imagesFolder + camera + model + "intrMetrResults.npy"
+#intrinsicParamsFile = imagesFolder + camera + model + "intrinsicParamsML"
+#intrinsicParamsFile = intrinsicParamsFile + "0.5.npy"
 
+
+# output
+extrinsicResultsFile = imagesFolder + camera + model + "extrMetrResults.npy"
 # calibration points
 calibptsFile = "/home/sebalander/Code/VisionUNQextra/Videos y Mediciones/2016-11-13 medicion/calibrExtr/puntosCalibracion.txt"
 
@@ -71,7 +75,17 @@ covarDist = resultsML['paramsVAR']
 #muCovar = resultsML['paramsMUvar']
 #covarCovar = resultsML['paramsVARvar']
 Ns = resultsML['Ns']
-cameraMatrix, distCoeffs = bl.flat2int(Xint, Ns)
+cameraMatrix, distCoeffs = bl.flat2int(Xint, Ns, model)
+
+if model==modelos[3]:
+    Cf = np.zeros((4,4))
+    Cf[2:,2:] = covarDist[:2,:2]
+    
+    Ck = covarDist[2,2]
+else:
+    Cf = covarDist[:4,:4]
+    Ck = covarDist[4:,4:]
+
 
 # Calibration points
 dataPts = np.loadtxt(calibptsFile)
@@ -95,15 +109,10 @@ LLA = np.concatenate((dataPts[:,2:], hvec.reshape((-1,1))), axis=1)
 LLA0 = np.array([LLAcam[0], LLAcam[1], h]) # frame of reference origin
 
 calibPts = llef.lla2ltp(LLA, LLA0)  # PUNTOS DE CALIB EN METROS
-camPrior = np.array([0,0,hcam]) # # PRIOR CAMERA COORDS EN METROS
+camPrior = np.array([np.pi, 0, 0, 0, 0, hcam]) # # PRIOR CAMERA COORDS EN METROS
 # pongo 3m de sigma en x,y y 20cm en z
-W = 1 / np.array([3, 3, 0.2])**2
-def ePrior(Xext):
-    '''
-    el error de prior solo va para la posicion y no para los angulos porque no
-    hay info facil de los angulos a priori
-    '''
-    return W.dot((Xext[3:] - camPrior)**2)
+W = np.array([0, 0, 0, 1 / 3, 1 / 3, 1 / 0.2])**2
+
 
 plt.figure()
 plt.plot(calibPts[:,0], calibPts[:,1], '+')
@@ -111,23 +120,24 @@ plt.plot(camPrior[0], camPrior[1], 'x')
 
 # %% determino la pose a prior
 # saco una pose inicial con opencv
-ret, rvecIni, tvecIni, inliers = cv2.solvePnPRansac(calibPts, xIm, cameraMatrix, distCoeffs)
+
+
+# saco condiciones iniciales para los parametros uso opencv y heuristica
+
+#reload(cl)
+if model is modelos[3]:
+    # saco rVecs, tVecs de la galera
+    tvecIni = camPrior
+    rvecIni = np.array([np.pi, 0, 0]) # camara apuntando para abajo
+    
+else:
+    ret, rvecIni, tvecIni, inliers = cv2.solvePnPRansac(calibPts, xIm, cameraMatrix, distCoeffs)
 
 xpr, ypr, c = cl.inverse(xIm, rvecIni, tvecIni, cameraMatrix, distCoeffs, model=model)
 
 plt.plot(xpr, ypr, '*')
 
 # %%
-
-# error total
-def etotal(Xext, Ns, Xint, params):
-    '''
-    calcula el error total como la suma de los errore de cada punto en cada
-    imagen
-    '''
-    ep = ePrior(Xext)
-    ep += bl.errorCuadraticoImagen(Xext, Xint, Ns, params, 0, mahDist=True).sum()
-    return ep
 
 std = 2.0
 # output file
@@ -142,166 +152,120 @@ params["imagePoints"] = xIm.reshape((1,1,-1,2))
 params["model"] = model
 params["chessboardModel"] = calibPts[:,:2].reshape((1,-1,2))
 params["Cccd"] = Ci
-params["Cf"] = covarDist[:4,:4]
-params["Ck"] = covarDist[4:,4:]
+params["Cf"] = Cf
+params["Ck"] = Ck
 params["Crt"] = False
 #params = [n, m, xIm.reshape((1,1,-1,2)),model, calibPts[:,:2].reshape((1,-1,2)), Ci]
 
 Xext0 = bl.ext2flat(rvecIni, tvecIni)
 
-# %% metropolis hastings
-
-def nuevo(old, oldE):
-    global generados
-    global aceptados
-    global avance
-    global retroceso
-    global sampleador
-    
-    # genero nuevo
-    new = sampleador.rvs() # rn(8) * intervalo + cotas[:,0]
-    newE = etotal(new, Ns, Xint, params)
-    generados += 1
-    print(generados, aceptados, avance, retroceso)
-    
-    # cambio de error
-    deltaE = newE - oldE
-    
-    if deltaE < 0:
-        aceptados +=1
-        avance += 1
-        print("avance directo")
-        return new, newE # tiene menor error, listo
-    else:
-        # nueva opoertunidad, sampleo contra rand
-        pb = np.exp(- deltaE / 2)
-         
-        if pb > rn():
-            aceptados += 1
-            retroceso += 1
-            print("retroceso, pb=", pb)
-            return new, newE # aceptado a la segunda oportunidad
-        else:
-            # vuelvo recursivamente al paso2 hasta aceptar
-            print('rechazado, pb=', pb)
-            new, newE = nuevo(old, oldE)
-    
-    return new, newE
-
-class pdfSampler:
-    '''
-    para samplear de la uniforme entre las cotas puestas a mano
-    '''
-    def __init__(self, a, ab):
-        self.a = a
-        self.ab = ab
-    
-    def rvs(self, n=False):
-        if not n:
-            return np.random.rand(6) * self.ab + self.a
-        else:
-            return np.random.rand(n,6) * self.ab + self.a
-
-
 # %% ahora arranco con Metropolis, primera etapa
-mu0 = Xext0
-covar0 = np.diag(mu0*1e-2)**2
-sampleador = sts.multivariate_normal(mu0, covar0)
+stdAng = np.pi / 180 * 0.3 # 0.3 grados de std
+covar0 = np.diag([stdAng,stdAng,stdAng, 0.1, 0.1, 0.1])**2
+sampleador = sts.multivariate_normal(Xext0, covar0)
 
-Nmuestras = int(1e4)
+mH = bl.metHasExt(Xint, Ns, params, sampleador, camPrior, W)
+E0 = mH.etotalExt(Xext0)
 
-generados = 0
-aceptados = 0
-avance = 0
-retroceso = 0
+dims = 6 # cantidad de parametros de pose
+Nini = 3**dims
 
-paraMuest = np.zeros((Nmuestras, 6))
-errorMuestras = np.zeros(Nmuestras)
-probMuestras = np.zeros(Nmuestras)
+paraMuest = list() # np.zeros((Nmuestras, Xint.shape[0]))
+errorMuestras = list() # np.zeros(Nmuestras)
 
-# primera
-start = sampleador.rvs() # dc(Xint)
-startE = etotal(start, Ns, Xint, params)
-paraMuest[0], errorMuestras[0] = nuevo(start, startE)
+paraMuest.append(Xext0)
+errorMuestras.append(E0)
 
-# primera parte saco 10 puntos asi como esta
-for i in range(1, 20):
-    paraMuest[i], errorMuestras[i] = nuevo(paraMuest[i-1], errorMuestras[i-1])
-    sampleador.mean = paraMuest[i] # corro el centro
-
-
-## ahora actualizo con media y covarianza moviles
-#for i in range(20, 200):
-#    paraMuest[i], errorMuestras[i] = nuevo(paraMuest[i-1], errorMuestras[i-1])
-#    
-#    sampleador.mean = paraMuest[i]
-#    sampleador.cov = sampleador.cov * 0.7 + 0.3 * np.cov(paraMuest[i-10:i].T)
-
-
-#probMuestras[:i] = np.exp(- errorMuestras[:i] / 2)
-b = 1e3 / (Nmuestras - 20) # para calcular el rango de la covarianza
-a = -b * 20
-# ahora actualizo pesando por la probabilidad
-for i in range(20, Nmuestras):
-    paraMuest[i], errorMuestras[i] = nuevo(paraMuest[i-1], errorMuestras[i-1])
-#    probMuestras[i] = np.exp(- errorMuestras[i] / 2)
+# primero saco muestras solo cambiando el mean
+# estas se descartan son el burn in period
+# corro eta parte hata que ve en el grafico que ya no se desplaza demasiado
+for i in range(1, Nini):
+    paM, erM = mH.nuevo(paraMuest[-1], errorMuestras[-1])
+    paraMuest.append(paM)
+    errorMuestras.append(erM)
     
-    sampleador.mean = paraMuest[i]
-    iIni = int(a + b * i)
-    sampleador.cov = np.cov(paraMuest[iIni:i].T) / 4
-#    
-#    sampleador.mean = np.average(paraMuest[:i], 0, weights=probMuestras[:i])
-#    sampleador.cov = np.cov(paraMuest[:i].T, ddof=0, aweights=probMuestras[:i])
+    sampleador.mean = paraMuest[-1]
 
 
-## saco la media pesada y la covarinza pesadas
-#mu1 = np.average(paraMuest, 0, weights=probMuestras)
-#covar1 = np.cov(paraMuest.T, ddof=0, aweights=probMuestras)
-mu1 = np.average(paraMuest[500:], 0)
-covar1 = np.cov(paraMuest[500:].T)
-
-ln.eigvals(covar1)
-
-corner.corner(paraMuest)
-
-# %% ultima etapa de metropolis, no se actualiza online la pds sampling
-sampleador = sts.multivariate_normal(mu1, covar1 / 4)
-
-Nmuestras = int(1e5)
-
-generados = 0
-aceptados = 0
-avance = 0
-retroceso = 0
-
-paraMuest2 = np.zeros((Nmuestras, 6))
-errorMuestras2 = np.zeros(Nmuestras)
-
-# primera
-start = sampleador.rvs() # sampleador() # rn(8) * intervalo + cotas[:,0]
-startE = etotal(start, Ns, Xint, params)
-paraMuest2[0], errorMuestras2[0] = (start, startE)
+# grafico para ver que haya pasado el burn in period
+plt.figure()
+plt.plot(paraMuest - paraMuest[-1])
 
 
-tiempoIni = time.time()
-for i in range(1, Nmuestras):
-    paraMuest2[i], errorMuestras2[i] = nuevo(paraMuest2[i-1], errorMuestras2[i-1])
-    sampleador.mean = paraMuest2[i] # muevo el centro al ultimo punto
-#    sampleador.cov = np.cov(paraMuest2[:i].T)
+
+
+# %%
+import corner 
+
+paraMuest = list() # np.zeros((Nmuestras, Xint.shape[0]))
+errorMuestras = list() # np.zeros(Nmuestras)
+covMuestras = list()
+covMuestras.append(covar0)
+
+paraMuest.append(paM)
+errorMuestras.append(erM)
+
+Ntot = np.int(6.5**dims)
+
+# segunda tanda de muestras solo cambiando el mean
+# estas ya se usan en la tirada definitva
+for i in range(1, Ntot):
+    paM, erM = mH.nuevo(paraMuest[i-1], errorMuestras[i-1])
+    paraMuest.append(paM)
+    errorMuestras.append(erM)
     
-    tiempoNow = time.time()
-    Dt = tiempoNow - tiempoIni
-    frac = i / Nmuestras
-    DtEstimeted = (tiempoNow - tiempoIni) / frac
-    stringTimeEst = time.asctime(time.localtime(tiempoIni + DtEstimeted))
-    print('Transcurrido: %.2fmin. Avance %.4f. Tfin: %s'
-          %(Dt/60, frac, stringTimeEst) )
+    sampleador.mean = paraMuest[-1]
+    covar = np.cov(np.array(paraMuest).T)
+    if np.linalg.matrix_rank(covar) == dims:
+        # leave this loop if covariance matrix has rank 6
+        covMuestras.append(covar)
+        break
 
-# new estimated covariance
-mu2 = np.mean(paraMuest2, axis=0)
-covar2 = np.cov(paraMuest2.T)
+# muestras cambiando el mean y covarianza, arranco desde donde se dejó
+for i in range(i, Ntot):
+    paM, erM = mH.nuevo(paraMuest[-1], errorMuestras[-1])
+    paraMuest.append(paM)
+    errorMuestras.append(erM)
+    
+    sampleador.mean = paraMuest[-1]
+    sampleador.cov = np.cov(np.array(paraMuest).T)
+    
+    covMuestras.append(sampleador.cov)
 
-corner.corner(paraMuest2, 50)
+
+
+plt.figure()
+covarianzasFlattened = np.array(covMuestras).reshape((-1, dims**2))
+plt.plot(covarianzasFlattened - covarianzasFlattened[-1])
+
+paraMuest = np.array(paraMuest)
+corner.corner(paraMuest,50)
+
+
+
+
+
+results = dict()
+results['Nsamples'] = paraMuest.shape[0]
+results['paramsMU'] = np.mean(paraMuest,0)
+results['paramsVAR'] = np.cov(paraMuest.T)
+results['paramsMUvar'] = results['paramsVAR'] / results['Nsamples']
+results['paramsVARvar'] = bl.varVarN(results['paramsVAR'], results['Nsamples'])
+results['Ns'] = Ns
+
+
+
+
+
+# %% SAVE CALIBRATION
+np.save(extrinsicResultsFile, results)
+
+# tambien las muestras de la corrida solo por las dudas
+np.save("/home/sebalander/Documents/datosMHextrinsicstereo.npy", paraMuest)
+
+
+
+
 
 # %%
 

@@ -90,6 +90,8 @@ def ext2flat(rVec, tVec):
     X = np.concatenate((rFlat, tFlat))
 
     return X
+
+
 def flat2ext(X):
     '''
     hace lo inverso de ext2flat
@@ -156,6 +158,17 @@ def errorCuadraticoImagen(Xext, Xint, Ns, params, j, mahDist=False):
         Er = np.sum(er**2, axis=1)
 
     return Er
+
+
+def etotalExt(Xext, Xint, Ns, params, j):
+    '''
+    calcula el error total como la suma de los errore de cada punto en cada
+    imagen
+    '''
+    
+    return errorCuadraticoImagen(Xext, Xint, Ns, params, j, mahDist=False).sum()
+
+
 
 
 def errorCuadraticoInt(Xint, Ns, XextList, params, mahDist=False):
@@ -233,6 +246,82 @@ class metHas:
                 return old, oldE
     
         return new, newE
+
+
+
+
+
+class metHasExt:
+    '''
+    clase para ahcer las iteraciones de metropolis para la calibracion 
+    extrinseca
+    '''
+    def __init__(self, Xint, Ns, params, sampleador, priorExt, W):
+        self.Ns = Ns
+        self.Xint = Xint
+        self.params = params
+        
+        self.generados = 0
+        self.gradPos = 0
+        self.gradNeg = 0
+        self.mismo = 0
+        
+        self.sampleador = sampleador
+        self.priorExt = priorExt
+        self.W = W
+    
+    def ePrior(self, Xext):
+        '''
+        el error de prior solo va para la posicion y no para los angulos porque no
+        hay info facil de los angulos a priori
+        '''
+        return self.W.dot((Xext - self.priorExt)**2)
+    
+    # error total
+    def etotalExt(self, Xext):
+        '''
+        calcula el error total como la suma de los errores de cada punto en una
+        imagen mas el prior
+        '''
+        ep = self.ePrior(Xext)
+        ep += errorCuadraticoImagen(Xext, self.Xint, self.Ns, self.params, 0).sum()
+        return ep
+    
+    def nuevo(self, old, oldE):
+        # genero nuevo
+        new = self.sampleador.rvs() # rn(8) * intervalo + cotas[:,0]
+        self.generados += 1
+    
+        # cambio de error
+        newE = self.etotalExt(new)
+        deltaE = newE - oldE
+    
+        if deltaE < 0:
+            self.gradPos += 1
+            print("Gradiente Positivo")
+            print(self.generados, self.gradPos, self.gradNeg, self.mismo)
+            return new, newE # tiene menor error, listo
+        else:
+            # nueva opoertunidad, sampleo contra rand
+            pb = np.exp(- deltaE / 2)
+    
+            if pb > rn():
+                self.gradNeg += 1
+                print("Gradiente Negativo, pb=", pb)
+                print(self.generados, self.gradPos, self.gradNeg, self.mismo)
+                return new, newE # aceptado a la segunda oportunidad
+            else:
+    #            # vuelvo recursivamente al paso2 hasta aceptar
+    #            print('rechazado, pb=', pb)
+    #            new, newE = nuevo(old, oldE)
+                self.mismo +=1
+                print("Mismo punto,        pb=", pb)
+                print(self.generados, self.gradPos, self.gradNeg, self.mismo)
+                return old, oldE
+    
+        return new, newE
+
+
 
 
 # %% funciones para calcular jacobiano y hessiano in y externo

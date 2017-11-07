@@ -31,10 +31,11 @@ patternFile =      imagesFolder + camera + "ChessPattern.npy"
 imgShapeFile =     imagesFolder + camera + "Shape.npy"
 
 # output
-distCoeffsFile =   imagesFolder + camera + model + "DistCoeffs.npy"
-linearCoeffsFile = imagesFolder + camera + model + "LinearCoeffs.npy"
-tVecsFile =        imagesFolder + camera + model + "Tvecs.npy"
-rVecsFile =        imagesFolder + camera + model + "Rvecs.npy"
+intrinsicResultsFile = imagesFolder + camera + model + "intrMetrResults.npy"
+#distCoeffsFile =   imagesFolder + camera + model + "DistCoeffs.npy"
+#linearCoeffsFile = imagesFolder + camera + model + "LinearCoeffs.npy"
+#tVecsFile =        imagesFolder + camera + model + "Tvecs.npy"
+#rVecsFile =        imagesFolder + camera + model + "Rvecs.npy"
 
 # load data
 imagePoints = np.load(cornersFile)
@@ -166,7 +167,7 @@ intrinsicParamsOutFile = intrinsicParamsOutFile + str(std) + ".npy"
 # pongo en forma flat los valores iniciales
 XextList = [bl.ext2flat(rVecs[i], tVecs[i])for i in range(n)]
 Xint, Ns = bl.int2flat(K, D, model)
-covar0 = np.diag((Xint*1e-3)**2) # una std que es 1e-3 realitivo al valor
+covar0 = np.diag((Xint*1e-4)**2) # una std que es 1e-3 realitivo al valor
 
 Ci = np.repeat([ std**2 * np.eye(2)],n*m, axis=0).reshape(n,m,2,2)
 params = dict()
@@ -232,7 +233,7 @@ metropolis = bl.metHas(Ns, XextList, params, sampleador)
 
 #Nmuestras = int(1e2)
 dims = Xint.shape[0]
-Nini = 4**dims
+Nini = 5**dims
 #frac = np.arange(Nmuestras) / Nmuestras
 
 paraMuest = list() # np.zeros((Nmuestras, Xint.shape[0]))
@@ -242,6 +243,31 @@ paraMuest.append(Xint)
 errorMuestras.append(E0)
 
 # primero saco muestras solo cambiando el mean
+# estas se descartan son el burn in period
+# corro eta parte hata que ve en el grafico que ya no se desplaza demasiado
+for i in range(1, Nini):
+    paM, erM = metropolis.nuevo(paraMuest[-1], errorMuestras[-1])
+    paraMuest.append(paM)
+    errorMuestras.append(erM)
+    
+    sampleador.mean = paraMuest[-1]
+
+# grafico para ver que haya pasado el burn in period
+plt.figure()
+plt.plot(paraMuest - paraMuest[-1])
+
+
+# %%
+import corner 
+
+paraMuest = list() # np.zeros((Nmuestras, Xint.shape[0]))
+errorMuestras = list() # np.zeros(Nmuestras)
+
+paraMuest.append(paM)
+errorMuestras.append(erM)
+
+# segunda tanda de muestras solo cambiando el mean
+# estas ya se usan en la tirada definitva
 for i in range(1, Nini):
     paM, erM = metropolis.nuevo(paraMuest[i-1], errorMuestras[i-1])
     paraMuest.append(paM)
@@ -254,7 +280,7 @@ for i in range(1, Nini):
 covMuestras = list()
 covMuestras.append(covar0)
 
-for i in range(5000):
+for i in range(int(8e4)):
     paM, erM = metropolis.nuevo(paraMuest[-1], errorMuestras[-1])
     paraMuest.append(paM)
     errorMuestras.append(erM)
@@ -262,16 +288,18 @@ for i in range(5000):
     sampleador.mean = paraMuest[-1]
     # discard outliers and burn-in for covariance
     # indexes = np.argsort(errorMuestras)[:int(len(errorMuestras)*0.95)]
-    sampleador.cov = sampleador.cov * 0.7 + 0.3 * np.cov(np.array(paraMuest).T)
+    sampleador.cov = np.cov(np.array(paraMuest).T)# + sampleador.cov * 0.7
     
     covMuestras.append(sampleador.cov)
+    print('               iteracion', i)
     #covMuestrasMean = np.mean(covMuestras[-indexes.shape[0]:],0)
+#    
+#    eps = (covMuestras[-1] - covMuestras[-2]) / covMuestras[-1]
+#    eps = np.max(np.abs(eps))
+#    print(eps)
     
-    #eps = ln.norm(covMuestras[-1] - covMuestrasMean) / ln.norm(covMuestrasMean )
-    #print(eps)
-    
-    #if eps < 1e-2:
-    #    break
+#    if eps < 1e-6:
+#        break
 
 covarianzas = np.array(covMuestras).reshape((-1, dims**2))
 medias = np.array(paraMuest)
@@ -282,50 +310,68 @@ plt.plot(covarianzas - covarianzas[-1])
 plt.figure()
 plt.plot(medias - medias[-1])
 
+corner.corner(medias,50)
+#
+## %%
+#reload(bl)
+#from copy import deepcopy as dc
+#import time
+#
+#sampleador = sts.multivariate_normal(Xint, covar0)
+#
+#metropolis = bl.metHas(Ns, XextList, params, sampleador)
+#
+#Nmuestras = int(1e4)
+#Mmuestras = int(50)
+#nTot = Nmuestras * Mmuestras
+#
+#paraMuest = np.zeros((Nmuestras,8))
+#errorMuestras = np.zeros(Nmuestras)
+#
+#paraMuest[0], errorMuestras[0] = (Xint, E0)
+#
+#tiempoIni = time.time()
+#
+#for j in range(Mmuestras):
+#
+#    for i in range(1, Nmuestras):
+#        paraMuest[i], errorMuestras[i] = metropolis.nuevo(paraMuest[i-1], errorMuestras[i-1])
+#        sampleador.mean = paraMuest[i]
+#
+#        if i < 500: # no repito estas cuentas despues de cierto tiempo
+#            tiempoNow = time.time()
+#            Dt = tiempoNow - tiempoIni
+#            frac = (i  + Nmuestras * j)/ nTot
+#            DtEstimeted = (tiempoNow - tiempoIni) / frac
+#            stringTimeEst = time.asctime(time.localtime(tiempoIni + DtEstimeted))
+#
+#        print('Epoch: %d/%d-%d/%d. Transcurrido: %.2fmin. Avance %.4f. Tfin: %s'
+#              %(j,Mmuestras,i,Nmuestras,Dt/60, frac, stringTimeEst) )
+#    # guardo estos datos
+#    np.save("/home/sebalander/Documents/datosMHintrinsic2-%d"%j, paraMuest)
+#    # para la proxima realizacion pongo la primera donde dejamos esta
+#    paraMuest[0], errorMuestras[0] = (paraMuest[-1], errorMuestras[-1])
+
 # %%
-reload(bl)
-from copy import deepcopy as dc
-import time
 
-sampleador = sts.multivariate_normal(Xint, covar0)
-
-metropolis = bl.metHas(Ns, XextList, params, sampleador)
-
-Nmuestras = int(1e4)
-Mmuestras = int(50)
-nTot = Nmuestras * Mmuestras
-
-paraMuest = np.zeros((Nmuestras,8))
-errorMuestras = np.zeros(Nmuestras)
-
-paraMuest[0], errorMuestras[0] = (Xint, E0)
-
-tiempoIni = time.time()
-
-for j in range(Mmuestras):
-
-    for i in range(1, Nmuestras):
-        paraMuest[i], errorMuestras[i] = metropolis.nuevo(paraMuest[i-1], errorMuestras[i-1])
-        sampleador.mean = paraMuest[i]
-
-        if i < 500: # no repito estas cuentas despues de cierto tiempo
-            tiempoNow = time.time()
-            Dt = tiempoNow - tiempoIni
-            frac = (i  + Nmuestras * j)/ nTot
-            DtEstimeted = (tiempoNow - tiempoIni) / frac
-            stringTimeEst = time.asctime(time.localtime(tiempoIni + DtEstimeted))
-
-        print('Epoch: %d/%d-%d/%d. Transcurrido: %.2fmin. Avance %.4f. Tfin: %s'
-              %(j,Mmuestras,i,Nmuestras,Dt/60, frac, stringTimeEst) )
-    # guardo estos datos
-    np.save("/home/sebalander/Documents/datosMHintrinsic2-%d"%j, paraMuest)
-    # para la proxima realizacion pongo la primera donde dejamos esta
-    paraMuest[0], errorMuestras[0] = (paraMuest[-1], errorMuestras[-1])
+results = dict()
+results['Nsamples'] = medias.shape[0]
+results['paramsMU'] = np.mean(medias,0)
+results['paramsVAR'] = np.cov(medias.T)
+results['paramsMUvar'] = results['paramsVAR'] / results['Nsamples']
+results['paramsVARvar'] = bl.varVarN(results['paramsVAR'], results['Nsamples'])
+results['Ns'] = Ns
 
 
 
 # %% SAVE CALIBRATION
-np.save(distCoeffsFile, D)
-np.save(linearCoeffsFile, K)
-np.save(tVecsFile, tVecs)
-np.save(rVecsFile, rVecs)
+np.save(intrinsicResultsFile, results)
+
+# tambien las muestras de la corrida solo por las dudas
+np.save("/home/sebalander/Documents/datosMHintrinsicstereo.npy", medias)
+
+
+#np.save(distCoeffsFile, D)
+#np.save(linearCoeffsFile, K)
+#np.save(tVecsFile, tVecs)
+#np.save(rVecsFile, rVecs)
