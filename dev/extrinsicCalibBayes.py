@@ -125,16 +125,16 @@ plt.plot(camPrior[0], camPrior[1], 'x')
 # saco condiciones iniciales para los parametros uso opencv y heuristica
 
 #reload(cl)
-if model is modelos[3]:
+if model == modelos[3]:
     # saco rVecs, tVecs de la galera
-    tvecIni = camPrior
-    rvecIni = np.array([np.pi, 0, 0]) # camara apuntando para abajo
-    
+    # tvecIni = camPrior
+    # rvecIni = np.array([np.pi, 0, 0]) # camara apuntando para abajo
+    Xext0 = camPrior.copy()
+    rvecIni, tvecIni = bl.flat2ext(Xext0)
 else:
-    ret, rvecIni, tvecIni, inliers = cv2.solvePnPRansac(calibPts, xIm, cameraMatrix, distCoeffs)
-
-
-Xext0 = bl.ext2flat(rvecIni, tvecIni)
+    ret, rvecIni, tvecIni, inliers = cv2.solvePnPRansac(calibPts, xIm,
+                                                        cameraMatrix, distCoeffs)
+    Xext0 = bl.ext2flat(rvecIni, tvecIni)
 
 xpr, ypr, c = cl.inverse(xIm, rvecIni, tvecIni, cameraMatrix, distCoeffs, model=model)
 
@@ -142,7 +142,7 @@ plt.plot(xpr, ypr, '*')
 
 # %%
 
-std = 2.0
+std = 1.0
 # output file
 #extrinsicParamsOutFile = extrinsicFolder + camera + model + "intrinsicParamsAP"
 #extrinsicParamsOutFile = extrinsicParamsOutFile + str(std) + ".npy"
@@ -197,6 +197,17 @@ plt.plot(paraMuest - paraMuest[-1])
 
 
 # %%
+# largo desde la corrida que guarde antes
+mu0 = results['paramsMU']
+covar0 = results['paramsVAR']
+
+sampleador = sts.multivariate_normal(mu0, covar0)
+mH = bl.metHasExt(Xint, Ns, params, sampleador, camPrior, W)
+
+paM = sampleador.rvs()
+erM = mH.etotalExt(paM)
+
+
 paraMuest = list() # np.zeros((Nmuestras, Xint.shape[0]))
 errorMuestras = list() # np.zeros(Nmuestras)
 covMuestras = list()
@@ -205,12 +216,13 @@ covMuestras.append(covar0)
 paraMuest.append(paM)
 errorMuestras.append(erM)
 
+dims = Xint.shape[0]
 Ntot = np.int(6.5**dims)
 
 # segunda tanda de muestras solo cambiando el mean
 # estas ya se usan en la tirada definitva
 for i in range(1, Ntot):
-    paM, erM = mH.nuevo(paraMuest[i-1], errorMuestras[i-1])
+    paM, erM = mH.nuevo(paraMuest[-1], errorMuestras[-1])
     paraMuest.append(paM)
     errorMuestras.append(erM)
     

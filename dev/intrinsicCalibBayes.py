@@ -516,7 +516,7 @@ gradPos = 0
 gradNeg = 0
 mismo = 0
 
-paraMuest2 = np.zeros((Nmuestras,8))
+paraMuest2 = np.zeros((Nmuestras,Xint.shape[0]))
 errorMuestras2 = np.zeros(Nmuestras)
 
 # primera

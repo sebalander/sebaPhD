@@ -455,7 +455,7 @@ def varMahal(c1, n, c2, rank=False):
     if rank enabled, also returns the accumulated probability up to that
     mahalanobis distance taking into account 3 degrees of freedom
     '''
-    # se elimina la fina y columna redundante porque no aportan nada
+    # se elimina la fila y columna redundante porque no aportan nada
     c1Var = varVar2(c1, n)[[0,1,3]].T[[0,1,3]].T
     c1Pres = inv(c1Var) # precision matrix
 
