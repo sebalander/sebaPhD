@@ -938,7 +938,7 @@ def unit2CovTransf(C):
     '''
     l, v = eig(C)
 
-    # matrix such that A.dot(A.T)==C
+    # matrix such that T.dot(T.T)==C
     T =  sqrt(l.real) * v
 
     return T
