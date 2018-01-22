@@ -246,8 +246,9 @@ def ccd2hom(imagePoints, cameraMatrix, Cccd=False, Cf=False):
                     ).sum((2,3))
     else:
         Cpp = False  # return without covariance matrix
+        Jd_k = False
 
-    return xpp, ypp, Cpp
+    return xpp, ypp, Cpp, Jd_k
 
 
 
@@ -282,28 +283,32 @@ def homDist2homUndist_ratioJacobians(xpp, ypp, distCoeffs, model):
     Jpp_p[[0,1], [0,1], :] += q
     
     # jacobiano PP (distort) respecto a parametros
-    Jpp_k = array([xp * dQdK, yp * dQdK]).transpose((1, 0, 2))
+    Jpp_f = array([xp * dQdK, yp * dQdK]).transpose((1, 0, 2))
     
     # los invierto
     Jp_pp = linalg.inv(Jpp_p.T)  # jacobiano respecto a xpp, ypp
 
     # multiply each jacobian
-    Jp_k = -(Jpp_k.T.reshape((-1, 2, 1, dQdK.shape[0])) *
+    Jp_f = -(Jpp_f.T.reshape((-1, 2, 1, dQdK.shape[0])) *
              Jp_pp.reshape((-1, 2, 2, 1))).sum(1)
     
-    return q, ret, Jp_pp, Jp_k
+    return q, ret, Jp_pp, Jp_f
 
 
 
-def homDist2homUndist(xpp, ypp, distCoeffs, model, Cpp=False, Ck=False):
+def homDist2homUndist(xpp, ypp, distCoeffs, model,
+                      Cpp=False, Cf=False, Cfk=False, Jd_k=False):
     '''
     takes ccd cordinates and projects to homogenpus coords and undistorts
     '''
-    Cppbool = anny(Cpp)
-    Ckbool = anny(Ck)
+    # Hay notacion confusa a veces a xpp se la refiere como d o pp
+    # a xp se la refiere como p; a ccd matrix como k y a distors como f o k
     
-    if Cppbool or Ckbool :  # no hay incertezas Ck ni Cpp
-        q, _, Jp_pp, Jp_k = homDist2homUndist_ratioJacobians(xpp, ypp,
+    Cppbool = anny(Cpp)
+    Cfbool = anny(Cf)
+    
+    if Cppbool or Cfbool :  # no hay incertezas Ck ni Cpp
+        q, _, Jp_pp, Jp_f = homDist2homUndist_ratioJacobians(xpp, ypp,
                                                             distCoeffs,
                                                             model)
         xp = xpp / q  # undistort in homogenous coords
@@ -311,20 +316,32 @@ def homDist2homUndist(xpp, ypp, distCoeffs, model, Cpp=False, Ck=False):
         
         Cp = zeros((len(xp),2,2))
         
-        # nk = nparams[model] # distCoeffs.shape[0]  # unmber of dist coeffs
         if Cppbool:  # incerteza Cpp 
             Jp_ppResh = Jp_pp.reshape((-1, 2, 1, 2, 1))
             Cp = (Jp_ppResh *
                   Cpp.reshape((-1,1,2,2,1)) *
                   Jp_ppResh.transpose((0,4,3,2,1))
                   ).sum((2,3))
-        if Ckbool:  # incerteza Ck 
-            nk = Jp_k.shape[-1]
-            Jp_kResh = Jp_k.reshape((-1, 2, 1, nk, 1))
-            Cp += (Jp_kResh *
-                   Ck.reshape((1, 1, nk, nk, 1)) *
-                   Jp_kResh.transpose((0, 4, 3, 2, 1))
+        
+        if Cfbool:  # incerteza Ck 
+            nf = Jp_f.shape[-1] # nro de param distorsion
+            Jp_fResh = Jp_f.reshape((-1, 2, 1, nf, 1))
+            Cp += (Jp_fResh *
+                   Cf.reshape((1, 1, nf, nf, 1)) *
+                   Jp_fResh.transpose((0, 4, 3, 2, 1))
                    ).sum((2, 3))
+        
+        if anny(Cfk) and anny(Jd_k):  # si hay covarianza cruzada
+            # jacobiano de xp respecto a ccd matrix
+            Jp_k = (Jd_k.reshape((-1,1,2,4)) *
+                    Jp_pp.reshape((-1,2,2,1))
+                    ).sum(2)
+            # ahora agrego termino cruzado
+            Jp_fResh = Jp_f.reshape((-1, 2, nf, 1, 1))
+            Jp_kResh = Jp_k.reshape((-1,1,1,2,4)).transpose((0,1,2,4,3))
+            Cp += (Jp_fResh *
+                   Cfk.reshape((1,1,nf,4,1)) *
+                   Jp_kResh).sum((2,3))
 
     else:
         # calculate ratio of distortion
@@ -563,7 +580,7 @@ def xypToZplane(xp, yp, rV, tV, Cp=False, Crt=False):
 
 
 def inverse(imagePoints, rV, tV, cameraMatrix, distCoeffs, model,
-            Cccd=False, Cf=False, Ck=False, Crt=False):
+            Cccd=False, Cf=False, Ck=False, Crt=False, Cfk=False):
     '''
     inverseFisheye(objPoints, rVec/rotMatrix, tVec, cameraMatrix,
                     distCoeffs)-> objPoints
@@ -575,9 +592,14 @@ def inverse(imagePoints, rV, tV, cameraMatrix, distCoeffs, model,
     propagates covariance uncertainty
     '''
     # project to homogenous distorted
-    xpp, ypp, Cpp = ccd2hom(imagePoints, cameraMatrix, Cccd, Cf)
+    xpp, ypp, Cpp, Jd_k = ccd2hom(imagePoints, cameraMatrix, Cccd, Cf)
+    
     # undistort
-    xp, yp, Cp = homDist2homUndist(xpp, ypp, distCoeffs, model, Cpp, Ck)
+    xp, yp, Cp = homDist2homUndist(xpp, ypp, distCoeffs, model, Cpp, Ck,
+                                   Cfk, Jd_k)
+    
+    # add covariance dependence in intrinsic parameters
+    
     # project to plane z=0 from homogenous
     xm, ym, Cm = xypToZplane(xp, yp, rV, tV, Cp, Crt)
     return xm, ym, Cm

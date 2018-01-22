@@ -127,6 +127,7 @@ def errorCuadraticoImagen(Xext, Xint, Ns, params, j, mahDist=False):
     Cf = params["Cf"]
     Ck = params["Ck"]
     Crt = params["Crt"]
+    Cfk = params["Cfk"]
     
     try: # check if there is covariance for this image
         Cov = Cccd[j]
@@ -135,7 +136,7 @@ def errorCuadraticoImagen(Xext, Xint, Ns, params, j, mahDist=False):
 
     # hago la proyeccion
     xm, ym, Cm = cl.inverse(imagePoints[j,0], rvec, tvec, cameraMatrix,
-                            distCoeffs, model, Cov, Cf, Ck, Crt)
+                            distCoeffs, model, Cov, Cf, Ck, Crt[j], Cfk)
 
     # error
     er = ([xm, ym] - chessboardModel[0,:,:2].T).T
