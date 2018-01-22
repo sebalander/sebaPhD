@@ -19,7 +19,7 @@ import matplotlib.pyplot as plt
 #from importlib import reload
 from copy import deepcopy as dc
 #import numdifftools as ndf
-#from calibration import calibrator as cl
+from calibration import calibrator as cl
 import corner
 import time
 
@@ -82,15 +82,15 @@ NdataPoints = n*m
 stdPix = 0.3
 Ci = np.repeat([ stdPix**2 * np.eye(2)],n*m, axis=0).reshape(n,m,2,2)
 
-Cf = np.eye(distCoeffs.shape[0])
-Ck = np.eye(4)
-Cfk = np.eye(distCoeffs.shape[0], 4)  # rows for distortion coeffs
-
-Crt = np.eye(6) # 6x6 covariance of pose
-Crt[[0,1,2],[0,1,2]] *= np.deg2rad(1)**2 # 5 deg stdev in every angle
-Crt[[3,4,5],[3,4,5]] *= 0.01**2 # 1/100 of the unit length as std for pos
-Crt = np.repeat([Crt] , n, axis=0)
-#Crt = np.repeat([False], n) # no RT error
+#Cf = np.eye(distCoeffs.shape[0])
+#Ck = np.eye(4)
+#Cfk = np.eye(distCoeffs.shape[0], 4)  # rows for distortion coeffs
+#
+#Crt = np.eye(6) # 6x6 covariance of pose
+#Crt[[0,1,2],[0,1,2]] *= np.deg2rad(1)**2 # 5 deg stdev in every angle
+#Crt[[3,4,5],[3,4,5]] *= 0.01**2 # 1/100 of the unit length as std for pos
+#Crt = np.repeat([Crt] , n, axis=0)
+Crt = np.repeat([False], n) # no RT error
 
 # output file
 intrinsicParamsOutFile = imagesFolder + camera + model + "intrinsicParamsML"
@@ -104,10 +104,9 @@ params["imagePoints"] = imagePoints
 params["model"] = model
 params["chessboardModel"] = chessboardModel
 params["Cccd"] = Ci
-params["Cf"] = Cf
-params["Ck"] = Ck
-params["Cfk"] = Cfk
-
+params["Cf"] = False # Cf
+params["Ck"] = False # Ck
+params["Cfk"] = False # Cfk
 params["Crt"] = Crt  # list of 6x6 covariance matrices
 
 # pruebo con una imagen
@@ -145,13 +144,48 @@ plt.yscale('log')
 # in each iteration sample points from search space assuming gaussian pdf
 # calculate total error and use that as log of probability
 
-Cfk = np.eye()
+# propongo covarianzas de donde samplear el espacio de busqueda
+Cfk = np.diag((Xint/100)**2 + 1e-6)  # 1/100 de desv est
+# regularizado para que no sea singular
+
+Crt = np.eye(6) # 6x6 covariance of pose
+Crt[[0,1,2],[0,1,2]] *= np.deg2rad(1)**2 # 5 deg stdev in every angle
+Crt[[3,4,5],[3,4,5]] *= 0.01**2 # 1/100 of the unit length as std for pos
+Crt = np.repeat([Crt] , n, axis=0)
+
+sampleadorInt = sts.multivariate_normal(Xint, Cfk)
+
+class sampleadorExtrinsecoNormal:
+    '''
+    manages the sampling of extrinsic parameters
+    '''
+    def __init__(self, mulist, covarList):
+        '''
+        receive a list of rtvectors and define mu and covar and start sampler
+        '''
+        self.muList = mulist
+        self.matrixTransf = np.array([x for x in
+                                      map(cl.unit2CovTransf, covarList)])
+
+    def rvs(self):
+        deltas = sts.multivariate_normal.rvs(size=(len(self.matrixTransf),6))
+        deltas = (deltas.reshape(-1,6,1) * self.matrixTransf).sum(2)
+        return deltas + self.muList
+    
+    def set(self, muList=None, covarList=None):
+        if muList is not None:
+            self.muList = muList
+        if covarList is not None:
+            self.matrixTransf = np.array([x for x in
+                                      map(cl.unit2CovTransf, covarList)])
 
 
+sampleadorExt = sampleadorExtrinsecoNormal(XextList, Crt)
 
+intSamp = sampleadorInt.rvs()
+extSamp = sampleadorExt.rvs()
 
-
-
+etotal(intSamp, Ns, extSamp, params)
 
 
 # %% metropolis hastings
