@@ -963,7 +963,7 @@ def unit2CovTransf(C):
     # matrix such that T.dot(T.T)==C
     T =  sqrt(l.real) * v
 
-    return T
+    return T.real
 
 
 def plotEllipse(ax, C, mux, muy, col):

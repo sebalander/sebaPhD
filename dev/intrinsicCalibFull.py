@@ -12,6 +12,7 @@ space (before it was only intrinsic)
 
 # %%
 #import glob
+import os
 import numpy as np
 #import scipy.linalg as ln
 import scipy.stats as sts
@@ -50,7 +51,7 @@ linearCoeffsFile = imagesFolder + camera + model + "LinearCoeffs.npy"
 tVecsFile =        imagesFolder + camera + model + "Tvecs.npy"
 rVecsFile =        imagesFolder + camera + model + "Rvecs.npy"
 
-imageSelection = np.arange(0,33) # selecciono con que imagenes trabajar
+imageSelection = np.arange(0,33,4) # selecciono con que imagenes trabajar
 n = len(imageSelection)  # cantidad de imagenes
 
 # ## load data
@@ -75,7 +76,8 @@ tVecs = np.load(tVecsFile)[imageSelection]
 Xint, Ns = bl.int2flat(cameraMatrix, distCoeffs, model)
 XextList = [bl.ext2flat(rVecs[i], tVecs[i])for i in range(n)]
 
-NfreeParams = n*6 + distCoeffs.shape[0] + 4
+NintrParams = distCoeffs.shape[0] + 4
+NfreeParams = n*6 + NintrParams
 NdataPoints = n*m
 
 # 0.3pix as image std
@@ -153,9 +155,9 @@ class sampleadorExtrinsecoNormal:
         receive a list of rtvectors and define mu and covar and start sampler
         '''
         self.mean = np.array(muList)
-        self.matrixTransf = np.array([x for x in
-                                      map(cl.unit2CovTransf, covarList)])
-        self.piConst = (np.pi*2)**(np.prod(self.mean.shape)/2) # gaussian normalizing factor
+        # gaussian normalizing factor
+        self.piConst = (np.pi*2)**(np.prod(self.mean.shape)/2)
+        self.setCov(covarList)
 
     def rvs(self, retPdf=False):
         x = sts.multivariate_normal.rvs(size=(len(self.matrixTransf),6))
@@ -167,9 +169,9 @@ class sampleadorExtrinsecoNormal:
         
         return x2 + self.mean
     
-    def setCovar(self, covarList):
-        self.matrixTransf = np.array([x for x in
-                                      map(cl.unit2CovTransf, covarList)])
+    def setCov(self, covarList):
+        self.cov = np.array(covarList)
+        self.matrixTransf = np.array([cl.unit2CovTransf(x) for x in self.cov])
 
 
 # %% 
@@ -180,13 +182,18 @@ hacer una aproximacion grosera
 '''
 
 # propongo covarianzas de donde samplear el espacio de busqueda
-Cfk = np.diag((Xint/100)**2 + 1e-6)  # 1/100 de desv est
+Cfk = np.diag((Xint/1000)**2 + 1e-6)  # 1/1000 de desv est
 # regularizado para que no sea singular
 
 Crt = np.eye(6) # 6x6 covariance of pose
-Crt[[0,1,2],[0,1,2]] *= np.deg2rad(1)**2 # 5 deg stdev in every angle
-Crt[[3,4,5],[3,4,5]] *= 0.01**2 # 1/100 of the unit length as std for pos
-Crt = np.repeat([Crt] , n, axis=0)
+Crt[[0,1,2],[0,1,2]] *= np.deg2rad(1)**2 # 1 deg stdev in every angle
+Crt[[3,4,5],[3,4,5]] *= 0.1**2 # 1/10 of the unit length as std for pos
+
+# reduzco notablemten la covarianza (por la dimensionalidad??)
+fkFactor = 1e-2
+rtFactor = 1e-2
+Cfk *= fkFactor
+Crt = np.repeat([Crt * rtFactor] , n, axis=0)
 
 
 # instancio los sampleadres
@@ -203,7 +210,7 @@ meanList = list()
 
 
 # %%
-Nsampl = int(1e3)
+Nsampl = 1000
 
 sampleIntList = np.zeros((Nsampl, distCoeffs.shape[0] + 4))
 sampleExtList = np.zeros((Nsampl,n,6))
@@ -221,41 +228,64 @@ for i in range(Nsampl):
     
     print(i, samplePerr[i])
 
+
+
+# con este sampleo me fijo si el histograma de los errores es razonable
+plt.figure()
+plt.hist(samplePerr,100,normed=True)
+plt.title("fk:%g  -- rt:%g"%(fkFactor,rtFactor))
+# parece qeu anda asia uq euso tambien estos datos para refinar un poco la pdf
+
+
 # calculo los importance weights
 pHat = np.exp( - (samplePerr - np.min(samplePerr)) / 2)
 r = pHat / sampleQ
 w = r / np.sum(r)
 
 # nueva pdf
-newIntMu = np.average(sampleIntList, axis=0, weights=w)
-newExtMu = np.average(sampleExtList, axis=0, weights=w)
+#newIntMu = np.average(sampleIntList, axis=0, weights=w)
+#newExtMu = np.average(sampleExtList, axis=0, weights=w)
+bestSample = np.argmax(w)
+sampleadorInt.mean = sampleIntList[bestSample]
+sampleadorExt.mean = sampleExtList[bestSample]
 
-sampleadorInt.mean = newIntMu
-sampleadorExt.mean = newExtMu
+sampleadorIntBkp = dc(sampleadorInt)
+sampleadorExtBkp = dc(sampleadorExt)
 
-meanList.append([newIntMu, newExtMu])
+##if np.sum(w != 0) != 1: # actualizo la covarianza
+#print('calculo nueva covarianza segun los pesos')
+#sampleadorInt.cov = np.cov(sampleIntList.T, ddof=0, aweights=w)
+#
+#newCovarList = [np.cov(sampleExtList[:,i].T, ddof=0, aweights=w) for i in range(n)]
 
-print(newIntMu)
+## regularizo las nuevas covarianzas
+#for c in newCovarList:
+#    crank = np.linalg.matrix_rank(c)
+#    if crank != 6:
+#        u,s,v = np.linalg.svd(c)
+#        print(s)
+#        c2 = c + np.eye(6) * 1e-15
+#        u,s2,v = np.linalg.svd(c2)
+#        print(s2)
+#        print(crank,np.linalg.matrix_rank(np.eye(6)))
+#        c=c2
+#
+#sampleadorExt.setCov(np.array(newCovarList))
 
-if np.sum(w != 0) != 1: # actualizo la covarianza
-    print('calculo nueva covarianza segun los pesos')
-    sampleadorInt.cov = np.cov(sampleIntList.T, ddof=0, aweights=w)
-    
-    newCovarList = [np.cov(sampleExtList[:,i].T, ddof=0, aweights=w) for i in range(n)]
-    sampleadorExt.setCovar(np.array(newCovarList))
 
-else: # achico en 10 la escala
-    print('achico escala de covarianza')
-    sampleadorInt.cov /= 10
-    sampleadorExt.matrixTransf /= 100
+#else: # achico en 10 la escala
+#    print('achico escala de covarianza')
+#    sampleadorInt.cov /= 10
+#    sampleadorExt.matrixTransf /= 100
 
-plt.hist(w)
-plt.hist(sampleQ)
+
+
+
 
     # %% metropolis hastings
 from numpy.random import rand as rn
 
-def nuevo(oldInt, oldExt, oldErr):
+def nuevo(oldInt, oldExt, oldErr, retPb=False):
     global generados
     global gradPos
     global gradNeg
@@ -273,41 +303,49 @@ def nuevo(oldInt, oldExt, oldErr):
 
     if deltaErr < 0:
         gradPos += 1
-        print("Gradiente Positivo")
-        print(generados, gradPos, gradNeg, mismo)
+        print(generados, gradPos, gradNeg, mismo, "Gradiente Positivo")
+        if retPb:
+            return newInt, newExt, newErr, 1.0
         return newInt, newExt, newErr # tiene menor error, listo
     else:
-        # nueva opoertunidad, sampleo contra rand
+        # nueva oportunidad, sampleo contra rand
         pb = np.exp(- deltaErr / 2)
 
         if pb > rn():
             gradNeg += 1
-            print("Gradiente Negativo, pb=", pb)
-            print(generados, gradPos, gradNeg, mismo)
+            print(generados, gradPos, gradNeg, mismo, "Gradiente Negativo, pb=", pb)
+            if retPb:
+                return newInt, newExt, newErr, pb
             return newInt, newExt, newErr  # aceptado a la segunda oportunidad
         else:
 #            # vuelvo recursivamente al paso2 hasta aceptar
 #            print('rechazado, pb=', pb)
 #            new, newE = nuevo(old, oldE)
             mismo +=1
-            print("Mismo punto,        pb=", pb)
-            print(generados, gradPos, gradNeg, mismo)
+            print(generados, gradPos, gradNeg, mismo, "Mismo punto,        pb=", pb)
+            if retPb:
+                return oldInt, oldExt, oldErr, pb
             return oldInt, oldExt, oldErr
 
-    return newInt, newExt, newErr
+#    return newInt, newExt, newErr
 
 generados = 0
 gradPos = 0
 gradNeg = 0
 mismo = 0
 
+
+intSamp = sampleadorInt.rvs()
+extSamp = sampleadorExt.rvs()
+errSamp = etotal(intSamp, Ns, extSamp, params)
+
 # pruebo una iteracion
 newInt, newExt, newErr = nuevo(intSamp, extSamp, errSamp)
 
 
-# %% ultima etapa de metropolis
+# %% metropolis para hacer burnin y sacar una covarianza para q
 
-Nmuestras = int(1e3)
+Nmuestras = 20000
 #Mmuestras = int(50)
 #nTot = Nmuestras * Mmuestras
 
@@ -316,10 +354,167 @@ gradPos = 0
 gradNeg = 0
 mismo = 0
 
+sampleIntList = np.zeros((Nmuestras, distCoeffs.shape[0] + 4))
+sampleExtList = np.zeros((Nmuestras,n,6))
+sampleErrList = np.zeros(Nmuestras)
+
+# cargo samplers
+sampleadorInt = dc(sampleadorIntBkp)
+sampleadorExt = dc(sampleadorExtBkp)
+
+# primera
+sampleIntList[0] = sampleadorInt.rvs()
+sampleExtList[0] = sampleadorExt.rvs()
+sampleErrList[0] = etotal(intSamp, Ns, extSamp, params)
+
+tiempoIni = time.time()
+
+#for j in range(Mmuestras):
+for i in range(1, 1000):
+    sampleIntList[i], sampleExtList[i], sampleErrList[i], pb = nuevo(sampleIntList[i-1], sampleExtList[i-1], sampleErrList[i-1], retPb=True)
+    
+    if np.isnan(pb):
+        break
+    
+    # actualizo centroide
+    sampleadorInt.mean = sampleIntList[i]
+    sampleadorExt.mean = sampleExtList[i]
+    
+    # actualizo covarianzas
+    deltaInt = sampleIntList[i] - sampleIntList[i-1]
+    deltaIntCov = deltaInt.reshape((-1,1)) * deltaInt.reshape((1,-1))
+    sampleadorInt.cov = sampleadorInt.cov * 0.99 + 0.01 * deltaIntCov
+    
+    deltaExt = sampleExtList[i] - sampleExtList[i-1]
+    deltaExtCov = deltaExt.reshape((-1,6,1)) * deltaExt.reshape((-1,1,6))
+    sampleadorExt.setCov(sampleadorExt.cov * 0.99 + 0.01 * deltaExtCov)
+
+    tiempoNow = time.time()
+    Dt = tiempoNow - tiempoIni
+    frac = i / Nmuestras # (i  + Nmuestras * j)/ nTot
+    DtEstimeted = (tiempoNow - tiempoIni) / frac
+    stringTimeEst = time.asctime(time.localtime(tiempoIni + DtEstimeted))
+
+    print('Epoch: %d/%d. Tfin: %s'
+          %(i, Nmuestras, stringTimeEst),
+          np.linalg.norm(sampleadorInt.cov),
+          np.linalg.norm(sampleadorExt.cov))
+
+
+indexInterval = 2*NfreeParams
+# matrix para regularizar la covarianza de intrinsecos
+regIntr = np.eye(NintrParams) * 1e-12
+regExtr = np.eye(6) * 1e-12
+
+for i in range(1000, Nmuestras):
+    sampleIntList[i], sampleExtList[i], sampleErrList[i], pb = nuevo(sampleIntList[i-1], sampleExtList[i-1], sampleErrList[i-1], retPb=True)
+    
+    if np.isnan(pb):
+        break
+    
+    # actualizo centroide
+    sampleadorInt.mean = sampleIntList[i]
+    sampleadorExt.mean = sampleExtList[i]
+    
+    # actualizo covarianzas
+#    newCov = np.cov(sampleIntList[i-indexInterval:i].T)
+#    if np.linalg.matrix_rank(newCov) < NintrParams:
+#        newCov += regIntr # regularizo si pierde rango
+#    sampleadorInt.cov = newCov
+#
+##    print('intervalo',i,indexInterval)
+#    
+#    meanExt = np.mean(sampleExtList[i-indexInterval:i], axis=0)
+#    deltaExt = sampleExtList[i-indexInterval:i] - meanExt
+#    deltaExtCov = (deltaExt.reshape((indexInterval, n, 6, 1)) *
+#                   deltaExt.reshape((indexInterval, n, 1, 6)))
+#    
+#    newExtCov = deltaExtCov.sum(0) / indexInterval
+#    ranks = np.linalg.matrix_rank(newExtCov)
+#    newExtCov[ranks < 6] += regExtr # regularizo si perdieron rango
+#    
+#    sampleadorExt.setCov(newExtCov)
+    
+        # actualizo covarianzas
+    deltaInt = sampleIntList[i] - sampleIntList[i-1]
+    deltaIntCov = deltaInt.reshape((-1,1)) * deltaInt.reshape((1,-1))
+    sampleadorInt.cov = sampleadorInt.cov * 0.9999 + 0.0001 * deltaIntCov
+    
+    deltaExt = sampleExtList[i] - sampleExtList[i-1]
+    deltaExtCov = deltaExt.reshape((-1,6,1)) * deltaExt.reshape((-1,1,6))
+    sampleadorExt.setCov(sampleadorExt.cov * 0.9999 + 0.0001 * deltaExtCov)
+
+    
+    
+    if i%2==0: # cada dos iteraciones aumento el ancho de la ventana movil
+#        print('aumento intervalo')
+        indexInterval += 1
+
+
+#    if i < 500: # no repito estas cuentas despues de cierto tiempo
+    tiempoNow = time.time()
+    Dt = tiempoNow - tiempoIni
+    frac = i / Nmuestras # (i  + Nmuestras * j)/ nTot
+    DtEstimeted = (tiempoNow - tiempoIni) / frac
+    stringTimeEst = time.asctime(time.localtime(tiempoIni + DtEstimeted))
+
+    print('Epoch: %d/%d. Tfin: %s'
+          %(i, Nmuestras, stringTimeEst),
+          np.linalg.norm(sampleadorInt.cov),
+          np.linalg.norm(sampleadorExt.cov))
+
+
+sampleadorIntBkp2 = dc(sampleadorInt)
+sampleadorExtBkp2 = dc(sampleadorExt)
+
+os.system("speak 'aadfafañfañieñiweh'")
+
+# %%
+rescaled = np.concatenate([sampleIntList, sampleExtList.reshape((Nmuestras,-1))], axis=1)
+rescaledMin = np.min(rescaled, axis=0)
+rescaledMax = np.max(rescaled, axis=0)
+
+rescaled = (rescaled - rescaledMin) / (rescaledMax - rescaledMin)
+indices = np.arange(Nmuestras)
+
+# %%
+Nsubplots = 14  # cantidad de subplots
+fig, axes = plt.subplots(1, Nsubplots, sharey='row')
+# Remove horizontal space between axes
+fig.subplots_adjust(wspace=0, hspace=0,left=None, bottom=0, right=1, top=1)
+
+axes[0].plot(rescaled[:,0::Nsubplots], indices)
+axes[0].set_xticklabels([])
+
+for i in range(1,Nsubplots):
+    axes[i].plot(rescaled[:,i::Nsubplots], indices)
+    axes[i].set_xticklabels([])
+#fig.tight_layout()
+
+'''
+ahora pareciera que esta sampleando de manera mas razonable.
+'''
+
+# %%
+
+# %% metropolis
+
+Nmuestras = 10000
+#Mmuestras = int(50)
+#nTot = Nmuestras * Mmuestras
+
+generados = 0
+gradPos = 0
+gradNeg = 0
+mismo = 0
 
 sampleIntList = np.zeros((Nmuestras, distCoeffs.shape[0] + 4))
 sampleExtList = np.zeros((Nmuestras,n,6))
 sampleErrList = np.zeros(Nmuestras)
+
+# cargo samplers
+sampleadorInt = dc(sampleadorIntBkp2)
+sampleadorExt = dc(sampleadorExtBkp2)
 
 # primera
 sampleIntList[0] = sampleadorInt.rvs()
@@ -330,13 +525,17 @@ tiempoIni = time.time()
 
 #for j in range(Mmuestras):
 for i in range(1, Nmuestras):
-    sampleIntList[i], sampleExtList[i], sampleErrList[i] = nuevo(sampleIntList[i-1], sampleExtList[i-1], sampleErrList[i-1])
+    sampleIntList[i], sampleExtList[i], sampleErrList[i], pb = nuevo(sampleIntList[i-1], sampleExtList[i-1], sampleErrList[i-1], retPb=True)
+    
+    if np.isnan(pb):
+        break
     
     # actualizo centroide
     sampleadorInt.mean = sampleIntList[i]
     sampleadorExt.mean = sampleExtList[i]
+    
+    # no actualizo covarianzas
 
-#    if i < 500: # no repito estas cuentas despues de cierto tiempo
     tiempoNow = time.time()
     Dt = tiempoNow - tiempoIni
     frac = i / Nmuestras # (i  + Nmuestras * j)/ nTot
@@ -346,125 +545,115 @@ for i in range(1, Nmuestras):
     print('Epoch: %d/%d. Transcurrido: %.2fmin. Avance %.4f. Tfin: %s'
           %(i, Nmuestras, Dt/60, frac, stringTimeEst) )
 
+
+
+
+
+
+
+
 # %%
-plt.plot(sampleIntList - sampleIntList[-1])
-
-plt.plot(sampleExtList.reshape((Nmuestras,-1)) - sampleExtList.reshape((Nmuestras,-1))[-1])
-
 '''
 parece que da bien, ya estamos lejos del burn in. aca guardo para arrancar de
 aca la proxima:
 
-sampleadorInt.mean
-Out[290]: 
-array([  4.00830443e+02,   4.11000890e+02,   8.08200736e+02,
-         4.67206963e+02,   9.42249003e-02,  -1.68690746e-02,
-         1.60233632e-02,  -3.38643120e-03])
+sampleadorInt.mean = np.array([  4.00830443e+02,   4.11000890e+02,   8.08200736e+02,
+                                 4.67206963e+02,   9.42249003e-02,  -1.68690746e-02,
+                                 1.60233632e-02,  -3.38643120e-03])
 
-sampleadorInt.cov
+sampleadorInt.cov = np.array([[  2.84777073e-25,   4.50291856e-25,   2.25925198e-25,
+                                  2.38707325e-25,  -1.13124870e-29,  -7.96742986e-30,
+                                  1.37889181e-29,  -3.92082475e-30],
+                               [  4.50291856e-25,   7.23472889e-25,   3.38178591e-25,
+                                  3.85859123e-25,  -2.34793049e-29,  -1.46818722e-29,
+                                  2.25574649e-29,  -6.25611895e-30],
+                               [  2.25925198e-25,   3.38178591e-25,   2.11464173e-25,
+                                  1.75071106e-25,   3.00330618e-31,  -2.77267436e-30,
+                                  9.68842750e-30,  -3.02308525e-30],
+                               [  2.38707325e-25,   3.85859123e-25,   1.75071106e-25,
+                                  2.06504282e-25,  -1.35827622e-29,  -8.26488814e-30,
+                                  1.21077311e-29,  -3.32346286e-30],
+                               [ -1.13124870e-29,  -2.34793049e-29,   3.00330618e-31,
+                                 -1.35827622e-29,   3.17839499e-33,   1.33115267e-33,
+                                 -9.15273955e-34,   1.83366709e-34],
+                               [ -7.96742986e-30,  -1.46818722e-29,  -2.77267436e-30,
+                                 -8.26488814e-30,   1.33115267e-33,   6.15889446e-34,
+                                 -5.22081140e-34,   1.18857600e-34],
+                               [  1.37889181e-29,   2.25574649e-29,   9.68842750e-30,
+                                  1.21077311e-29,  -9.15273955e-34,  -5.22081140e-34,
+                                  7.17396925e-34,  -1.93627453e-34],
+                               [ -3.92082475e-30,  -6.25611895e-30,  -3.02308525e-30,
+                                 -3.32346286e-30,   1.83366709e-34,   1.18857600e-34,
+                                 -1.93627453e-34,   5.43454045e-35]])
 
-Out[292]: 
-array([[  2.84777073e-25,   4.50291856e-25,   2.25925198e-25,
-          2.38707325e-25,  -1.13124870e-29,  -7.96742986e-30,
-          1.37889181e-29,  -3.92082475e-30],
-       [  4.50291856e-25,   7.23472889e-25,   3.38178591e-25,
-          3.85859123e-25,  -2.34793049e-29,  -1.46818722e-29,
-          2.25574649e-29,  -6.25611895e-30],
-       [  2.25925198e-25,   3.38178591e-25,   2.11464173e-25,
-          1.75071106e-25,   3.00330618e-31,  -2.77267436e-30,
-          9.68842750e-30,  -3.02308525e-30],
-       [  2.38707325e-25,   3.85859123e-25,   1.75071106e-25,
-          2.06504282e-25,  -1.35827622e-29,  -8.26488814e-30,
-          1.21077311e-29,  -3.32346286e-30],
-       [ -1.13124870e-29,  -2.34793049e-29,   3.00330618e-31,
-         -1.35827622e-29,   3.17839499e-33,   1.33115267e-33,
-         -9.15273955e-34,   1.83366709e-34],
-       [ -7.96742986e-30,  -1.46818722e-29,  -2.77267436e-30,
-         -8.26488814e-30,   1.33115267e-33,   6.15889446e-34,
-         -5.22081140e-34,   1.18857600e-34],
-       [  1.37889181e-29,   2.25574649e-29,   9.68842750e-30,
-          1.21077311e-29,  -9.15273955e-34,  -5.22081140e-34,
-          7.17396925e-34,  -1.93627453e-34],
-       [ -3.92082475e-30,  -6.25611895e-30,  -3.02308525e-30,
-         -3.32346286e-30,   1.83366709e-34,   1.18857600e-34,
-         -1.93627453e-34,   5.43454045e-35]])
+sampleadorExt.mean = np.array([[ -2.34131298e-01,   1.03418388e-01,  -7.35788326e-02,
+                                 -3.16086149e+00,  -5.38339371e+00,   6.26006209e+00],
+                               [  9.19247621e-01,   5.82316022e-02,  -7.78247678e-02,
+                                 -3.03675245e+00,  -4.08710762e+00,   3.99647732e+00],
+                               [  9.19748560e-01,  -3.26328271e-01,   9.94304690e-01,
+                                  9.60992797e+00,  -5.73962184e+00,   3.90133094e+00],
+                               [  1.54398490e-01,  -5.60396345e-01,   6.35913923e-01,
+                                 -6.42575717e+00,  -4.00407574e+00,   3.73784223e+00],
+                               [ -1.03769975e-02,   8.83892343e-01,  -5.38625746e-03,
+                                 -1.05919547e-01,  -2.44542492e+00,   7.63644883e+00],
+                               [  9.19014966e-01,   5.33666029e-01,   8.95467502e-01,
+                                  7.81670985e+00,  -6.70147656e+00,   5.22848831e+00],
+                               [  7.35171403e-01,   9.21546282e-01,   1.78199054e+00,
+                                  1.86248753e+01,   5.99688683e+00,   7.28989790e+00],
+                               [ -8.06483567e-01,   8.67808451e-02,   1.11194830e+00,
+                                 -4.98084059e+00,  -3.50888683e+00,   1.14557529e+01],
+                               [  1.72329384e-02,   1.24150305e-02,  -1.58814639e+00,
+                                 -2.35436281e+00,   4.91907132e+00,   5.37140609e+00],
+                               [ -9.97057628e-02,  -9.16056255e-03,  -3.07540385e+00,
+                                  4.01327520e+00,   4.88368008e+00,   5.55660718e+00],
+                               [  2.11925167e-01,   7.70639930e-02,   2.36317385e-02,
+                                 -3.80300945e+00,   1.98446190e+00,   5.14341824e+00],
+                               [  5.64751128e-01,   2.17464399e-01,   2.27481182e-01,
+                                 -4.72242702e-01,  -1.98042934e+01,   1.48829820e+01],
+                               [ -3.07427601e-02,  -3.05242078e-02,  -1.69982188e-02,
+                                 -4.58975183e+00,  -5.74671917e-01,   1.97725018e+01],
+                               [ -1.40459131e+00,   1.43567052e-02,   2.79116409e+00,
+                                 -1.75823776e+01,  -2.94860490e+00,   1.23502826e+01],
+                               [ -1.42907216e-01,  -1.05159994e+00,   1.69376307e+00,
+                                 -1.69690264e+00,  -5.06812024e+00,   7.90852123e+00],
+                               [ -4.17616998e-01,  -5.00029189e-01,   1.35904002e+00,
+                                 -5.02952999e+00,  -5.42828007e+00,   1.26989741e+01],
+                               [ -2.35210805e-01,   7.96081456e-01,   1.71337049e+00,
+                                  1.48243992e+00,   1.60880711e+01,   2.09456805e+01],
+                               [ -2.62870870e-01,   1.02528810e+00,   6.41328780e-01,
+                                  1.68348198e+01,   6.70149151e+00,   1.73052333e+01],
+                               [ -9.15995231e-03,   1.12989678e-01,  -1.59165241e-01,
+                                 -2.18629120e+00,  -1.01304500e+01,   1.87036751e+01],
+                               [ -9.62528305e-03,  -2.42512832e-01,  -1.76577363e-01,
+                                 -9.52840373e+00,  -7.73684671e-01,   2.41853856e+00],
+                               [  3.58513680e-01,   1.05811328e+00,   1.43700542e+00,
+                                  1.22161187e+01,  -4.13270618e+00,   7.53694734e+00],
+                               [  6.35770470e-01,  -6.85678709e-03,  -2.97832550e+00,
+                                  3.67005914e+00,   5.44393040e-01,   1.45578946e+01],
+                               [ -5.19639732e-02,  -5.94714856e-01,   2.83329467e-01,
+                                 -1.12228972e+01,   1.66171894e+00,   3.24701236e+00],
+                               [  2.50080941e-02,  -1.25611285e+00,   1.36720709e-02,
+                                 -5.27382024e+00,  -2.39662203e+00,   1.42777025e+00],
+                               [ -1.19324105e+00,   2.39090211e-01,   2.53830922e+00,
+                                 -1.73814687e+01,   7.20412671e+00,   1.22964638e+01],
+                               [ -1.02023769e+00,   6.23090162e-01,   2.05844564e+00,
+                                 -1.08866229e+01,   1.41217052e+01,   1.53530795e+01],
+                               [ -9.74332555e-02,  -8.23053354e-01,  -2.92085047e+00,
+                                  1.47988087e+00,   1.61368496e+01,   1.23589382e+01],
+                               [  7.34588193e-01,   4.69070380e-01,   1.34190324e+00,
+                                  9.36026456e+00,  -6.56060477e+00,   4.39680591e+00],
+                               [ -6.49139711e-01,  -1.26015047e-01,  -3.01090607e+00,
+                                  1.92397959e+00,   7.00984795e+00,   1.01457467e+01],
+                               [  3.91235225e-02,  -2.29144921e-02,  -7.63660280e-02,
+                                 -3.89691361e+00,  -2.70071017e+00,   4.33726887e+00],
+                               [  3.72740096e-01,   5.95999980e-01,  -2.88472639e-01,
+                                  1.38716339e+01,  -9.09133098e+00,   1.55872224e+01],
+                               [  3.40742740e-02,   8.92743000e-01,   1.53193264e-02,
+                                  1.74191535e+01,  -2.79191974e+00,   1.07848992e+01],
+                               [ -4.13942602e-02,   1.08076915e+00,   5.02421689e-01,
+                                  1.81379941e+01,   1.97141547e+00,   1.03298217e+01]])
 
-
-    
-    sampleadorExt.mean
-
-Out[291]: 
-array([[ -2.34131298e-01,   1.03418388e-01,  -7.35788326e-02,
-         -3.16086149e+00,  -5.38339371e+00,   6.26006209e+00],
-       [  9.19247621e-01,   5.82316022e-02,  -7.78247678e-02,
-         -3.03675245e+00,  -4.08710762e+00,   3.99647732e+00],
-       [  9.19748560e-01,  -3.26328271e-01,   9.94304690e-01,
-          9.60992797e+00,  -5.73962184e+00,   3.90133094e+00],
-       [  1.54398490e-01,  -5.60396345e-01,   6.35913923e-01,
-         -6.42575717e+00,  -4.00407574e+00,   3.73784223e+00],
-       [ -1.03769975e-02,   8.83892343e-01,  -5.38625746e-03,
-         -1.05919547e-01,  -2.44542492e+00,   7.63644883e+00],
-       [  9.19014966e-01,   5.33666029e-01,   8.95467502e-01,
-          7.81670985e+00,  -6.70147656e+00,   5.22848831e+00],
-       [  7.35171403e-01,   9.21546282e-01,   1.78199054e+00,
-          1.86248753e+01,   5.99688683e+00,   7.28989790e+00],
-       [ -8.06483567e-01,   8.67808451e-02,   1.11194830e+00,
-         -4.98084059e+00,  -3.50888683e+00,   1.14557529e+01],
-       [  1.72329384e-02,   1.24150305e-02,  -1.58814639e+00,
-         -2.35436281e+00,   4.91907132e+00,   5.37140609e+00],
-       [ -9.97057628e-02,  -9.16056255e-03,  -3.07540385e+00,
-          4.01327520e+00,   4.88368008e+00,   5.55660718e+00],
-       [  2.11925167e-01,   7.70639930e-02,   2.36317385e-02,
-         -3.80300945e+00,   1.98446190e+00,   5.14341824e+00],
-       [  5.64751128e-01,   2.17464399e-01,   2.27481182e-01,
-         -4.72242702e-01,  -1.98042934e+01,   1.48829820e+01],
-       [ -3.07427601e-02,  -3.05242078e-02,  -1.69982188e-02,
-         -4.58975183e+00,  -5.74671917e-01,   1.97725018e+01],
-       [ -1.40459131e+00,   1.43567052e-02,   2.79116409e+00,
-         -1.75823776e+01,  -2.94860490e+00,   1.23502826e+01],
-       [ -1.42907216e-01,  -1.05159994e+00,   1.69376307e+00,
-         -1.69690264e+00,  -5.06812024e+00,   7.90852123e+00],
-       [ -4.17616998e-01,  -5.00029189e-01,   1.35904002e+00,
-         -5.02952999e+00,  -5.42828007e+00,   1.26989741e+01],
-       [ -2.35210805e-01,   7.96081456e-01,   1.71337049e+00,
-          1.48243992e+00,   1.60880711e+01,   2.09456805e+01],
-       [ -2.62870870e-01,   1.02528810e+00,   6.41328780e-01,
-          1.68348198e+01,   6.70149151e+00,   1.73052333e+01],
-       [ -9.15995231e-03,   1.12989678e-01,  -1.59165241e-01,
-         -2.18629120e+00,  -1.01304500e+01,   1.87036751e+01],
-       [ -9.62528305e-03,  -2.42512832e-01,  -1.76577363e-01,
-         -9.52840373e+00,  -7.73684671e-01,   2.41853856e+00],
-       [  3.58513680e-01,   1.05811328e+00,   1.43700542e+00,
-          1.22161187e+01,  -4.13270618e+00,   7.53694734e+00],
-       [  6.35770470e-01,  -6.85678709e-03,  -2.97832550e+00,
-          3.67005914e+00,   5.44393040e-01,   1.45578946e+01],
-       [ -5.19639732e-02,  -5.94714856e-01,   2.83329467e-01,
-         -1.12228972e+01,   1.66171894e+00,   3.24701236e+00],
-       [  2.50080941e-02,  -1.25611285e+00,   1.36720709e-02,
-         -5.27382024e+00,  -2.39662203e+00,   1.42777025e+00],
-       [ -1.19324105e+00,   2.39090211e-01,   2.53830922e+00,
-         -1.73814687e+01,   7.20412671e+00,   1.22964638e+01],
-       [ -1.02023769e+00,   6.23090162e-01,   2.05844564e+00,
-         -1.08866229e+01,   1.41217052e+01,   1.53530795e+01],
-       [ -9.74332555e-02,  -8.23053354e-01,  -2.92085047e+00,
-          1.47988087e+00,   1.61368496e+01,   1.23589382e+01],
-       [  7.34588193e-01,   4.69070380e-01,   1.34190324e+00,
-          9.36026456e+00,  -6.56060477e+00,   4.39680591e+00],
-       [ -6.49139711e-01,  -1.26015047e-01,  -3.01090607e+00,
-          1.92397959e+00,   7.00984795e+00,   1.01457467e+01],
-       [  3.91235225e-02,  -2.29144921e-02,  -7.63660280e-02,
-         -3.89691361e+00,  -2.70071017e+00,   4.33726887e+00],
-       [  3.72740096e-01,   5.95999980e-01,  -2.88472639e-01,
-          1.38716339e+01,  -9.09133098e+00,   1.55872224e+01],
-       [  3.40742740e-02,   8.92743000e-01,   1.53193264e-02,
-          1.74191535e+01,  -2.79191974e+00,   1.07848992e+01],
-       [ -4.13942602e-02,   1.08076915e+00,   5.02421689e-01,
-          1.81379941e+01,   1.97141547e+00,   1.03298217e+01]])
-
-sampleadorExt.matrixTransf
-
-Out[293]: 
-array([[[ -1.10160141e-10,   2.16564051e-11,  -3.57633016e-13,
+sampleadorExt.matrixTransf = np.array([[[ -1.10160141e-10,   2.16564051e-11,  -3.57633016e-13,
            9.70660129e-15,  -9.09808651e-17,   6.06477114e-19],
         [  3.22495601e-13,   8.39054638e-14,   2.09769344e-14,
            2.01724452e-14,  -5.56332988e-14,  -1.68159604e-15],
@@ -542,6 +731,8 @@ array([[[ -1.10160141e-10,   2.16564051e-11,  -3.57633016e-13,
            8.03876798e-13,  -2.07309917e-13,  -2.28755739e-15],
         [ -2.97939251e-11,   4.82968231e-12,   1.02635384e-12,
           -1.78606888e-13,   3.55977059e-14,  -1.56837042e-16]]])
+
+
 '''
 
 # %% guardo estos datos
