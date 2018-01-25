@@ -51,7 +51,7 @@ linearCoeffsFile = imagesFolder + camera + model + "LinearCoeffs.npy"
 tVecsFile =        imagesFolder + camera + model + "Tvecs.npy"
 rVecsFile =        imagesFolder + camera + model + "Rvecs.npy"
 
-imageSelection = np.arange(0,33,4) # selecciono con que imagenes trabajar
+imageSelection = np.arange(0,33) # selecciono con que imagenes trabajar
 n = len(imageSelection)  # cantidad de imagenes
 
 # ## load data
@@ -81,7 +81,7 @@ NfreeParams = n*6 + NintrParams
 NdataPoints = n*m
 
 # 0.3pix as image std
-stdPix = 0.3
+stdPix = 0.1
 Ci = np.repeat([ stdPix**2 * np.eye(2)],n*m, axis=0).reshape(n,m,2,2)
 
 #Cf = np.eye(distCoeffs.shape[0])
@@ -126,12 +126,12 @@ def etotal(Xint, Ns, XextList, params):
 
 Erto = bl.errorCuadraticoInt(Xint, Ns, XextList, params, mahDist=False)
 E0 = etotal(Xint, Ns, XextList, params)
-print(Erto.sum(), E0)
+#print(Erto.sum(), E0)
 
 # saco distancia mahalanobis de cada proyeccion
 mahDistance = bl.errorCuadraticoInt(Xint, Ns, XextList, params, mahDist=True)
 
-print(mahDistance)
+#print(mahDistance)
 
 # plot to check that tha proposed std is reasonable because of statistical
 # behaviour
@@ -140,7 +140,6 @@ nhist, bins, _ = plt.hist(mahDistance, 200, normed=True)
 chi2pdf = sts.chi2.pdf(bins, 2)
 plt.plot(bins, chi2pdf)
 #plt.yscale('log')
-
 
 # %% ========== initial approach based on iterative importance sampling
 # in each iteration sample points from search space assuming gaussian pdf
@@ -176,9 +175,8 @@ class sampleadorExtrinsecoNormal:
 
 # %% 
 '''
-trato de estimar la pdf usando importance weighting. parecido a importance
-sampling pero adaptado para hacerlo medio iterativo. es heuristico solo para
-hacer una aproximacion grosera
+se propone una pdf de donde samplear. se trata de visualizar y de hacer un
+ajuste grueso
 '''
 
 # propongo covarianzas de donde samplear el espacio de busqueda
@@ -189,12 +187,11 @@ Crt = np.eye(6) # 6x6 covariance of pose
 Crt[[0,1,2],[0,1,2]] *= np.deg2rad(1)**2 # 1 deg stdev in every angle
 Crt[[3,4,5],[3,4,5]] *= 0.1**2 # 1/10 of the unit length as std for pos
 
-# reduzco notablemten la covarianza (por la dimensionalidad??)
-fkFactor = 1e-2
-rtFactor = 1e-2
+# reduzco la covarianza en un factor (por la dimensionalidad??)
+fkFactor = 1e-4
+rtFactor = 1e-4
 Cfk *= fkFactor
 Crt = np.repeat([Crt * rtFactor] , n, axis=0)
-
 
 # instancio los sampleadres
 sampleadorInt = sts.multivariate_normal(Xint, Cfk)
@@ -209,7 +206,154 @@ errSamp = etotal(intSamp, Ns, extSamp, params)
 meanList = list()
 
 
+
+
+
+# %% trato de hacer una especie de gradiente estocástico con momentum
+# cond iniciales
+Xint0 = dc(Xint)
+Xext0 = dc(np.array(XextList))
+Xerr0 = etotal(Xint0, Ns, Xext0, params)
+
+beta = 0.9
+beta1 = 1 - beta
+
+deltaInt = np.zeros_like(Xint0)
+deltaExt = np.zeros_like(Xext0)
+
+sampleList = list()
+sampleList.append([Xint0, Xext0, Xerr0])
+
+# %% loop
+for i in range(10000):
+    print(i, "%.20f"%sampleList[-1][2])
+    Xint1 = sampleadorInt.rvs()
+    Xext1 = sampleadorExt.rvs()
+    Xerr1 = etotal(Xint1, Ns, Xext1, params)
+    
+    if Xerr0 > Xerr1: # caso de que dé mejor
+        print('a la primera')
+        deltaInt = deltaInt * beta + beta1 * (Xint1 - Xint0)
+        deltaExt = deltaExt * beta + beta1 * (Xext1 - Xext0)
+        
+        # salto a ese lugar
+        Xint0 = Xint1
+        Xext0 = Xext1
+        Xerr0 = Xerr1
+        
+        sampleadorInt.mean = Xint0 + deltaInt
+        sampleadorExt.mean = Xext0 + deltaExt
+        sampleList.append([Xint0, Xext0, Xerr0])
+        
+    else: # busco para el otro lado a ver que dá
+        Xint2 = 2 * Xint0 - Xint1
+        Xext2 = 2 * Xext0 - Xext1
+        Xerr2 = etotal(Xint2, Ns, Xext2, params)
+        
+        if Xerr0 > Xerr2: # caso de que dé mejor la segunda opcion
+            print('a la segunda')
+            deltaInt = deltaInt * beta + beta1 * (Xint2 - Xint0)
+            deltaExt = deltaExt * beta + beta1 * (Xext2 - Xext0)
+            
+            # salto a ese lugar
+            Xint0 = Xint2
+            Xext0 = Xext2
+            Xerr0 = Xerr2
+            
+            sampleadorInt.mean = Xint0 + deltaInt
+            sampleadorExt.mean = Xext0 + deltaExt
+            sampleList.append([Xint0, Xext0, Xerr0])
+        else: # las dos de los costados dan peor
+            ## mido la distancia hacia la primera opcion
+            #dist = np.sqrt(np.sum((Xint1 - Xint0)**2) + np.sum((Xext1 - Xext0)**2))
+            # distancia al vertice de la parabola
+            r = (Xerr2 - Xerr1) / 2 / (Xerr1 + Xerr2 - 2 * Xerr0) #* dist / dist
+            if np.isnan(r) or np.isinf(r):
+                print('r is nan inf')
+                continue # empiezo loop nuevo
+            # calculo un nuevo lugar como vertice de la parabola en 1D
+            Xint3 = Xint0 + (Xint1 - Xint0) * r
+            Xext3 = Xext0 + (Xext1 - Xext0) * r
+            Xerr3 = etotal(Xint3, Ns, Xext3, params)
+            
+            if Xerr0 > Xerr3:
+                print('a la tercera')
+                deltaInt = deltaInt * beta + beta1 * (Xint3 - Xint0)
+                deltaExt = deltaExt * beta + beta1 * (Xext3 - Xext0)
+                
+                # salto a ese lugar
+                Xint0 = Xint3
+                Xext0 = Xext3
+                Xerr0 = Xerr3
+                
+                sampleadorInt.mean = Xint0 + deltaInt
+                sampleadorExt.mean = Xext0 + deltaExt
+                sampleList.append([Xint0, Xext0, Xerr0])
+            else:
+                print('no anduvo, probar de nuevo corrigiendo')
+                sampleadorInt.cov *= 0.9  # achico covarianzas
+                sampleadorExt.setCov(sampleadorExt.cov * 0.9)
+                
+                deltaInt *= 0.9
+                deltaExt *= 0.9
+                
+                sampleadorInt.mean = Xint0 + deltaInt
+                sampleadorExt.mean = Xext0 + deltaExt
+
+
+
+intrinsicGradientList = np.array([x[0] for x in sampleList])
+extrinsicGradientList = np.array([x[1] for x in sampleList])
+errorGradientList = np.array([x[2] for x in sampleList])
+
+
+plt.figure()
+plt.plot(errorGradientList - errorGradientList[-1])
+
+plt.figure()
+plt.plot(intrinsicGradientList[:,0], intrinsicGradientList[:,1],'.')
+
 # %%
+minErr = np.min(errorGradientList)
+for i in range(NintrParams):
+    plt.plot(intrinsicGradientList[:,i] - intrinsicGradientList[-1,i],
+             errorGradientList - minErr, '-x')
+
+for i in range(n):
+    for j in range(6):
+        plt.plot(extrinsicGradientList[:,i,j] - extrinsicGradientList[-1,i,j],
+                 errorGradientList - minErr, '-x')
+
+plt.figure()
+plt.plot(extrinsicGradientList[0].reshape(-1), extrinsicGradientList[-1].reshape(-1) - extrinsicGradientList[0].reshape(-1), '.')
+
+plt.figure()
+prob = np.exp( - (errorGradientList - minErr) / 2)
+plt.hist(prob,100)
+
+# %% Trato de estimar una curvatura
+x = intrinsicGradientList - intrinsicGradientList[-1]
+y = errorGradientList - errorGradientList[-1]
+
+xI = np.linalg.inv(x.T.dot(x))
+xPI1 = np.linalg.pinv(x)
+xPI2 = np.linalg.pinv(x.T)
+
+A = xPI1.dot(y).dot(xPI2.T)
+xI.dot(x.T).dot(y).dot(x).dot(xI)
+
+
+yPred = x.dot(a)
+
+plt.plot(y,yPred,'.')
+
+
+
+# %%
+'''
+con la covarianza propuesta voy buscando el minimo de error sampleando al azar
+'''
+
 Nsampl = 1000
 
 sampleIntList = np.zeros((Nsampl, distCoeffs.shape[0] + 4))
@@ -217,6 +361,9 @@ sampleExtList = np.zeros((Nsampl,n,6))
 samplePerr = np.zeros(Nsampl)
 sampleQ = np.zeros(Nsampl)
 
+# voy guardando los errores y los indices
+bestList = list()
+bestList.append([-1, etotal(Xint, Ns, XextList, params)])
 
 for i in range(Nsampl):
     sampleIntList[i] = sampleadorInt.rvs()
@@ -226,17 +373,34 @@ for i in range(Nsampl):
     
     sampleQ[i] = pdfIntSamp*pdfExtSamp
     
+    # si tiene menos error cambio ahi
+    if samplePerr[i] < bestList[-1][1]:
+        print('actualizo centroide')
+        # muevo centro de la gaussiana
+        sampleadorInt.mean = sampleIntList[i]
+        sampleadorExt.mean = sampleExtList[i]
+        # guardo en lista de best
+        bestList.append([i, samplePerr[i]])
+
     print(i, samplePerr[i])
 
 
 
 # con este sampleo me fijo si el histograma de los errores es razonable
 plt.figure()
-plt.hist(samplePerr,100,normed=True)
-plt.title("fk:%g  -- rt:%g"%(fkFactor,rtFactor))
+plt.hist(samplePerr, 30, normed=True)
+plt.title("fk:%g  -- rt:%g"%(fkFactor, rtFactor))
 # parece qeu anda asia uq euso tambien estos datos para refinar un poco la pdf
 
+# %% centro en el minimo
+reCentrar = True
+if reCentrar:
+    minimoInd = np.argmin(samplePerr)
+    sampleadorInt.mean = sampleIntList[minimoInd]
+    sampleadorExt.mean = sampleExtList[minimoInd]
 
+
+# %%
 # calculo los importance weights
 pHat = np.exp( - (samplePerr - np.min(samplePerr)) / 2)
 r = pHat / sampleQ
@@ -254,9 +418,23 @@ sampleadorExtBkp = dc(sampleadorExt)
 
 ##if np.sum(w != 0) != 1: # actualizo la covarianza
 #print('calculo nueva covarianza segun los pesos')
-#sampleadorInt.cov = np.cov(sampleIntList.T, ddof=0, aweights=w)
+#newIntCov = np.cov(sampleIntList.T, aweights=w, bias=NintrParams)
+#
+#plt.matshow(np.log(np.abs(sampleadorInt.cov)))
+#plt.matshow(np.log(np.abs(newIntCov)))
+#
+#plt.figure()
+#orderedIndexes = np.argsort(newIntCov.reshape(-1))
+#plt.plot(sampleadorInt.cov.reshape(-1)[orderedIndexes])
+#plt.plot(newIntCov.reshape(-1)[orderedIndexes])
+#
+#plt.figure()
+#plt.plot(newIntCov.reshape(-1)[orderedIndexes],
+#         sampleadorInt.cov.reshape(-1)[orderedIndexes])
 #
 #newCovarList = [np.cov(sampleExtList[:,i].T, ddof=0, aweights=w) for i in range(n)]
+
+
 
 ## regularizo las nuevas covarianzas
 #for c in newCovarList:
