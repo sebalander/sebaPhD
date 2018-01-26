@@ -221,12 +221,18 @@ beta1 = 1 - beta
 deltaInt = np.zeros_like(Xint0)
 deltaExt = np.zeros_like(Xext0)
 
-sampleList = list()
-sampleList.append([Xint0, Xext0, Xerr0])
+sampleIntList = list([Xint0])
+sampleExtList = list([Xext0])
+sampleErrList = list([Xerr0])
 
 # %% loop
+
+#plt.ion()
+#fig = plt.figure()
+#line1 = plt.plot(sampleErrList,'-xk')[0]
+
 for i in range(10000):
-    print(i, "%.20f"%sampleList[-1][2])
+    print(i, "%.20f"%sampleErrList[-1])
     Xint1 = sampleadorInt.rvs()
     Xext1 = sampleadorExt.rvs()
     Xerr1 = etotal(Xint1, Ns, Xext1, params)
@@ -243,7 +249,9 @@ for i in range(10000):
         
         sampleadorInt.mean = Xint0 + deltaInt
         sampleadorExt.mean = Xext0 + deltaExt
-        sampleList.append([Xint0, Xext0, Xerr0])
+        sampleIntList.append(Xint0)
+        sampleExtList.append(Xext0)
+        sampleErrList.append(Xerr0)
         
     else: # busco para el otro lado a ver que dá
         Xint2 = 2 * Xint0 - Xint1
@@ -262,7 +270,9 @@ for i in range(10000):
             
             sampleadorInt.mean = Xint0 + deltaInt
             sampleadorExt.mean = Xext0 + deltaExt
-            sampleList.append([Xint0, Xext0, Xerr0])
+            sampleIntList.append(Xint0)
+            sampleExtList.append(Xext0)
+            sampleErrList.append(Xerr0)
         else: # las dos de los costados dan peor
             ## mido la distancia hacia la primera opcion
             #dist = np.sqrt(np.sum((Xint1 - Xint0)**2) + np.sum((Xext1 - Xext0)**2))
@@ -270,7 +280,10 @@ for i in range(10000):
             r = (Xerr2 - Xerr1) / 2 / (Xerr1 + Xerr2 - 2 * Xerr0) #* dist / dist
             if np.isnan(r) or np.isinf(r):
                 print('r is nan inf')
+                sampleadorInt.cov *= 1.5  # agrando covarianzas
+                sampleadorExt.setCov(sampleadorExt.cov * 1.5)
                 continue # empiezo loop nuevo
+            
             # calculo un nuevo lugar como vertice de la parabola en 1D
             Xint3 = Xint0 + (Xint1 - Xint0) * r
             Xext3 = Xext0 + (Xext1 - Xext0) * r
@@ -288,32 +301,38 @@ for i in range(10000):
                 
                 sampleadorInt.mean = Xint0 + deltaInt
                 sampleadorExt.mean = Xext0 + deltaExt
-                sampleList.append([Xint0, Xext0, Xerr0])
+                sampleIntList.append(Xint0)
+                sampleExtList.append(Xext0)
+                sampleErrList.append(Xerr0)
             else:
                 print('no anduvo, probar de nuevo corrigiendo')
                 sampleadorInt.cov *= 0.9  # achico covarianzas
                 sampleadorExt.setCov(sampleadorExt.cov * 0.9)
                 
-                deltaInt *= 0.9
+                deltaInt *= 0.9 # achico el salto para buscar mas cerca
                 deltaExt *= 0.9
                 
                 sampleadorInt.mean = Xint0 + deltaInt
                 sampleadorExt.mean = Xext0 + deltaExt
+    
+#    line1.set_data(np.arange(len(sampleErrList)), sampleErrList)
+#    plt.xlim(0,line1.get_xdata()[-1])
+#    fig.canvas.draw()
 
-
-
-intrinsicGradientList = np.array([x[0] for x in sampleList])
-extrinsicGradientList = np.array([x[1] for x in sampleList])
-errorGradientList = np.array([x[2] for x in sampleList])
+intrinsicGradientList = np.array(sampleIntList)
+extrinsicGradientList = np.array(sampleExtList)
+errorGradientList = np.array(sampleErrList)
 
 
 plt.figure()
 plt.plot(errorGradientList - errorGradientList[-1])
 
-plt.figure()
-plt.plot(intrinsicGradientList[:,0], intrinsicGradientList[:,1],'.')
+
+sampleadorIntBkp = dc(sampleadorInt)
+sampleadorExtBkp = dc(sampleadorExt)
 
 # %%
+plt.figure()
 minErr = np.min(errorGradientList)
 for i in range(NintrParams):
     plt.plot(intrinsicGradientList[:,i] - intrinsicGradientList[-1,i],
@@ -323,31 +342,41 @@ for i in range(n):
     for j in range(6):
         plt.plot(extrinsicGradientList[:,i,j] - extrinsicGradientList[-1,i,j],
                  errorGradientList - minErr, '-x')
-
-plt.figure()
-plt.plot(extrinsicGradientList[0].reshape(-1), extrinsicGradientList[-1].reshape(-1) - extrinsicGradientList[0].reshape(-1), '.')
-
-plt.figure()
-prob = np.exp( - (errorGradientList - minErr) / 2)
-plt.hist(prob,100)
-
-# %% Trato de estimar una curvatura
-x = intrinsicGradientList - intrinsicGradientList[-1]
-y = errorGradientList - errorGradientList[-1]
-
-xI = np.linalg.inv(x.T.dot(x))
-xPI1 = np.linalg.pinv(x)
-xPI2 = np.linalg.pinv(x.T)
-
-A = xPI1.dot(y).dot(xPI2.T)
-xI.dot(x.T).dot(y).dot(x).dot(xI)
+plt.semilogy()
 
 
-yPred = x.dot(a)
+#plt.figure()
+#plt.plot(extrinsicGradientList[0].reshape(-1), extrinsicGradientList[-1].reshape(-1) - extrinsicGradientList[0].reshape(-1), '.')
 
-plt.plot(y,yPred,'.')
+#plt.figure()
+#prob = np.exp( - (errorGradientList - minErr) / 2)
+#plt.hist(prob,100)
 
-
+## %% Trato de estimar una curvatura
+#x = intrinsicGradientList - intrinsicGradientList[-1]
+#y = errorGradientList - errorGradientList[-1]
+#
+#x2 = x / np.sqrt(y).reshape((-1,1))
+#
+#plt.figure()
+#plt.plot(x2[:,0], x2[:,1],'k-+')
+#
+#plt.figure()
+#plt.plot(x[:,0], x2[:,0],'k-+')
+#
+#xI = np.linalg.inv(x.T.dot(x))
+#xPI1 = np.linalg.pinv(x)
+#xPI2 = np.linalg.pinv(x.T)
+#
+#A = xPI1.dot(y).dot(xPI2.T)
+#xI.dot(x.T).dot(y).dot(x).dot(xI)
+#
+#
+#yPred = x.dot(a)
+#
+#plt.plot(y,yPred,'.')
+#
+#
 
 # %%
 '''
@@ -523,7 +552,7 @@ newInt, newExt, newErr = nuevo(intSamp, extSamp, errSamp)
 
 # %% metropolis para hacer burnin y sacar una covarianza para q
 
-Nmuestras = 20000
+Nmuestras = 1000
 #Mmuestras = int(50)
 #nTot = Nmuestras * Mmuestras
 
@@ -540,6 +569,9 @@ sampleErrList = np.zeros(Nmuestras)
 sampleadorInt = dc(sampleadorIntBkp)
 sampleadorExt = dc(sampleadorExtBkp)
 
+sampleadorInt.cov = Cfk / 10000
+sampleadorExt.setCov(Crt / 10000)
+
 # primera
 sampleIntList[0] = sampleadorInt.rvs()
 sampleExtList[0] = sampleadorExt.rvs()
@@ -547,8 +579,7 @@ sampleErrList[0] = etotal(intSamp, Ns, extSamp, params)
 
 tiempoIni = time.time()
 
-#for j in range(Mmuestras):
-for i in range(1, 1000):
+for i in range(1, Nmuestras):
     sampleIntList[i], sampleExtList[i], sampleErrList[i], pb = nuevo(sampleIntList[i-1], sampleExtList[i-1], sampleErrList[i-1], retPb=True)
     
     if np.isnan(pb):
@@ -558,15 +589,23 @@ for i in range(1, 1000):
     sampleadorInt.mean = sampleIntList[i]
     sampleadorExt.mean = sampleExtList[i]
     
-    # actualizo covarianzas
-    deltaInt = sampleIntList[i] - sampleIntList[i-1]
-    deltaIntCov = deltaInt.reshape((-1,1)) * deltaInt.reshape((1,-1))
-    sampleadorInt.cov = sampleadorInt.cov * 0.99 + 0.01 * deltaIntCov
+    # actualizo covarianza
+    dInt = sampleIntList[i] - sampleIntList[i-1]
+    sampleadorInt.cov *= 0.95
+    sampleadorInt.cov += 0.05 * dInt.reshape((-1,1)) * dInt.reshape((1,-1))
     
-    deltaExt = sampleExtList[i] - sampleExtList[i-1]
-    deltaExtCov = deltaExt.reshape((-1,6,1)) * deltaExt.reshape((-1,1,6))
-    sampleadorExt.setCov(sampleadorExt.cov * 0.99 + 0.01 * deltaExtCov)
-
+    dExt = sampleExtList[i] - sampleExtList[i-1]
+    dExtCov = dExt.reshape((-1,6,1)) * dExt.reshape((-1,1,6))
+    sampleadorExt.setCov(sampleadorExt.cov * 0.999 + 0.001 * dExtCov)
+    
+    np.array([cl.unit2CovTransf(x) for x in dExtCov])
+    
+    for C in dExtCov:
+        l, v = np.linalg.eig(C)
+        l.real
+        T =  np.sqrt(l.real) * v.real
+    
+    
     tiempoNow = time.time()
     Dt = tiempoNow - tiempoIni
     frac = i / Nmuestras # (i  + Nmuestras * j)/ nTot
@@ -579,71 +618,22 @@ for i in range(1, 1000):
           np.linalg.norm(sampleadorExt.cov))
 
 
-indexInterval = 2*NfreeParams
-# matrix para regularizar la covarianza de intrinsecos
-regIntr = np.eye(NintrParams) * 1e-12
-regExtr = np.eye(6) * 1e-12
+# actualizo covarianzas
+np.cov(sampleIntList)
+deltaInt = sampleIntList[i] - np.mean(sampleIntList, axis=0)
+deltaIntCov = deltaInt.reshape((-1,1)) * deltaInt.reshape((1,-1))
+sampleadorInt.cov =  deltaIntCov
 
-for i in range(1000, Nmuestras):
-    sampleIntList[i], sampleExtList[i], sampleErrList[i], pb = nuevo(sampleIntList[i-1], sampleExtList[i-1], sampleErrList[i-1], retPb=True)
-    
-    if np.isnan(pb):
-        break
-    
-    # actualizo centroide
-    sampleadorInt.mean = sampleIntList[i]
-    sampleadorExt.mean = sampleExtList[i]
-    
-    # actualizo covarianzas
-#    newCov = np.cov(sampleIntList[i-indexInterval:i].T)
-#    if np.linalg.matrix_rank(newCov) < NintrParams:
-#        newCov += regIntr # regularizo si pierde rango
-#    sampleadorInt.cov = newCov
-#
-##    print('intervalo',i,indexInterval)
-#    
-#    meanExt = np.mean(sampleExtList[i-indexInterval:i], axis=0)
-#    deltaExt = sampleExtList[i-indexInterval:i] - meanExt
-#    deltaExtCov = (deltaExt.reshape((indexInterval, n, 6, 1)) *
-#                   deltaExt.reshape((indexInterval, n, 1, 6)))
-#    
-#    newExtCov = deltaExtCov.sum(0) / indexInterval
-#    ranks = np.linalg.matrix_rank(newExtCov)
-#    newExtCov[ranks < 6] += regExtr # regularizo si perdieron rango
-#    
-#    sampleadorExt.setCov(newExtCov)
-    
-        # actualizo covarianzas
-    deltaInt = sampleIntList[i] - sampleIntList[i-1]
-    deltaIntCov = deltaInt.reshape((-1,1)) * deltaInt.reshape((1,-1))
-    sampleadorInt.cov = sampleadorInt.cov * 0.9999 + 0.0001 * deltaIntCov
-    
-    deltaExt = sampleExtList[i] - sampleExtList[i-1]
-    deltaExtCov = deltaExt.reshape((-1,6,1)) * deltaExt.reshape((-1,1,6))
-    sampleadorExt.setCov(sampleadorExt.cov * 0.9999 + 0.0001 * deltaExtCov)
-
-    
-    
-    if i%2==0: # cada dos iteraciones aumento el ancho de la ventana movil
-#        print('aumento intervalo')
-        indexInterval += 1
-
-
-#    if i < 500: # no repito estas cuentas despues de cierto tiempo
-    tiempoNow = time.time()
-    Dt = tiempoNow - tiempoIni
-    frac = i / Nmuestras # (i  + Nmuestras * j)/ nTot
-    DtEstimeted = (tiempoNow - tiempoIni) / frac
-    stringTimeEst = time.asctime(time.localtime(tiempoIni + DtEstimeted))
-
-    print('Epoch: %d/%d. Tfin: %s'
-          %(i, Nmuestras, stringTimeEst),
-          np.linalg.norm(sampleadorInt.cov),
-          np.linalg.norm(sampleadorExt.cov))
-
+deltaExt = sampleExtList[i] - np.mean(sampleExtList, axis=0)
+deltaExtCov = deltaExt.reshape((-1,6,1)) * deltaExt.reshape((-1,1,6))
+sampleadorExt.setCov(deltaExtCov)
 
 sampleadorIntBkp2 = dc(sampleadorInt)
 sampleadorExtBkp2 = dc(sampleadorExt)
+
+
+corner.corner(sampleIntList)
+
 
 os.system("speak 'aadfafañfañieñiweh'")
 

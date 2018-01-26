@@ -14,7 +14,7 @@ from numpy import sin, cos, cross, ones, concatenate, flipud, dot, isreal
 from numpy import linspace, polyval, eye, linalg, mean, prod, vstack
 from numpy import empty_like, ones_like, zeros_like, pi, empty
 from numpy import any as anny
-from scipy.linalg import norm, inv, eig
+from scipy.linalg import norm, inv, eig, svd
 from scipy.special import chdtri
 from matplotlib.patches import FancyArrowPatch
 from mpl_toolkits.mplot3d import proj3d
@@ -958,12 +958,13 @@ def unit2CovTransf(C):
     T = unit2CovTransf(C)  # calculate transform matriz
     X = np.dot(T, Xnorm)  # points that follow normal pdf of cov C
     '''
-    l, v = eig(C)
-
-    # matrix such that T.dot(T.T)==C
-    T =  sqrt(l.real) * v
-
-    return T.real
+    # l, v = eig(C)
+    ## matrix such that T.dot(T.T)==C
+    # T =  sqrt(l.real) * v
+    # return T.real
+    
+    u, s, v = svd(C)
+    return u.dot(diag(sqrt(s))).dot(v.T)
 
 
 def plotEllipse(ax, C, mux, muy, col):
