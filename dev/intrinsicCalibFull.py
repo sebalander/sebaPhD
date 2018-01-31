@@ -188,14 +188,14 @@ Crt[[0,1,2],[0,1,2]] *= np.deg2rad(1)**2 # 1 deg stdev in every angle
 Crt[[3,4,5],[3,4,5]] *= 0.1**2 # 1/10 of the unit length as std for pos
 
 # reduzco la covarianza en un factor (por la dimensionalidad??)
-fkFactor = 1e-4
-rtFactor = 1e-4
+fkFactor = 1e-6
+rtFactor = 1e-6
 Cfk *= fkFactor
 Crt = np.repeat([Crt * rtFactor] , n, axis=0)
 
 # instancio los sampleadres
-sampleadorInt = sts.multivariate_normal(Xint, Cfk)
-sampleadorExt = sampleadorExtrinsecoNormal(XextList, Crt)
+sampleadorInt = sts.multivariate_normal(Xint, dc(Cfk))
+sampleadorExt = sampleadorExtrinsecoNormal(XextList, dc(Crt))
 # evaluo
 intSamp = sampleadorInt.rvs()
 extSamp, pdfExtSamp = sampleadorExt.rvs(retPdf=True)
@@ -216,7 +216,7 @@ Xext0 = dc(np.array(XextList))
 Xerr0 = etotal(Xint0, Ns, Xext0, params)
 
 beta = 0.9
-beta1 = 1 - beta
+beta1 = 1 - beta + 1e-2 # un poco mas grande para que no se achique el paso
 
 deltaInt = np.zeros_like(Xint0)
 deltaExt = np.zeros_like(Xext0)
@@ -228,23 +228,23 @@ sampleErrList = list([Xerr0])
 # %% loop
 
 
-for i in range(10000):
+for i in range(5000):
     print(i, "%.20f"%sampleErrList[-1])
     Xint1 = sampleadorInt.rvs()
     Xext1 = sampleadorExt.rvs()
     Xerr1 = etotal(Xint1, Ns, Xext1, params)
     
     if Xerr0 > Xerr1: # caso de que dé mejor
-        print('a la primera')
         deltaInt = deltaInt * beta + beta1 * (Xint1 - Xint0)
         deltaExt = deltaExt * beta + beta1 * (Xext1 - Xext0)
+        print('a la primera', np.linalg.norm(deltaInt), np.linalg.norm(deltaExt))
         
         # salto a ese lugar
-        Xint0 = Xint1
-        Xext0 = Xext1
-        Xerr0 = Xerr1
+        Xint0 = dc(Xint1)
+        Xext0 = dc(Xext1)
+        Xerr0 = dc(Xerr1)
         
-        sampleadorInt.mean = Xint0 + deltaInt
+        sampleadorInt.mean = Xint0  + deltaInt
         sampleadorExt.mean = Xext0 + deltaExt
         sampleIntList.append(Xint0)
         sampleExtList.append(Xext0)
@@ -256,14 +256,14 @@ for i in range(10000):
         Xerr2 = etotal(Xint2, Ns, Xext2, params)
         
         if Xerr0 > Xerr2: # caso de que dé mejor la segunda opcion
-            print('a la segunda')
             deltaInt = deltaInt * beta + beta1 * (Xint2 - Xint0)
             deltaExt = deltaExt * beta + beta1 * (Xext2 - Xext0)
+            print('a la segunda', np.linalg.norm(deltaInt), np.linalg.norm(deltaExt))
             
             # salto a ese lugar
-            Xint0 = Xint2
-            Xext0 = Xext2
-            Xerr0 = Xerr2
+            Xint0 = dc(Xint2)
+            Xext0 = dc(Xext2)
+            Xerr0 = dc(Xerr2)
             
             sampleadorInt.mean = Xint0 + deltaInt
             sampleadorExt.mean = Xext0 + deltaExt
@@ -286,15 +286,40 @@ for i in range(10000):
             Xext3 = Xext0 + (Xext1 - Xext0) * r
             Xerr3 = etotal(Xint3, Ns, Xext3, params)
             
+            # trato de usar el dato de curvatura para actualizar la covarianza
+            diffVectIntr = Xint1 - Xint0
+            distInt = np.linalg.norm(diffVectIntr)
+            XtX = diffVectIntr.reshape((-1,1)) * diffVectIntr.reshape((1,-1))
+            XtX = XtX + np.eye(NintrParams) * distInt * 1e-2 # regularizo
+
+            # saco la curvatura forzando que sea positiva (en gral es)
+            a = np.abs((Xerr1 + Xerr2 - 2 * Xerr0)) / distInt**2
+            Hintr = a * np.linalg.inv(XtX) # hessiano intrinseco
+            
+            
+            diffVectExtr = Xext1 - Xext0
+            distExt = np.linalg.norm(diffVectExtr, axis=1)
+            # saco la curvatura forzando que sea positiva (en gral es)
+            a = np.abs((Xerr1 + Xerr2 - 2 * Xerr0)) / distExt**2
+            XtX = diffVectExtr.reshape((n,6,1)) * diffVectExtr.reshape((n,1,6))
+            XtX[:,[0,1,2,3,4,5],[0,1,2,3,4,5]] += distExt.reshape((-1,1)) * 1e-3
+            Hextr = a.reshape((-1,1,1)) * np.linalg.inv(XtX) # hessiano intrinseco
+            
+            # actualizo las covarianzas
+            sampleadorInt.cov = sampleadorInt.cov * beta + beta1 * Hintr
+            sampleadorExt.setCov(sampleadorExt.cov * beta + beta1 * Hextr)
+            
+            
+            
             if Xerr0 > Xerr3:
-                print('a la tercera')
                 deltaInt = deltaInt * beta + beta1 * (Xint3 - Xint0)
                 deltaExt = deltaExt * beta + beta1 * (Xext3 - Xext0)
+                print('a la tercera', np.linalg.norm(deltaInt), np.linalg.norm(deltaExt))
                 
                 # salto a ese lugar
-                Xint0 = Xint3
-                Xext0 = Xext3
-                Xerr0 = Xerr3
+                Xint0 = dc(Xint3)
+                Xext0 = dc(Xext3)
+                Xerr0 = dc(Xerr3)
                 
                 sampleadorInt.mean = Xint0 + deltaInt
                 sampleadorExt.mean = Xext0 + deltaExt
@@ -302,24 +327,24 @@ for i in range(10000):
                 sampleExtList.append(Xext0)
                 sampleErrList.append(Xerr0)
             else:
-                print('no anduvo, probar de nuevo corrigiendo')
+                print('no anduvo, probar de nuevo corrigiendo', r)
                 sampleadorInt.cov *= 0.9  # achico covarianzas
                 sampleadorExt.setCov(sampleadorExt.cov * 0.9)
                 
-                deltaInt *= 0.9 # achico el salto para buscar mas cerca
-                deltaExt *= 0.9
+                deltaInt *= 0.7 # achico el salto para buscar mas cerca
+                deltaExt *= 0.7
                 
                 sampleadorInt.mean = Xint0 + deltaInt
                 sampleadorExt.mean = Xext0 + deltaExt
-    
 
+# %%
 
 intrinsicGradientList = np.array(sampleIntList)
 extrinsicGradientList = np.array(sampleExtList)
 errorGradientList = np.array(sampleErrList)
 
 
-plt.figure()
+plt.figure(1)
 plt.plot(errorGradientList - errorGradientList[-1])
 
 
@@ -327,12 +352,13 @@ sampleadorIntBkp = dc(sampleadorInt)
 sampleadorExtBkp = dc(sampleadorExt)
 
 # %%
-plt.figure()
+plt.figure(2)
 minErr = np.min(errorGradientList)
 for i in range(NintrParams):
     plt.plot(intrinsicGradientList[:,i] - intrinsicGradientList[-1,i],
              errorGradientList - minErr, '-x')
 
+plt.figure(3)
 for i in range(n):
     for j in range(6):
         plt.plot(extrinsicGradientList[:,i,j] - extrinsicGradientList[-1,i,j],
@@ -459,3 +485,25 @@ corner.corner(sampleIntList)
 
 
 os.system("speak 'aadfafañfañieñiweh'")
+
+
+
+# %% usando PYMC3
+import pymc3 as pm
+
+projection_model = pm.Model()
+
+with projection_model:
+
+    # Priors for unknown model parameters
+    alpha = pm.Normal('alpha', mu=0, sd=10)
+    beta = pm.Normal('beta', mu=0, sd=10, shape=2)
+    sigma = pm.HalfNormal('sigma', sd=1)
+
+    # Expected value of outcome
+    mu = alpha + beta[0]*X1 + beta[1]*X2
+
+    # Likelihood (sampling distribution) of observations
+    Y_obs = pm.Normal('Y_obs', mu=mu, sd=sigma, observed=Y)
+
+
