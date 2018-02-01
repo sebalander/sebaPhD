@@ -14,7 +14,8 @@ from numpy import sin, cos, cross, ones, concatenate, flipud, dot, isreal
 from numpy import linspace, polyval, eye, linalg, mean, prod, vstack
 from numpy import empty_like, ones_like, zeros_like, pi, empty
 from numpy import any as anny
-from scipy.linalg import norm, inv, eig, svd
+from numpy.linalg import svd
+from scipy.linalg import norm, inv, eig
 from scipy.special import chdtri
 from matplotlib.patches import FancyArrowPatch
 from mpl_toolkits.mplot3d import proj3d

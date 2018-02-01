@@ -10,6 +10,7 @@ Created on Wed Jan 31 10:50:19 2018
 import numpy as np
 import matplotlib.pyplot as plt
 from corner import corner
+import pymc3 as pm
 
 # %%
 # Initialize random number generator
@@ -130,6 +131,7 @@ corner(samples[:,2:],bins=100)
 
 
 # %% testeo que haya muchas covarianzas
+# =======================================
 nDim = 3
 nvars = 11
 
@@ -148,8 +150,9 @@ np.linalg.inv(cov[0])
 yNor = pm.MvNormal.dist(mu=mu,cov=cov)
 
 # %% caso analogo a las imagenes y la calibracion
+# ===============================================
 
-def projection(xI, param, cI=None):
+def projection(x, param, cI=None):
     '''
     calcula las coordenadas no distorsionadas y propaga incertezas
     '''
@@ -159,7 +162,7 @@ def projection(xI, param, cI=None):
     rtV = param[3:].reshape((nIm,2,2))
     
     # proyecto la distorsion optica
-    x1 = xI - X0
+    x1 = x - X0
     r1 = np.linalg.norm(x1,axis=2)
     r2 = np.tan(r1 / alpha)
     q = r2 / r1
@@ -184,31 +187,49 @@ def projection(xI, param, cI=None):
         return x3
 
 
+def matSqrt(C):
+    '''
+    devuelve la lista de matrices tal que T.dot(T.T) = C
+    '''
+    sh = C.shape
+    u, s, v = np.linalg.svd(C)
+    
+    T = u * np.sqrt(s).reshape((sh[0],sh[1],1,sh[2]))
+    T = T.reshape((sh[0],sh[1],sh[2],sh[2],1))
+    T = T * v.reshape((sh[0],sh[1],1,sh[2],sh[2]))
+    
+    return  np.sum(T, axis=3)
+
+
+#(T.reshape((nIm,nPts,2,2,1))
+#* T.transpose((0,1,3,2)).reshape((nIm,nPts,1,2,2))
+#).sum(3)  # funciona!!!
+
+
 # %% paramatros y generar datos
 nIm = 20
 nPts = 50
-sI = 0.02 # sigma en la imagen
 
-# true values of parameters
+# true values of parameters and positions and everything
 X0 = np.array([0.5, 0.5])
 alpha = np.array(2)
 rtV = np.random.rand(nIm,2,2)
-
 # los pongo como un solo vector de parametros
 param = np.concatenate([X0.reshape((-1,)),
                         alpha.reshape((-1,)),
                         rtV.reshape((-1,))], axis=0)
-
-# genero los datos, posiciones y covarianzas reales
-xI = np.random.rand(nIm,nPts,2)
-y = projection(xI, param)
+# posiciones reales en el mundo fisico
+x = np.random.rand(nIm,nPts,2)
+y = projection(x, param)
+sI = 0.02 # sigma en la imagen
+sM = 0.01 # sigma en el mapa
 
 cI = np.zeros((nIm,nPts,2,2))
 cI[:,:,[0,1],[0,1]] = sI**2
 
-# datos medidos
-xIdata = xI + np.random.normal(size=xI.shape, scale=sI)
-
+# datos medidos, observados, experimentalmente en el mundo y en la imagen
+xObs = x + np.random.normal(size=x.shape, scale=sI)
+yObs = y + np.random.normal(size=y.shape, scale=sM)
 
 
 # %% modelo
@@ -219,15 +240,34 @@ basic_model = pm.Model()
 with basic_model:
 
     # Priors for unknown model parameters
-    parametros = pm.Sarasa('parametros', ... )
+    parametros = pm.Uniform('parametros', lower= np.zeros_like(param)-10, upper=np.zeros_like(param)+10)
 
-    # Expected value of outcome
-    yData, cY = projection(xIdata, param, cI)
-
-
+    # nuestra prediccion desde la imagen al mapa basada en mediciones en la imagen
+    yPred, cPred = projection(xObs, param, cI)
+    
+    dif = yObs - yPred
+    S = np.linalg.inv(cPred)
+    T = matSqrt(S) # matriz para transformar 
+    
+    difT = np.sum(dif.reshape((nIm, nPts, 2, 1)) * T, 3)
+    
     # Likelihood (sampling distribution) of observations
     # aca no se que hacer, ya tengo todas las variables pero como lo expreso
     # una forma es definir una salida que sea como la posicion mahalanobis 
     # y poner que lo oservado es el verctor cero
-    Y_obs = pm.Normal('Y_obs', mu=mu, sd=np.sqrt(c), observed=Y)
+    Y_obs = pm.Normal('Y_obs', mu=np.zeros_like(difT), sd=1, observed=difT)
+
+
+
+
+
+# %%
+
+
+T = matSqrt(S)
+
+
+
+
+
 
