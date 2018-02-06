@@ -955,7 +955,7 @@ def unit2CovTransf(C):
     '''
     returns the matrix that transforms points from unit normal pdf to a normal
     pdf of covariance C. so that
-    Xnorm = np.random.randn(2,n)  # generate random points in 2D
+    Xnorm = np.random.randn(2,n)  # generate random points in 2D scale=1
     T = unit2CovTransf(C)  # calculate transform matriz
     X = np.dot(T, Xnorm)  # points that follow normal pdf of cov C
     '''
@@ -965,6 +965,7 @@ def unit2CovTransf(C):
     # return T.real
     
     u, s, v = svd(C)
+    u.dot(diag(sqrt(s))).dot(v.T)
     return u.dot(diag(sqrt(s))).dot(v.T)
 
 
