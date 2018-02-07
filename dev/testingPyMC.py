@@ -12,56 +12,56 @@ import matplotlib.pyplot as plt
 from corner import corner
 import pymc3 as pm
 import theano.tensor as T
-import theano as the
-import theano.tensor.nlinalg as lng
+import theano
+#import theano.tensor.nlinalg as lng
+from theano.compile.debugmode import DebugMode
 
-
-# %%
-# Initialize random number generator
-np.random.seed(123)
-
-# True parameter values
-sigma = 0.02
-cov = sigma**2
-alpha, beta = 0.2, 3
-
-# funciones del modelo
-f = lambda x, a: 1 / (1 + np.exp(-x / a))
-g = lambda x, b: b * x
-
-# funciones de propagacion de incerteza
-def fDif(x, a, c):
-    '''
-    calcula la salida d ela funcion y ademas propaga la incerteza
-    '''
-    ep = np.exp(-x/a)
-    fu = 1 / (1 + ep)
-    
-    er = c * (ep * fu**2 / a)**2  # propago covarianza
-    return fu, er
-
-gDif = lambda x, b, c: b**2 * c
-
-def fullPropa(x, a, b, c):
-    x2, c2 = fDif(x, a, c)
-    x3, c3 = [g(x2, b), gDif(x2, b, c2)]
-    
-    return x3, c3
-
-
-
-# Size of dataset
-size = 20
-
-# Predictor variable
-X = np.linspace(0,1,size)
-X1 = X + np.random.randn(size) * sigma
-# Simulate outcome variable
-
-Y, C = fullPropa(X1, alpha, beta, cov)
-
-
-plt.errorbar(X, Y, yerr=np.sqrt(C))
+## %%
+## Initialize random number generator
+#np.random.seed(123)
+#
+## True parameter values
+#sigma = 0.02
+#cov = sigma**2
+#alpha, beta = 0.2, 3
+#
+## funciones del modelo
+#f = lambda x, a: 1 / (1 + np.exp(-x / a))
+#g = lambda x, b: b * x
+#
+## funciones de propagacion de incerteza
+#def fDif(x, a, c):
+#    '''
+#    calcula la salida d ela funcion y ademas propaga la incerteza
+#    '''
+#    ep = np.exp(-x/a)
+#    fu = 1 / (1 + ep)
+#    
+#    er = c * (ep * fu**2 / a)**2  # propago covarianza
+#    return fu, er
+#
+#gDif = lambda x, b, c: b**2 * c
+#
+#def fullPropa(x, a, b, c):
+#    x2, c2 = fDif(x, a, c)
+#    x3, c3 = [g(x2, b), gDif(x2, b, c2)]
+#    
+#    return x3, c3
+#
+#
+#
+## Size of dataset
+#size = 20
+#
+## Predictor variable
+#X = np.linspace(0,1,size)
+#X1 = X + np.random.randn(size) * sigma
+## Simulate outcome variable
+#
+#Y, C = fullPropa(X1, alpha, beta, cov)
+#
+#
+#plt.errorbar(X, Y, yerr=np.sqrt(C))
 
 
 #
@@ -153,44 +153,46 @@ plt.errorbar(X, Y, yerr=np.sqrt(C))
 # %% caso analogo a las imagenes y la calibracion
 # ===============================================
 
-def projection(x, param, cI=None):
+def projection(x, x0, alfa, rtV, cI):
     '''
     calcula las coordenadas no distorsionadas y propaga incertezas
     '''
-    # recupero los parametros en forma original
-    X0 = param[:2]
-    alpha = param[2]
-    rtV = param[3:].reshape((nIm,2,2))
+#    # recupero los parametros en forma original
+#    x0 = param[:2]
+#    alpha = param[2]
+#    rtV = param[3:].reshape((nIm,2,2))
     
     # proyecto la distorsion optica
-    x1 = x - X0
-    print(x1.shape)
+    x1 = x - x0
+    # print(x1.shape)
     r1 = np.linalg.norm(x1, axis=2)
-    r2 = np.tan(r1 / alpha)
+    r2 = np.tan(r1 / alfa)
     q = r2 / r1
     x2 = x1 * q.reshape((nIm, nPts, 1))
     
-    if cI is not None:
-        c2 = (q**2).reshape((nIm, nPts,1,1)) * cI
+    # if cI is not None:
+    c2 = (q**2).reshape((nIm, nPts,1,1)) * cI
     
     # aca debería poner la dependencia de la incerteza a través de q, pero por ahora no # cq = 
     
     # parte extrinseca
     x3 = np.sum(x2.reshape((nIm, nPts,2,1)) * rtV.reshape((nIm,1,2,2)), axis=3)
     
-
-    if cI is not None:
-        c3 = (rtV.reshape((nIm,1,2,2,1,1)) *
-              c2.reshape((nIm,nPts,1,2,2,1)) *
-              rtV.transpose((0,2,1)).reshape((nIm,1,1,1,2,2))).sum((3,4))
-        return x3, c3
-    else:
-        return x3
+    # if cI is not None:
+    c3 = (rtV.reshape((nIm,1,2,2,1,1)) *
+          c2.reshape((nIm,nPts,1,2,2,1)) *
+          rtV.transpose((0,2,1)).reshape((nIm,1,1,1,2,2))).sum((3,4))
+    return x3, c3
+#    else:
+#        return x3
 
 
 def matSqrt(C):
     '''
     devuelve la lista de matrices tal que T.dot(T.T) = C
+    
+    **unused**
+    
     '''
     sh = C.shape
     u, s, v = np.linalg.svd(C)
@@ -212,25 +214,28 @@ nIm = 10
 nPts = 20
 
 # true values of parameters and positions and everything
-x0 = np.array([0.5, 0.5])
-alfa = np.array([2])
-rtV = np.random.rand(nIm,2,2)
-# los pongo como un solo vector de parametros
-param = np.concatenate([x0.reshape((-1,)),
-                        alfa.reshape((-1,)),
-                        rtV.reshape((-1,))], axis=0)
-# posiciones reales en el mundo fisico
-x = np.random.rand(nIm,nPts,2)
-y = projection(x, param)
-sI = 0.2 # sigma en la imagen
-sM = 0.1 # sigma en el mapa
+x0True = np.array([0.5, 0.5])
+alfaTrue = 0.7
+rtVTrue = np.random.rand(nIm,2,2)
 
-cI = np.zeros((nIm,nPts,2,2))
-cI[:,:,[0,1],[0,1]] = sI**2
+## los pongo como un solo vector de parametros
+#paramReal = np.concatenate([x0.reshape((-1,)),
+#                        alfa.reshape((-1,)),
+#                        rtV.reshape((-1,))], axis=0)
+
+# posiciones reales en el mundo fisico
+xTrue = np.random.rand(nIm,nPts,2)
+sITrue = 0.02 # sigma en la imagen
+cITrue = np.zeros((nIm,nPts,2,2))
+cITrue[:,:,[0,1],[0,1]] = sITrue**2
+
+yTrue, cMTrue = projection(xTrue, x0True, alfaTrue, rtVTrue, cITrue)
+sMTrue = 0.01 # sigma en el mapa
+
 
 # datos medidos, observados, experimentalmente en el mundo y en la imagen
-xObs = x + np.random.normal(size=x.shape, scale=sI)
-yObs = y + np.random.normal(size=y.shape, scale=sM)
+xObs = xTrue + np.random.normal(size=xTrue.shape, scale=sITrue)
+yObs = yTrue + np.random.normal(size=yTrue.shape, scale=sMTrue)
 
 Yobs = yObs.reshape(-1)
 
@@ -239,7 +244,133 @@ nTot = 2 * nIm * nPts
 xInxs = [ [[i,i],[i+1,i+1]] for i in range(0, nTot, 2)]
 yInxs = [ [[i,i+1],[i,i+1]] for i in range(0, nTot, 2)]
 
+
 # %%
+'''
+aca defino la proyeccion para que la pueda usar theanp
+'''
+
+
+class ProjectionT(theano.Op):
+    __props__ = ()
+    #itypes and otypes attributes are
+    #compulsory if make_node method is not defined.
+    #They're the type of input and output respectively
+    # x, x0, alfa, rtV, cI
+    itypes = [T.dtensor3, T.dvector, T.dscalar, T.dtensor3, T.dtensor4]
+    # y, cM
+    otypes = [T.dtensor3, T.dtensor4]
+
+    # Python implementation:
+    def perform(self, node, inputs_storage, output_storage):
+        x, x0, alfa, rtV, cI = inputs_storage
+        y, cM = output_storage
+        
+        y[0], cM[0] = projection(x, x0, alfa, rtV, cI)
+        
+    # optional:
+    check_input = True
+
+# %% pruebo si esta bien como OP
+
+x, x0, alfa, rtV, cI = [T.dtensor3('x'), T.dvector('x0'), T.dscalar('alfa'),
+                        T.dtensor3('rtV'), T.dtensor4('cI')]
+
+instance = ProjectionT()
+
+
+projT = theano.function([x, x0, alfa, rtV, cI],
+                        ProjectionT()(x, x0, alfa, rtV, cI))
+
+out = projT(xTrue, x0True, alfaTrue, rtVTrue, cITrue)
+
+print(out)
+
+
+#projT = theano.function(inputs=(x, x0, alfa, rtV, cI),
+#                        outputs=projection(x, x0, alfa, rtV, cI))
+
+
+
+# %% modelo
+niter= 100
+
+try:
+    del basic_model
+except:
+    pass
+
+basic_model = pm.Model()
+
+
+projT = ProjectionT()
+
+
+xObsConst = T.as_tensor_variable(xObs, 'xObsConst', ndim=3)
+cIConst = T.as_tensor_variable(cITrue, 'cIConst', ndim=4)
+
+with basic_model:
+
+    # Priors for unknown model parameters
+    x0 = pm.Uniform('x0', lower=0, upper=1, shape=2)
+    alfa = pm.Uniform('alfa', lower=0, upper=1)
+    rtV = pm.Uniform('rtV', lower=0, upper=1, shape=(nIm,2,2))
+    
+#    rtV2 = T.reshape(rtV, (nIm,2,2))
+#    parametros = pm.Uniform('parametros', lower=0, upper=1,
+#                            shape=paramReal.shape)
+    
+    # nuestra prediccion desde la imagen al mapa basada en mediciones en la imagen
+#    yPred, cPred = projection(xObs, parametros, cI)
+    
+#    # proyecto la distorsion optica
+#    x1 = xObs - T.reshape(x0, (1,1,2))
+#    print(x.shape, T.shape(x1))
+#    
+#    r1 = T.sqrt(T.sum(x1**2, axis=2))
+#    r2 = T.tan(r1 / alfa)
+#    q = r2 / r1
+#    
+#    print(T.shape(x1),T.shape(q))
+#    r1 * r2 * q
+#    x2 = x1 * T.reshape(q, (nIm, nPts, 1))
+#    
+#    c2 = T.reshape(q**2, (nIm, nPts,1,1)) * cI
+#    
+#    # parte extrinseca
+#    x3 = T.reshape(x2, (nIm, nPts,2,1)) * T.reshape(rtV, (nIm,1,2,2))
+#    x3 = T.sum(x3, axis=3)
+#    
+#    c3 = T.sum(T.reshape(rtV, (nIm,1,2,2,1,1)) *
+#               T.reshape(c2, (nIm,nPts,1,2,2,1)) *
+#               T.reshape(rtV.transpose((0,2,1)), (nIm,1,1,1,2,2)),
+#               axis=(3,4))
+#    
+#    # Likelihood (sampling distribution) of observations
+#    # aca no se que hacer, ya tengo todas las variables pero como lo expreso
+#    # una forma es definir una salida que sea como la posicion mahalanobis 
+#    # y poner que lo oservado es el verctor cero
+##    Y_obs = pm.MvNormal('Y_obs', mu=np.zeros_like(difT),
+##                        cov=np.eye(2), observed=difT)
+#    mu = T.reshape(x3, (-1,))
+#    
+#    print(T.isnan(mu), T.isinf(mu))
+    
+    
+    yM, cM = projT(xObsConst, x0, alfa, rtV, cIConst)
+    
+    mu = T.reshape(yM, (-1,))
+    
+    bigC = T.zeros((nTot, nTot))
+    c3Diag = T.reshape(cM, (-1,2,2)) # list of blocks
+    bigC = T.set_subtensor(bigC[xInxs, yInxs], c3Diag)
+    
+    Y_obs = pm.MvNormal('Y_obs', mu=mu, cov=bigC, observed=Yobs)
+
+
+
+# %%
+
 
 class proposalDist:
     def __init__(self, S, n=1):
@@ -277,74 +408,8 @@ sams()
 #xSams, alSams, rtSams = proposalDist(S0, n=5)
 
 
-# %% modelo
-niter= 100
-
-try:
-    del basic_model
-except:
-    pass
-
-basic_model = pm.Model()
-
-with basic_model:
-
-    # Priors for unknown model parameters
-    x0 = pm.Uniform('x0', lower=0, upper=1, shape=2)
-    alfa = pm.Uniform('alfa', lower=0, upper=5)
-    rtV = pm.Uniform('rtV', lower=-3, upper=3, shape=nIm*4)
-    
-    rtV2 = T.reshape(rtV, (nIm,2,2))
-    
-    # nuestra prediccion desde la imagen al mapa basada en mediciones en la imagen
-#    yPred, cPred = projection(xObs, parametros, cI)
-    
-    # proyecto la distorsion optica
-    x1 = xObs - T.reshape(x0, (1,1,2))
-    print(x.shape, T.shape(x1))
-    
-    r1 = T.sqrt(T.sum(x1**2, axis=2))
-    r2 = T.tan(r1 / alfa)
-    q = r2 / r1
-    
-    print(T.shape(x1),T.shape(q))
-    r1 * r2 * q
-    x2 = x1 * T.reshape(q, (nIm, nPts, 1))
-    
-    c2 = T.reshape(q**2, (nIm, nPts,1,1)) * cI
-    
-    # parte extrinseca
-    x3 = T.reshape(x2, (nIm, nPts,2,1)) * T.reshape(rtV, (nIm,1,2,2))
-    x3 = T.sum(x3, axis=3)
-    
-    c3 = T.sum(T.reshape(rtV2, (nIm,1,2,2,1,1)) *
-               T.reshape(c2, (nIm,nPts,1,2,2,1)) *
-               T.reshape(rtV2.transpose((0,2,1)), (nIm,1,1,1,2,2)),
-               axis=(3,4))
-    
-    # Likelihood (sampling distribution) of observations
-    # aca no se que hacer, ya tengo todas las variables pero como lo expreso
-    # una forma es definir una salida que sea como la posicion mahalanobis 
-    # y poner que lo oservado es el verctor cero
-#    Y_obs = pm.MvNormal('Y_obs', mu=np.zeros_like(difT),
-#                        cov=np.eye(2), observed=difT)
-    mu = T.reshape(x3, (-1,))
-    
-    print(T.isnan(mu), T.isinf(mu))
-    
-    bigC = T.zeros((nTot, nTot))
-    c3Diag = T.reshape(c3, (-1,2,2)) # list of blocks
-
-    bigC = T.set_subtensor(bigC[xInxs, yInxs], c3Diag)
-    
-    Y_obs = pm.MvNormal('Y_obs', mu=mu, cov=bigC, observed=Yobs)
-
-
-
-# %%
-
 start = {'x0': np.array([0.5, 0.5]),
-         'alfa': np.array(2),
+         'alfa': np.array(0.5),
          'rtV': np.random.rand(nIm,2,2)}
 
 with basic_model:
@@ -357,8 +422,7 @@ with basic_model:
                          )
 
     trace = pm.sample(niter, step=step, start=start, njobs=4, random_seed=123)
-    
-    
+
 ##    stepMeth = pm.Metropolis(vars=(x0, alfa, rtV), S=np.array(1), tune_interval=2)
 #    step = pm.Metropolis(basic_model.vars, model=basic_model)
 #    # draw 500 posterior samples
