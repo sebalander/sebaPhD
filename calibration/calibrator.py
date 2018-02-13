@@ -228,23 +228,24 @@ def ccd2hom(imagePoints, cameraMatrix, Cccd=False, Cf=False):
     Cfbool = anny(Cf)
     
     if Cccdbool or Cfbool:
-        Cpp = zeros((xpp.shape[0],2,2))  # create covariance matrix
+        print(xpp.shape[0])
+        Cpp = zeros((xpp.shape[0], 2, 2))  # create covariance matrix
         Jd_i, Jd_k = ccd2homJacobian(imagePoints, cameraMatrix)
         
         if Cccdbool:
             Jd_iResh = Jd_i.reshape((-1, 2, 2, 1, 1))
             Cpp += (Jd_iResh *
-                    Cccd.reshape((-1,1,2,2,1)) *
-                    Jd_iResh.transpose((0,4,3,2,1))
-                    ).sum((2,3))
+                    Cccd.reshape((-1, 1, 2, 2, 1)) *
+                    Jd_iResh.transpose((0, 4, 3, 2, 1))
+                    ).sum((2, 3))
         
         if Cfbool:
             # propagate uncertainty via Jacobians
             Jd_kResh = Jd_k.reshape((-1, 2, 4, 1, 1))
             Cpp += (Jd_kResh *
-                    Cf.reshape((-1,1,4,4,1)) *
-                    Jd_kResh.transpose((0,4,3,2,1))
-                    ).sum((2,3))
+                    Cf.reshape((-1, 1, 4, 4, 1)) *
+                    Jd_kResh.transpose((0, 4, 3, 2, 1))
+                    ).sum((2, 3))
     else:
         Cpp = False  # return without covariance matrix
         Jd_k = False

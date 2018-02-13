@@ -15,140 +15,7 @@ import theano.tensor as T
 import theano
 #import theano.tensor.nlinalg as lng
 from theano.compile.debugmode import DebugMode
-
-## %%
-## Initialize random number generator
-#np.random.seed(123)
-#
-## True parameter values
-#sigma = 0.02
-#cov = sigma**2
-#alpha, beta = 0.2, 3
-#
-## funciones del modelo
-#f = lambda x, a: 1 / (1 + np.exp(-x / a))
-#g = lambda x, b: b * x
-#
-## funciones de propagacion de incerteza
-#def fDif(x, a, c):
-#    '''
-#    calcula la salida d ela funcion y ademas propaga la incerteza
-#    '''
-#    ep = np.exp(-x/a)
-#    fu = 1 / (1 + ep)
-#    
-#    er = c * (ep * fu**2 / a)**2  # propago covarianza
-#    return fu, er
-#
-#gDif = lambda x, b, c: b**2 * c
-#
-#def fullPropa(x, a, b, c):
-#    x2, c2 = fDif(x, a, c)
-#    x3, c3 = [g(x2, b), gDif(x2, b, c2)]
-#    
-#    return x3, c3
-#
-#
-#
-## Size of dataset
-#size = 20
-#
-## Predictor variable
-#X = np.linspace(0,1,size)
-#X1 = X + np.random.randn(size) * sigma
-## Simulate outcome variable
-#
-#Y, C = fullPropa(X1, alpha, beta, cov)
-#
-#
-#plt.errorbar(X, Y, yerr=np.sqrt(C))
-
-
-#
-## %%
-#basic_model = pm.Model()
-#
-#with basic_model:
-#
-#    # Priors for unknown model parameters
-#    alpha = pm.Uniform('alpha', lower=0, upper=1)
-#    beta = pm.Uniform('beta', lower=0, upper=10) # shape=2)
-#
-#    # Expected value of outcome
-#    mu, c = fullPropa(X, alpha, beta, cov)
-#
-#    # Likelihood (sampling distribution) of observations
-#    Y_obs = pm.Normal('Y_obs', mu=mu, sd=np.sqrt(c), observed=Y)
-#
-## %%
-#map_estimate = pm.find_MAP(model=basic_model)
-#map_estimate
-#
-## %%
-#from scipy import optimize
-#
-#map_estimate = pm.find_MAP(model=basic_model, fmin=optimize.fmin_powell)
-#map_estimate
-#
-## %%
-#from scipy import optimize
-#
-#nDraws = 1000
-#nChains = 10
-#nSampels = nChains * nDraws
-#
-#with basic_model:
-#    # draw 500 posterior samples
-#    trace = pm.sample(draws=nDraws, chains=nChains)
-#
-#
-#[np.array(trace[varNm]).shape for varNm in trace.varnames]
-#
-#samples = np.hstack([trace[varNm].reshape((nSampels,-1)) for varNm in trace.varnames])
-#
-#corner(samples,bins=100)
-#
-## %%
-#
-#nDraws = 1000
-#nChains = 10
-#nSampels = nChains * nDraws
-#
-#with basic_model:
-#
-#    # obtain starting values via MAP
-#    start = pm.find_MAP(fmin=optimize.fmin_powell)
-#
-#    # instantiate sampler
-#    step = pm.Slice()
-#
-#    # draw 5000 posterior samples
-#    trace = pm.sample(nDraws, step=step, start=start, chains=nChains)
-#
-#[np.array(trace[varNm]).shape for varNm in trace.varnames]
-#
-#samples = np.hstack([trace[varNm].reshape((nSampels,-1)) for varNm in trace.varnames])
-#
-#corner(samples[:,2:],bins=100)
-#
-#
-## %% testeo que haya muchas covarianzas
-## =======================================
-#nDim = 2
-#nvars = 1000
-#
-#cov = np.random.randn(nvars,nDim, nDim)
-#cov = (cov.reshape((nvars,nDim, nDim, 1, 1)) *
-#       cov.transpose((0,2,1)).reshape((nvars, 1, 1, nDim, nDim))
-#       )
-#cov = np.sum(cov, axis=(2,3))
-#
-##mu = np.random.randn(nvars,nDim)
-#
-#np.linalg.inv(cov[0])
-#
-#
-#yNor = pm.MvNormal.dist(mu=mu,cov=cov)
+from scipy import optimize as opt
 
 # %% caso analogo a las imagenes y la calibracion
 # ===============================================
@@ -166,12 +33,12 @@ def projection(x, x0, alfa, rtV, cI):
     x1 = x - x0
     # print(x1.shape)
     r1 = np.linalg.norm(x1, axis=2)
-    r2 = np.tan(r1 / alfa)
+    r2 = np.tan(r1 * alfa)
     q = r2 / r1
     x2 = x1 * q.reshape((nIm, nPts, 1))
     
     # if cI is not None:
-    c2 = (q**2).reshape((nIm, nPts,1,1)) * cI
+    c2 = (q**2).reshape((nIm, nPts, 1, 1)) * cI
     
     # aca debería poner la dependencia de la incerteza a través de q, pero por ahora no # cq = 
     
@@ -183,8 +50,6 @@ def projection(x, x0, alfa, rtV, cI):
           c2.reshape((nIm,nPts,1,2,2,1)) *
           rtV.transpose((0,2,1)).reshape((nIm,1,1,1,2,2))).sum((3,4))
     return x3, c3
-#    else:
-#        return x3
 
 
 def matSqrt(C):
@@ -211,17 +76,13 @@ def matSqrt(C):
 
 # %% paramatros y generar datos
 nIm = 10
-nPts = 20
+nPts = 50
 
 # true values of parameters and positions and everything
 x0True = np.array([0.5, 0.5])
-alfaTrue = 0.7
+alfaTrue = 0.2
+np.random.seed(0)
 rtVTrue = np.random.rand(nIm,2,2)
-
-## los pongo como un solo vector de parametros
-#paramReal = np.concatenate([x0.reshape((-1,)),
-#                        alfa.reshape((-1,)),
-#                        rtV.reshape((-1,))], axis=0)
 
 # posiciones reales en el mundo fisico
 xTrue = np.random.rand(nIm,nPts,2)
@@ -247,12 +108,12 @@ yInxs = [ [[i,i+1],[i,i+1]] for i in range(0, nTot, 2)]
 
 # %%
 '''
-aca defino la proyeccion para que la pueda usar theanp
+aca defino la proyeccion para que la pueda usar thean0
+http://deeplearning.net/software/theano/extending/extending_theano.html
 '''
 
 
 class ProjectionT(theano.Op):
-    __props__ = ()
     #itypes and otypes attributes are
     #compulsory if make_node method is not defined.
     #They're the type of input and output respectively
@@ -273,22 +134,19 @@ class ProjectionT(theano.Op):
 
 # %% pruebo si esta bien como OP
 
-x, x0, alfa, rtV, cI = [T.dtensor3('x'), T.dvector('x0'), T.dscalar('alfa'),
-                        T.dtensor3('rtV'), T.dtensor4('cI')]
+x = T.dtensor3('x')
+x0 = T.dvector('x0')
+alfa = T.dscalar('alfa')
+rtV = T.dtensor3('rtV')
+cI = T.dtensor4('cI')
 
-instance = ProjectionT()
+projT = ProjectionT()
 
+projTfunction = theano.function([x, x0, alfa, rtV, cI],                                 projT(x, x0, alfa, rtV, cI))
 
-projT = theano.function([x, x0, alfa, rtV, cI],
-                        ProjectionT()(x, x0, alfa, rtV, cI))
-
-out = projT(xTrue, x0True, alfaTrue, rtVTrue, cITrue)
+out = projTfunction(xTrue, x0True, alfaTrue, rtVTrue, cITrue)
 
 print(out)
-
-
-#projT = theano.function(inputs=(x, x0, alfa, rtV, cI),
-#                        outputs=projection(x, x0, alfa, rtV, cI))
 
 
 
@@ -296,66 +154,28 @@ print(out)
 niter= 100
 
 try:
-    del basic_model
-except:
+    basic_model
+except NameError:
     pass
+    # print "well, it WASN'T defined after all!"
+else:
+    del basic_model
+    # print "sure, it was defined."
 
-basic_model = pm.Model()
-
-
+# instancia de la clase qeu envuelve mi funcion de python
 projT = ProjectionT()
 
-
+# constantes de calculo
 xObsConst = T.as_tensor_variable(xObs, 'xObsConst', ndim=3)
 cIConst = T.as_tensor_variable(cITrue, 'cIConst', ndim=4)
 
-with basic_model:
+basic_model = pm.Model()
 
+with basic_model:
     # Priors for unknown model parameters
     x0 = pm.Uniform('x0', lower=0, upper=1, shape=2)
     alfa = pm.Uniform('alfa', lower=0, upper=1)
     rtV = pm.Uniform('rtV', lower=0, upper=1, shape=(nIm,2,2))
-    
-#    rtV2 = T.reshape(rtV, (nIm,2,2))
-#    parametros = pm.Uniform('parametros', lower=0, upper=1,
-#                            shape=paramReal.shape)
-    
-    # nuestra prediccion desde la imagen al mapa basada en mediciones en la imagen
-#    yPred, cPred = projection(xObs, parametros, cI)
-    
-#    # proyecto la distorsion optica
-#    x1 = xObs - T.reshape(x0, (1,1,2))
-#    print(x.shape, T.shape(x1))
-#    
-#    r1 = T.sqrt(T.sum(x1**2, axis=2))
-#    r2 = T.tan(r1 / alfa)
-#    q = r2 / r1
-#    
-#    print(T.shape(x1),T.shape(q))
-#    r1 * r2 * q
-#    x2 = x1 * T.reshape(q, (nIm, nPts, 1))
-#    
-#    c2 = T.reshape(q**2, (nIm, nPts,1,1)) * cI
-#    
-#    # parte extrinseca
-#    x3 = T.reshape(x2, (nIm, nPts,2,1)) * T.reshape(rtV, (nIm,1,2,2))
-#    x3 = T.sum(x3, axis=3)
-#    
-#    c3 = T.sum(T.reshape(rtV, (nIm,1,2,2,1,1)) *
-#               T.reshape(c2, (nIm,nPts,1,2,2,1)) *
-#               T.reshape(rtV.transpose((0,2,1)), (nIm,1,1,1,2,2)),
-#               axis=(3,4))
-#    
-#    # Likelihood (sampling distribution) of observations
-#    # aca no se que hacer, ya tengo todas las variables pero como lo expreso
-#    # una forma es definir una salida que sea como la posicion mahalanobis 
-#    # y poner que lo oservado es el verctor cero
-##    Y_obs = pm.MvNormal('Y_obs', mu=np.zeros_like(difT),
-##                        cov=np.eye(2), observed=difT)
-#    mu = T.reshape(x3, (-1,))
-#    
-#    print(T.isnan(mu), T.isinf(mu))
-    
     
     yM, cM = projT(xObsConst, x0, alfa, rtV, cIConst)
     
@@ -366,6 +186,83 @@ with basic_model:
     bigC = T.set_subtensor(bigC[xInxs, yInxs], c3Diag)
     
     Y_obs = pm.MvNormal('Y_obs', mu=mu, cov=bigC, observed=Yobs)
+
+# %%
+# aca saco el maximo a posteriori, bastante util para hacer montecarlo despues
+
+try:
+    map_estimate
+except:
+    print('set initial state arbitrarily')
+    start = {'x0': np.array([0.5, 0.5]),
+             'alfa': np.array(0.2),
+             'rtV': rtVTrue }
+#              'rtV': np.random.rand(nIm,2,2)}
+else:
+    print('set initial state with previous map_estiamte')
+    start=map_estimate
+
+niter = 30000
+
+map_estimate = pm.find_MAP(model=basic_model, start=start, maxeval=int(niter * 1.3), maxiter=niter, fmin=opt.fmin, xtol=1e-2,ftol=1e-3)
+
+print(map_estimate['alfa'], alfaTrue)
+print(map_estimate['x0'], x0True)
+print(map_estimate['rtV'] - rtVTrue)
+
+
+# %% metropolis desde MAP. a ver si zafo de la proposal dist
+'''
+http://docs.pymc.io/api/inference.html
+'''
+
+start = map_estimate
+
+#start = {'x0': map_estimate['x0']}#,
+#         'alfa': map_estimate['alfa'],
+#         'rtV': map_estimate['rtV']}
+
+#scale = {'x0': map_estimate['x0_interval__'],
+#         'alfa': map_estimate['alfa_interval__'],
+#         'rtV': map_estimate['rtV_interval__']}
+#
+#scale = [map_estimate['x0_interval__'], map_estimate['alfa_interval__'], map_estimate['rtV_interval__']]
+
+nDraws = 2000
+nChains = 4
+
+with basic_model:
+    step = pm.Metropolis()
+#    step = pm.Metropolis(vars=basic_model.x0, # basic_model.alfa,basic_model.rtV],
+#                         S=np.abs(map_estimate['x0_interval__'])),
+#                         scaling=1e-1,
+#                         tune=True,
+#                         tune_interval=50)
+
+#    step = pm.Metropolis()
+    
+    trace = pm.sample(tune=1000, draws=nDraws, step=step, start=start,
+                      njobs=4, chains=nChains, progressbar=True) #, 
+#                      init='auto', n_init=200,  random_seed=123)
+
+# %%
+plt.figure()
+plt.plot(trace['x0'])
+plt.figure()
+plt.plot(trace['alfa'])
+
+plt.hist(trace['alfa'], 20)
+plt.hist(trace['x0'], 100)
+
+plt.figure()
+plt.plot(trace['rtV'].reshape(-1,nIm*4))
+
+plt.figure()
+plt.plot(trace['x0'][:,0], trace['x0'][:,1])
+
+plt.hist2d(trace['x0'][:,0], trace['x0'][:,1], 100)
+
+
 
 
 
@@ -415,7 +312,6 @@ start = {'x0': np.array([0.5, 0.5]),
 with basic_model:
     step = pm.Metropolis(vars=basic_model.vars,
                          S=S0,
-                         proposal_dist=proposalDist,
                          scaling=1.0,
                          tune=True,
                          tune_interval=10,
@@ -430,6 +326,8 @@ with basic_model:
 
 # %%
 '''
+METROPOLIS
+
 vars : list
 List of variables for sampler
 S : standard deviation or covariance matrix
@@ -446,6 +344,69 @@ model : PyMC Model
 Optional model for sampling step. Defaults to None (taken from context).
 mode : string or Mode instance.
 compilation mode passed to Theano functions
+
+
+
+
+
+STEP
+
+draws : int
+The number of samples to draw. Defaults to 500. The number of tuned samples are discarded by default. See discard_tuned_samples.
+step : function or iterable of functions
+A step function or collection of functions. If there are variables without a step methods, step methods for those variables will be assigned automatically.
+init : str
+Initialization method to use for auto-assigned NUTS samplers.
+
+auto : Choose a default initialization method automatically. Currently, this is ‘jitter+adapt_diag’, but this can change in the future. If you depend on the exact behaviour, choose an initialization method explicitly.
+adapt_diag : Start with a identity mass matrix and then adapt a diagonal based on the variance of the tuning samples. All chains use the test value (usually the prior mean) as starting point.
+jitter+adapt_diag : Same as adapt_diag, but add uniform jitter in [-1, 1] to the starting point in each chain.
+advi+adapt_diag : Run ADVI and then adapt the resulting diagonal mass matrix based on the sample variance of the tuning samples.
+advi+adapt_diag_grad : Run ADVI and then adapt the resulting diagonal mass matrix based on the variance of the gradients during tuning. This is experimental and might be removed in a future release.
+advi : Run ADVI to estimate posterior mean and diagonal mass matrix.
+advi_map: Initialize ADVI with MAP and use MAP as starting point.
+map : Use the MAP as starting point. This is discouraged.
+nuts : Run NUTS and estimate posterior mean and mass matrix from the trace.
+n_init : int
+Number of iterations of initializer If ‘ADVI’, number of iterations, if ‘nuts’, number of draws.
+start : dict, or array of dict
+Starting point in parameter space (or partial point) Defaults to trace.point(-1)) if there is a trace provided and model.test_point if not (defaults to empty dict). Initialization methods for NUTS (see init keyword) can overwrite the default.
+trace : backend, list, or MultiTrace
+This should be a backend instance, a list of variables to track, or a MultiTrace object with past values. If a MultiTrace object is given, it must contain samples for the chain number chain. If None or a list of variables, the NDArray backend is used. Passing either “text” or “sqlite” is taken as a shortcut to set up the corresponding backend (with “mcmc” used as the base name).
+chain_idx : int
+Chain number used to store sample in backend. If chains is greater than one, chain numbers will start here.
+chains : int
+The number of chains to sample. Running independent chains is important for some convergence statistics and can also reveal multiple modes in the posterior. If None, then set to either njobs or 2, whichever is larger.
+njobs : int
+The number of chains to run in parallel. If None, set to the number of CPUs in the system, but at most 4. Keep in mind that some chains might themselves be multithreaded via openmp or BLAS. In those cases it might be faster to set this to one.
+tune : int
+Number of iterations to tune, if applicable (defaults to 500). Samplers adjust the step sizes, scalings or similar during tuning. These samples will be drawn in addition to samples and discarded unless discard_tuned_samples is set to True.
+nuts_kwargs : dict
+Options for the NUTS sampler. See the docstring of NUTS for a complete list of options. Common options are
+
+target_accept: float in [0, 1]. The step size is tuned such that we approximate this acceptance rate. Higher values like 0.9 or 0.95 often work better for problematic posteriors.
+max_treedepth: The maximum depth of the trajectory tree.
+step_scale: float, default 0.25 The initial guess for the step size scaled down by 1/n**(1/4).
+If you want to pass options to other step methods, please use step_kwargs.
+
+step_kwargs : dict
+Options for step methods. Keys are the lower case names of the step method, values are dicts of keyword arguments. You can find a full list of arguments in the docstring of the step methods. If you want to pass arguments only to nuts, you can use nuts_kwargs.
+progressbar : bool
+Whether or not to display a progress bar in the command line. The bar shows the percentage of completion, the sampling speed in samples per second (SPS), and the estimated remaining time until completion (“expected time of arrival”; ETA).
+model : Model (optional if in with context) random_seed : int or list of ints
+
+A list is accepted if njobs is greater than one.
+live_plot : bool
+Flag for live plotting the trace while sampling
+live_plot_kwargs : dict
+Options for traceplot. Example: live_plot_kwargs={‘varnames’: [‘x’]}
+discard_tuned_samples : bool
+Whether to discard posterior samples of the tune interval.
+compute_convergence_checks : bool, default=True
+Whether to compute sampler statistics like gelman-rubin and effective_n.
+
+
+
 '''
 
 # %%
