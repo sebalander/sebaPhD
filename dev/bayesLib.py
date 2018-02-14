@@ -60,6 +60,7 @@ def int2flat(cameraMatrix, distCoeffs, model):
 
 def flat2CamMatrix(kFlat, model):
     cameraMatrix = np.eye(3, dtype=float)
+    
     if model==modelos[3]:
         cameraMatrix[[0,1],2] = kFlat
     else:
@@ -73,7 +74,7 @@ def flat2int(X, Ns, model):
     '''
     kFlat = X[0:Ns[0]]
     dFlat = X[Ns[0]:Ns[1]]
-
+    
     cameraMatrix = flat2CamMatrix(kFlat, model)
     distCoeffs = dFlat
 

@@ -223,12 +223,11 @@ def ccd2hom(imagePoints, cameraMatrix, Cccd=False, Cf=False):
     # undo CCD projection, asume diagonal ccd rescale
     xpp = (imagePoints[:, 0] - cameraMatrix[0, 2]) / cameraMatrix[0, 0]
     ypp = (imagePoints[:, 1] - cameraMatrix[1, 2]) / cameraMatrix[1, 1]
-
+    
     Cccdbool = anny(Cccd)
     Cfbool = anny(Cf)
     
     if Cccdbool or Cfbool:
-        print(xpp.shape[0])
         Cpp = zeros((xpp.shape[0], 2, 2))  # create covariance matrix
         Jd_i, Jd_k = ccd2homJacobian(imagePoints, cameraMatrix)
         
@@ -262,7 +261,6 @@ undistort = {
     'poly': poly.radialUndistort,
     'fisheye': fisheye.radialUndistort
 }
-
 
 def homDist2homUndist_ratioJacobians(xpp, ypp, distCoeffs, model):
     '''

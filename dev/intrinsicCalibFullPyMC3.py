@@ -25,6 +25,10 @@ import corner
 import time
 import theano
 import theano. tensor as T
+import pymc3 as pm
+
+import scipy.sparse as sp
+import scipy as sc
 
 import sys
 sys.path.append("/home/sebalander/Code/sebaPhD")
@@ -113,9 +117,10 @@ for j in range(0,n,3):
 yObs = objpoints2D.reshape(-1)
 
 
-# diccionario de parametros, constantes de calculo
-xObsConst = T.as_tensor_variable(imagePoints.reshape((n,m,2)), 'xObsConst', ndim=3)
-CiConst = T.as_tensor_variable(Ci, 'cIConst', ndim=4)
+# no usar las constantes como tensores porque da error...
+## diccionario de parametros, constantes de calculo
+#xObsConst = T.as_tensor_variable(imagePoints.reshape((n,m,2)), 'xObsConst', ndim=3)
+#CiConst = T.as_tensor_variable(Ci, 'cIConst', ndim=4)
 
 
 # %%
@@ -142,18 +147,19 @@ class ProjectionT(theano.Op):
         xyM, cM = output_storage
         
         # saco los parametros de flat para que los use la func de projection
+        # print(Xint)
         cameraMatrix, distCoeffs = bl.flat2int(Xint, Ns, model)
-        
+        # print(cameraMatrix, distCoeffs)
         xy = np.zeros((n,m,2))
         cm = np.zeros((n,m,2,2))
         
         for j in range(n):
             rVec, tVec = bl.flat2ext(Xext[j])
-            xy[j,:,0], xy[j,:,1], cm[j] = cl.inverse(xObsConst[j], rVec, tVec,
+            xy[j,:,0], xy[j,:,1], cm[j] = cl.inverse(imagePoints.reshape((n,m,2))[j], rVec, tVec,
                                     cameraMatrix, distCoeffs, model,
-                                    Cccd=CiConst[j])
+                                    Cccd=Ci[j])
             
-        print(xy)
+        # print(xy)
         
         xyM[0] = xy
         cM[0] = cm
@@ -165,16 +171,119 @@ class ProjectionT(theano.Op):
 
 # %% pruebo si esta bien como OP
 
+try:
+    del XintOP, XextOP, projTheanoWrap, projTfunction
+except:
+    pass
+
+
 XintOP = T.dvector('XintOP')
 XextOP = T.dmatrix('XextOP')
 
-projT = ProjectionT()
+projTheanoWrap = ProjectionT()
 
-projTfunction = theano.function([XintOP, XextOP],                                 projT(XintOP, XextOP))
+projTfunction = theano.function([XintOP, XextOP],
+                                projTheanoWrap(XintOP, XextOP))
 
 out = projTfunction(Xint, XextList)
 
 print(out)
+
+plt.scatter(out[0][:,:,0], out[0][:,:,1])
+
+
+# %%
+#from importlib import reload
+#reload(cl)
+#reload(bl)
+
+
+# indexes to read diagona 2x2 blocks of a matrix
+nTot = 2 * n * m
+xInxs = [ [[i,i],[i+1,i+1]] for i in range(0, nTot, 2)]
+yInxs = [ [[i,i+1],[i,i+1]] for i in range(0, nTot, 2)]
+
+projectionModel = pm.Model()
+
+projTheanoWrap = ProjectionT()
+
+# set lower and upper bounds for uniform prior distributions
+# for camera matrix is important to avoid division by zero
+intrLow = [300, 300, 600,  300, -0.1, -0.1, -0.1, -0.1] # intrinsic
+intrUpp = [500, 500, 1000, 600,  0.1,  0.1,  0.1,  0.1]
+extrLow = np.array([[-3.2, -3.2, -3.2, -25, -25, -25]]*n)
+extrUpp = np.array([[ 3.2,  3.2,  3.2,  25,  25,  25]]*n)
+
+with projectionModel:
+    # Priors for unknown model parameters
+    xIn = pm.Uniform('xIn', lower=intrLow, upper=intrUpp, shape=Xint.shape)
+    xEx = pm.Uniform('xEx', lower=extrLow, upper=extrUpp, shape=XextList.shape)
+    
+    xyM, cM = projTheanoWrap(xIn, xEx)
+    
+    mu = T.reshape(xyM, (-1,))
+    
+    # sp.block_diag(out[1].reshape((-1,2,2))) # for sparse
+    bigC = T.zeros((nTot, nTot))
+    c3Diag = T.reshape(cM, (-1,2,2)) # list of 2x2 covariance blocks
+    bigC = T.set_subtensor(bigC[xInxs, yInxs], c3Diag)
+    
+    Y_obs = pm.MvNormal('Y_obs', mu=mu, cov=bigC, observed=yObs)
+
+
+
+
+
+
+
+# %%
+# aca saco el maximo a posteriori, bastante util para hacer montecarlo despues
+import scipy.optimize as opt
+
+#
+#try:
+#    map_estimate
+#except:
+#    print('set initial state arbitrarily')
+#    start = {'xIn': Xint,
+#             'xEx': XextList}
+#else:
+#    print('set initial state with previous map_estiamte')
+#    start=map_estimate
+
+start = {'xIn': Xint, 'xEx': XextList}
+
+
+
+niter = 10
+#map_estimate = pm.find_MAP(model=projectionModel, start=start, maxeval=int(niter * 10), maxiter=niter, fmin=opt.fmin, xtol=1e-2,ftol=1e-3)
+
+
+map_estimate = pm.find_MAP(model=projectionModel, start=start, maxeval=niter)
+
+
+
+print(map_estimate['xIn'], Xint)
+#print(map_estimate['x0'], x0True)
+
+
+# %%
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
