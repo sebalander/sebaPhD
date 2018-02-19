@@ -81,7 +81,7 @@ NdataPoints = n*m
 
 # 0.3pix as image std
 stdPix = 0.1
-Ci = np.repeat([ stdPix**2 * np.eye(2)], n*m, axis=0).reshape(n, m, 2, 2)
+Ci = np.repeat([stdPix**2 * np.eye(2)], n*m, axis=0).reshape(n, m, 2, 2)
 
 # Cf = np.eye(distCoeffs.shape[0])
 # Ck = np.eye(4)
@@ -99,8 +99,8 @@ intrinsicParamsOutFile = intrinsicParamsOutFile + str(stdPix) + ".npy"
 
 # pruebo con un par de imagenes
 for j in range(0, n, 3):
-
-    xm, ym, Cm = cl.inverse(imagePoints[j, 0], rVecs[j], tVecs[j], cameraMatrix,
+    xm, ym, Cm = cl.inverse(imagePoints[j, 0], rVecs[j], tVecs[j],
+                            cameraMatrix,
                             distCoeffs, model, Cccd=Ci[j], Cf=False, Ck=False,
                             Crt=False, Cfk=False)
     print(xm, ym, Cm)
@@ -112,7 +112,8 @@ yObs = objpoints2D.reshape(-1)
 
 # no usar las constantes como tensores porque da error...
 # # diccionario de parametros, constantes de calculo
-# xObsConst = T.as_tensor_variable(imagePoints.reshape((n,m,2)), 'xObsConst', ndim=3)
+# xObsConst = T.as_tensor_variable(imagePoints.reshape((n,m,2)), 'xObsConst',
+#                                  ndim=3)
 # CiConst = T.as_tensor_variable(Ci, 'cIConst', ndim=4)
 
 
@@ -121,7 +122,10 @@ yObs = objpoints2D.reshape(-1)
 aca defino la proyeccion para que la pueda usar thean0
 http://deeplearning.net/software/theano/extending/extending_theano.html
 '''
-
+global projIDXcounter
+projIDXcounter = 0
+global projCount
+projCount = 0
 
 class ProjectionT(theano.Op):
     # itypes and otypes attributes are
@@ -132,9 +136,20 @@ class ProjectionT(theano.Op):
     # xm, ym, cM
     otypes = [T.dtensor3, T.dtensor4]
 
+#    def __init__(self):
+#        global projIDXcounter
+#        self.idx = projIDXcounter
+#        projIDXcounter += 1
+#
+#        self.count = 0
+
     # Python implementation:
     def perform(self, node, inputs_storage, output_storage):
-        print('Perform a projection')
+        # global projCount
+        # projCount += 1
+        # self.count += 1
+        # print('IDX %d projection %d, global %d' %
+        #       (self.idx, self.count, projCount))
         Xint, Xext = inputs_storage
         xyM, cM = output_storage
 
@@ -147,7 +162,9 @@ class ProjectionT(theano.Op):
 
         for j in range(n):
             rVec, tVec = bl.flat2ext(Xext[j])
-            xy[j, :, 0], xy[j, :, 1], cm[j] = cl.inverse(imagePoints.reshape((n, m, 2))[j], rVec, tVec, cameraMatrix, distCoeffs, model, Cccd=Ci[j])
+            xy[j, :, 0], xy[j, :, 1], cm[j] = cl.inverse(
+                    imagePoints.reshape((n, m, 2))[j], rVec, tVec,
+                    cameraMatrix, distCoeffs, model, Cccd=Ci[j])
 
         # print(xy)
 
@@ -158,14 +175,14 @@ class ProjectionT(theano.Op):
     check_input = True
 
 
-
 # %% pruebo si esta bien como OP
 
 try:
     del XintOP, XextOP, projTheanoWrap, projTfunction
 except:
     pass
-
+else:
+    pass
 
 XintOP = T.dvector('XintOP')
 XextOP = T.dmatrix('XextOP')
@@ -179,7 +196,7 @@ out = projTfunction(Xint, XextList)
 
 print(out)
 
-plt.scatter(out[0][:,:,0], out[0][:,:,1])
+plt.scatter(out[0][:, :, 0], out[0][:, :, 1])
 
 
 # %%
@@ -238,38 +255,39 @@ with projectionModel:
     Y_obs = pm.MvNormal('Y_obs', mu=mu, cov=bigC, observed=yObs)
 
 
-
 # %% avoid map estimate as reccomended in
-    # https://discourse.pymc.io/t/frequently-asked-questions/74
-## aca saco el maximo a posteriori, bastante util para hacer montecarlo despues
-#import scipy.optimize as opt
+# https://discourse.pymc.io/t/frequently-asked-questions/74
+# # aca saco el maximo a posteriori, bastante util para hacer montecarlo
+# despues
+# import scipy.optimize as opt
 #
-##
-##try:
-##    map_estimate
-##except:
-##    print('set initial state arbitrarily')
-##    start = {'xIn': Xint,
-##             'xEx': XextList}
-##else:
-##    print('set initial state with previous map_estiamte')
-##    start=map_estimate
+# #
+# #try:
+# #    map_estimate
+# #except:
+# #    print('set initial state arbitrarily')
+# #    start = {'xIn': Xint,
+# #             'xEx': XextList}
+# #else:
+# #    print('set initial state with previous map_estiamte')
+# #    start=map_estimate
 #
-#start = {'xIn': Xint, 'xEx': XextList}
-#
-#
-#
-##niter = 1000
-##map_estimate = pm.find_MAP(model=projectionModel, start=start, maxeval=int(niter * 10), maxiter=niter, fmin=opt.fmin, xtol=1e-2,ftol=1e-3)
-#
-#
-#map_estimate = pm.find_MAP(model=projectionModel, start=start)
+# start = {'xIn': Xint, 'xEx': XextList}
 #
 #
 #
-#print(map_estimate['xIn']- Xint)
-##print(map_estimate['x0'], x0True)
-
+# #niter = 1000
+# #map_estimate = pm.find_MAP(model=projectionModel, start=start,
+#                             maxeval=int(niter * 10), maxiter=niter,
+#                             fmin=opt.fmin, xtol=1e-2,ftol=1e-3)
+#
+#
+# map_estimate = pm.find_MAP(model=projectionModel, start=start)
+#
+#
+#
+# print(map_estimate['xIn']- Xint)
+# #print(map_estimate['x0'], x0True)
 
 
 # %% metropolis desde MAP. a ver si zafo de la proposal dist
@@ -277,34 +295,34 @@ with projectionModel:
 http://docs.pymc.io/api/inference.html
 '''
 
-#start = map_estimate
-#start = {'xIn': Xint, 'xEx': XextList}
+# start = map_estimate
+# start = {'xIn': Xint, 'xEx': XextList}
 start = {'xAll' : xAll0}
-#start = {'xAll' : Smean}
+# start = {'xAll' : Smean}
 
-#start = {'x0': map_estimate['x0']}#,
-#         'alfa': map_estimate['alfa'],
-#         'rtV': map_estimate['rtV']}
+# start = {'x0': map_estimate['x0']}#,
+#          'alfa': map_estimate['alfa'],
+#          'rtV': map_estimate['rtV']}
 
-#scale = {'x0': map_estimate['x0_interval__'],
-#         'alfa': map_estimate['alfa_interval__'],
-#         'rtV': map_estimate['rtV_interval__']}
+# scale = {'x0': map_estimate['x0_interval__'],
+#          'alfa': map_estimate['alfa_interval__'],
+#          'rtV': map_estimate['rtV_interval__']}
 #
-#scale = [map_estimate['x0_interval__'], map_estimate['alfa_interval__'], map_estimate['rtV_interval__']]
+# scale = [map_estimate['x0_interval__'], map_estimate['alfa_interval__'], map_estimate['rtV_interval__']]
 
-nDraws = 5
-nChains = 4
+nDraws = 50
+nChains = 6
+
+# Sproposal = np.concatenate([XextList.reshape((-1)), Xint.reshape((-1))])
+# Sproposal = np.abs(Sproposal) * 1e-3
 #
-#Sproposal = np.concatenate([XextList.reshape((-1)), Xint.reshape((-1))])
-#Sproposal = np.abs(Sproposal) * 1e-3
-#
-#Sproposal = {'xIn_interval__' : np.abs(Xint) * 1e-3,
+# Sproposal = {'xIn_interval__' : np.abs(Xint) * 1e-3,
 #             'xEx_interval__' : np.abs(XextList) * 1e-3}
 
 Scov = allUpp - allLow
 
 with projectionModel:
-    step = pm.Metropolis(S=Scov, scaling=1e-8) #, tune_interval=10)
+    step = pm.Metropolis(S=Scov, scaling=1e-8, tune_interval=10)
 #    step = pm.Metropolis(vars=basic_model.x0, # basic_model.alfa,basic_model.rtV],
 #                         S=np.abs(map_estimate['x0_interval__'])),
 #                         scaling=1e-1,
@@ -316,30 +334,85 @@ with projectionModel:
     trace = pm.sample(draws=nDraws, step=step, start=start, njobs=nChains,
                       tune=20, chains=nChains, progressbar=True,
                       random_seed=123)
-                        # , live_plot=True,
-#                      compute_convergence_checks=True) #,
-#                      init='auto', n_init=200,)
-
-
-
-plt.figure()
-plt.plot(np.abs(trace['xAll'] - trace['xAll'][-1]))
+                      # , live_plot=True,
+                      # compute_convergence_checks=True) #,
+                      # init='auto', n_init=200,)
 
 # %%
+plt.figure()
+Smin = np.min(trace['xAll'], axis=0)
+plt.plot(np.abs(trace['xAll'] - Smin),'x-', markersize=1)
 
+
+# %%
+corner.corner(trace['xAll'][:,:8])
+
+
+# %%
+# Scov = (Scov  + np.cov(trace['xAll'].T)) / 2
 Scov = np.cov(trace['xAll'].T)
-
-sVals = np.linalg.svd(Scov)[1]
-
-# regularizo para que sea simidefinida no negativa
-Scov += np.eye(sVals.shape[0]) * np.max([sVals[-1]**2, 1e-18])
 Smean = np.mean(trace['xAll'], axis=0)
 
-plt.matshow(np.log(np.abs(Scov)))
+# saco el promedio de las matrices de covarianza de los bloques 6x6 extrinsecos
+xBlk = [[0, 1, 2, 3, 4, 5]] * 6
+xBlkAll = np.arange(NintrParams,NfreeParams,6).reshape((-1,1,1)) + [xBlk]*n
+yBlkAll = xBlkAll.transpose((0,2,1))
+extrS = np.mean(Scov[xBlkAll, yBlkAll], axis=0)
+
+'''
+extrS
+Out[153]:
+array([[ 2.06434771e-21,  3.63405709e-23,  2.82540609e-22,
+         8.42567425e-20,  3.12203522e-19, -3.27077383e-19],
+       [ 3.63405709e-23,  2.57327282e-21, -4.97619001e-25,
+        -3.18702380e-20,  4.34245103e-19, -2.92461577e-19],
+       [ 2.82540609e-22, -4.97619001e-25,  2.52469500e-21,
+         3.16066090e-19,  9.91440179e-20,  2.96264872e-19],
+       [ 8.42567425e-20, -3.18702380e-20,  3.16066090e-19,
+         2.31953016e-15,  1.22331437e-16,  4.82367034e-16],
+       [ 3.12203522e-19,  4.34245103e-19,  9.91440179e-20,
+         1.22331437e-16,  2.60254016e-15,  6.01781418e-17],
+       [-3.27077383e-19, -2.92461577e-19,  2.96264872e-19,
+         4.82367034e-16,  6.01781418e-17,  1.90129713e-15]])
+
+In [154]: Scov[:NintrParams,:NintrParams]
+Out[154]:
+array([[ 1.45205446e-06,  5.08615812e-07, -6.11360747e-07,
+        -7.04102352e-07, -5.66300357e-16,  5.23622145e-17,
+        -2.44955646e-16,  5.52125195e-17],
+       [ 5.08615812e-07,  2.97716419e-06,  2.47639870e-07,
+        -1.48342349e-06, -1.21334427e-15, -8.19524694e-17,
+        -6.63393217e-17,  3.90450297e-17],
+       [-6.11360747e-07,  2.47639870e-07,  4.49166710e-06,
+         5.18123791e-08,  2.47022954e-16, -5.07212506e-17,
+         1.73436122e-16, -2.57886547e-17],
+       [-7.04102352e-07, -1.48342349e-06,  5.18123791e-08,
+         1.26699975e-06,  9.79266370e-16, -1.06333076e-17,
+         1.51288858e-16, -3.72320589e-17],
+       [-5.66300357e-16, -1.21334427e-15,  2.47022954e-16,
+         9.79266370e-16,  1.55048385e-24,  7.56859543e-26,
+         1.43433646e-25, -2.43754256e-26],
+       [ 5.23622145e-17, -8.19524694e-17, -5.07212506e-17,
+        -1.06333076e-17,  7.56859543e-26,  3.39533868e-26,
+        -1.77669257e-26,  3.41487441e-27],
+       [-2.44955646e-16, -6.63393217e-17,  1.73436122e-16,
+         1.51288858e-16,  1.43433646e-25, -1.77669257e-26,
+         1.09026439e-25, -1.03544226e-26],
+       [ 5.52125195e-17,  3.90450297e-17, -2.57886547e-17,
+        -3.72320589e-17, -2.43754256e-26,  3.41487441e-27,
+        -1.03544226e-26,  4.00566400e-27]])
+'''
+
+plt.matshow(np.log(np.abs(extrS)), cmap='inferno')
+plt.matshow(np.log(np.abs(Scov)), cmap='inferno')
 
 
+ScovNew = np.zeros_like(Scov)
+ScovNew[:NintrParams,:NintrParams] = Scov[:NintrParams,:NintrParams]
+ScovNew[xBlkAll, yBlkAll] = extrS
 
 
+plt.matshow(np.log(np.abs(ScovNew)), cmap='inferno')
 
 
 
@@ -351,16 +424,16 @@ http://docs.pymc.io/api/inference.html
 
 
 start = {'xAll' : Smean}
-nDraws = 50
-nChains = 4
+nDraws = 500
+nChains = 8
 
 
 with projectionModel:
-    step = pm.Metropolis(S=Scov, scaling=1e-1, tune_interval=10)
+    step = pm.Metropolis(S=Scov, scaling=1e-1, tune_interval=100)
 
     trace = pm.sample(draws=nDraws, step=step, start=start, njobs=nChains,
-                      tune=20, chains=nChains, progressbar=True,
-                      random_seed=123)
+                      tune=100, chains=nChains, progressbar=True,
+                      live_plot=True)
 
 
 plt.figure()
