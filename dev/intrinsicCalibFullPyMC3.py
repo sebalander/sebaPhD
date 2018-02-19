@@ -11,15 +11,12 @@ space (before it was only intrinsic)
 """
 
 # %%
-#import glob
+# import glob
 import os
 import numpy as np
-#import scipy.linalg as ln
 import scipy.stats as sts
 import matplotlib.pyplot as plt
-#from importlib import reload
 from copy import deepcopy as dc
-#import numdifftools as ndf
 from calibration import calibrator as cl
 import corner
 import time
@@ -29,15 +26,9 @@ import theano
 import theano. tensor as T
 import pymc3 as pm
 
-import scipy.sparse as sp
-import scipy as sc
-
 import sys
 sys.path.append("/home/sebalander/Code/sebaPhD")
-#from dev import multipolyfit as mpf
 from dev import bayesLib as bl
-#from multiprocess import Process, Queue, Value
-# https://github.com/uqfoundation/multiprocess/tree/master/py3.6/examples
 
 # %% LOAD DATA
 # input
@@ -49,17 +40,17 @@ modelos = ['poly', 'rational', 'fisheye']
 model = modelos[2]
 
 imagesFolder = "./resources/intrinsicCalib/" + camera + "/"
-cornersFile =      imagesFolder + camera + "Corners.npy"
-patternFile =      imagesFolder + camera + "ChessPattern.npy"
-imgShapeFile =     imagesFolder + camera + "Shape.npy"
+cornersFile = imagesFolder + camera + "Corners.npy"
+patternFile = imagesFolder + camera + "ChessPattern.npy"
+imgShapeFile = imagesFolder + camera + "Shape.npy"
 
 # model data files
-distCoeffsFile =   imagesFolder + camera + model + "DistCoeffs.npy"
+distCoeffsFile = imagesFolder + camera + model + "DistCoeffs.npy"
 linearCoeffsFile = imagesFolder + camera + model + "LinearCoeffs.npy"
-tVecsFile =        imagesFolder + camera + model + "Tvecs.npy"
-rVecsFile =        imagesFolder + camera + model + "Rvecs.npy"
+tVecsFile = imagesFolder + camera + model + "Tvecs.npy"
+rVecsFile = imagesFolder + camera + model + "Rvecs.npy"
 
-imageSelection = np.arange(0,33) # selecciono con que imagenes trabajar
+imageSelection = np.arange(0, 33)  # selecciono con que imagenes trabajar
 n = len(imageSelection)  # cantidad de imagenes
 
 # ## load data
@@ -71,7 +62,7 @@ imgSize = tuple(np.load(imgShapeFile))
 # images = glob.glob(imagesFolder+'*.png')
 
 # Parametros de entrada/salida de la calibracion
-objpoints2D = np.array([chessboardModel[0,:,:2]]*n).reshape((n,m,2))
+objpoints2D = np.array([chessboardModel[0, :, :2]]*n).reshape((n, m, 2))
 
 # load model specific data from opencv Calibration
 distCoeffs = np.load(distCoeffsFile)
@@ -90,26 +81,26 @@ NdataPoints = n*m
 
 # 0.3pix as image std
 stdPix = 0.1
-Ci = np.repeat([ stdPix**2 * np.eye(2)],n*m, axis=0).reshape(n,m,2,2)
+Ci = np.repeat([ stdPix**2 * np.eye(2)], n*m, axis=0).reshape(n, m, 2, 2)
 
-#Cf = np.eye(distCoeffs.shape[0])
-#Ck = np.eye(4)
-#Cfk = np.eye(distCoeffs.shape[0], 4)  # rows for distortion coeffs
-#
-#Crt = np.eye(6) # 6x6 covariance of pose
-#Crt[[0,1,2],[0,1,2]] *= np.deg2rad(1)**2 # 5 deg stdev in every angle
-#Crt[[3,4,5],[3,4,5]] *= 0.01**2 # 1/100 of the unit length as std for pos
-#Crt = np.repeat([Crt] , n, axis=0)
-Crt = np.repeat([False], n) # no RT error
+# Cf = np.eye(distCoeffs.shape[0])
+# Ck = np.eye(4)
+# Cfk = np.eye(distCoeffs.shape[0], 4)  # rows for distortion coeffs
+
+# Crt = np.eye(6) # 6x6 covariance of pose
+# Crt[[0,1,2],[0,1,2]] *= np.deg2rad(1)**2 # 5 deg stdev in every angle
+# Crt[[3,4,5],[3,4,5]] *= 0.01**2 # 1/100 of the unit length as std for pos
+# Crt = np.repeat([Crt] , n, axis=0)
+Crt = np.repeat([False], n)  # no RT error
 
 # output file
 intrinsicParamsOutFile = imagesFolder + camera + model + "intrinsicParamsML"
 intrinsicParamsOutFile = intrinsicParamsOutFile + str(stdPix) + ".npy"
 
 # pruebo con un par de imagenes
-for j in range(0,n,3):
+for j in range(0, n, 3):
 
-    xm, ym, Cm = cl.inverse(imagePoints[j,0], rVecs[j], tVecs[j], cameraMatrix,
+    xm, ym, Cm = cl.inverse(imagePoints[j, 0], rVecs[j], tVecs[j], cameraMatrix,
                             distCoeffs, model, Cccd=Ci[j], Cf=False, Ck=False,
                             Crt=False, Cfk=False)
     print(xm, ym, Cm)
@@ -120,9 +111,9 @@ yObs = objpoints2D.reshape(-1)
 
 
 # no usar las constantes como tensores porque da error...
-## diccionario de parametros, constantes de calculo
-#xObsConst = T.as_tensor_variable(imagePoints.reshape((n,m,2)), 'xObsConst', ndim=3)
-#CiConst = T.as_tensor_variable(Ci, 'cIConst', ndim=4)
+# # diccionario de parametros, constantes de calculo
+# xObsConst = T.as_tensor_variable(imagePoints.reshape((n,m,2)), 'xObsConst', ndim=3)
+# CiConst = T.as_tensor_variable(Ci, 'cIConst', ndim=4)
 
 
 # %%
@@ -133,15 +124,13 @@ http://deeplearning.net/software/theano/extending/extending_theano.html
 
 
 class ProjectionT(theano.Op):
-    #itypes and otypes attributes are
-    #compulsory if make_node method is not defined.
-    #They're the type of input and output respectively
+    # itypes and otypes attributes are
+    # compulsory if make_node method is not defined.
+    # They're the type of input and output respectively
     # xInt, xExternal
     itypes = [T.dvector, T.dmatrix]
     # xm, ym, cM
     otypes = [T.dtensor3, T.dtensor4]
-
-
 
     # Python implementation:
     def perform(self, node, inputs_storage, output_storage):
@@ -153,14 +142,12 @@ class ProjectionT(theano.Op):
         # print(Xint)
         cameraMatrix, distCoeffs = bl.flat2int(Xint, Ns, model)
         # print(cameraMatrix, distCoeffs)
-        xy = np.zeros((n,m,2))
-        cm = np.zeros((n,m,2,2))
+        xy = np.zeros((n, m, 2))
+        cm = np.zeros((n, m, 2, 2))
 
         for j in range(n):
             rVec, tVec = bl.flat2ext(Xext[j])
-            xy[j,:,0], xy[j,:,1], cm[j] = cl.inverse(imagePoints.reshape((n,m,2))[j], rVec, tVec,
-                                    cameraMatrix, distCoeffs, model,
-                                    Cccd=Ci[j])
+            xy[j, :, 0], xy[j, :, 1], cm[j] = cl.inverse(imagePoints.reshape((n, m, 2))[j], rVec, tVec, cameraMatrix, distCoeffs, model, Cccd=Ci[j])
 
         # print(xy)
 
@@ -196,15 +183,15 @@ plt.scatter(out[0][:,:,0], out[0][:,:,1])
 
 
 # %%
-#from importlib import reload
-#reload(cl)
-#reload(bl)
+# from importlib import reload
+# reload(cl)
+# reload(bl)
 
 
 # indexes to read diagona 2x2 blocks of a matrix
 nTot = 2 * n * m
-xInxs = [ [[i,i],[i+1,i+1]] for i in range(0, nTot, 2)]
-yInxs = [ [[i,i+1],[i,i+1]] for i in range(0, nTot, 2)]
+xInxs = [[[i, i], [i+1, i+1]] for i in range(0, nTot, 2)]
+yInxs = [[[i, i+1], [i, i+1]] for i in range(0, nTot, 2)]
 
 projectionModel = pm.Model()
 
@@ -212,25 +199,32 @@ projTheanoWrap = ProjectionT()
 
 # set lower and upper bounds for uniform prior distributions
 # for camera matrix is important to avoid division by zero
-intrLow = [300, 300, 600,  300, -0.1, -0.1, -0.1, -0.1]  # intrinsic
-intrUpp = [500, 500, 1000, 600,  0.1,  0.1,  0.1,  0.1]
-extrLow = np.array([[-3.2, -3.2, -3.2, -25, -25, -25]]*n)
-extrUpp = np.array( [[3.2,  3.2,  3.2,  25,  25,  25]]*n)
+
+intrDelta = np.abs([100, 100, 200, 100,
+                    Xint[4] / 2, Xint[5] / 2, Xint[6] / 2, Xint[7] / 2])
+intrLow = Xint - intrDelta  # intrinsic
+intrUpp = Xint + intrDelta
+# extrLow = np.array([[-3.2, -3.2, -3.2, -25, -25, -25]]*n)
+# extrUpp = np.array( [[3.2,  3.2,  3.2,  25,  25,  25]]*n)
+
+extrLow = XextList - [0.3, 0.3, 0.3, 3, 3, 3]
+extrUpp = XextList + [0.3, 0.3, 0.3, 3, 3, 3]
+
 
 allLow = np.concatenate([intrLow, extrLow.reshape(-1)])
 allUpp = np.concatenate([intrUpp, extrUpp.reshape(-1)])
 
-xAll0 = np.concatenate([Xint, XextList.reshape(-1)],0)
+xAll0 = np.concatenate([Xint, XextList.reshape(-1)], 0)
 
 with projectionModel:
-#    # Priors for unknown model parameters
-#    xIn = pm.Uniform('xIn', lower=intrLow, upper=intrUpp, shape=Xint.shape)
-#    xEx = pm.Uniform('xEx', lower=extrLow, upper=extrUpp, shape=XextList.shape)
+    # Priors for unknown model parameters
+    # xIn = pm.Uniform('xIn', lower=intrLow, upper=intrUpp, shape=Xint.shape)
+    # xEx = pm.Uniform('xEx', lower=extrLow, upper=extrUpp, shape=XextList.shape)
 
     xAll = pm.Uniform('xAll', lower=allLow, upper=allUpp, shape=allLow.shape)
 
     xIn = xAll[:Ns[-1]]
-    xEx = xAll[Ns[-1]:].reshape((n,6))
+    xEx = xAll[Ns[-1]:].reshape((n, 6))
 
     xyM, cM = projTheanoWrap(xIn, xEx)
 
@@ -238,14 +232,14 @@ with projectionModel:
 
     # sp.block_diag(out[1].reshape((-1,2,2))) # for sparse
     bigC = T.zeros((nTot, nTot))
-    c3Diag = T.reshape(cM, (-1, 2, 2)) # list of 2x2 covariance blocks
+    c3Diag = T.reshape(cM, (-1, 2, 2))  # list of 2x2 covariance blocks
     bigC = T.set_subtensor(bigC[xInxs, yInxs], c3Diag)
 
     Y_obs = pm.MvNormal('Y_obs', mu=mu, cov=bigC, observed=yObs)
 
 
 
-## %% avoid map estimate as reccomended in
+# %% avoid map estimate as reccomended in
     # https://discourse.pymc.io/t/frequently-asked-questions/74
 ## aca saco el maximo a posteriori, bastante util para hacer montecarlo despues
 #import scipy.optimize as opt
@@ -286,7 +280,7 @@ http://docs.pymc.io/api/inference.html
 #start = map_estimate
 #start = {'xIn': Xint, 'xEx': XextList}
 start = {'xAll' : xAll0}
-start = {'xAll' : Smean}
+#start = {'xAll' : Smean}
 
 #start = {'x0': map_estimate['x0']}#,
 #         'alfa': map_estimate['alfa'],
@@ -298,8 +292,8 @@ start = {'xAll' : Smean}
 #
 #scale = [map_estimate['x0_interval__'], map_estimate['alfa_interval__'], map_estimate['rtV_interval__']]
 
-nDraws = 1000
-nChains = 8
+nDraws = 5
+nChains = 4
 #
 #Sproposal = np.concatenate([XextList.reshape((-1)), Xint.reshape((-1))])
 #Sproposal = np.abs(Sproposal) * 1e-3
@@ -307,10 +301,10 @@ nChains = 8
 #Sproposal = {'xIn_interval__' : np.abs(Xint) * 1e-3,
 #             'xEx_interval__' : np.abs(XextList) * 1e-3}
 
-Sproposal = allUpp - allLow
+Scov = allUpp - allLow
 
 with projectionModel:
-    step = pm.Metropolis(S=Scov, scaling=1e-1)
+    step = pm.Metropolis(S=Scov, scaling=1e-8) #, tune_interval=10)
 #    step = pm.Metropolis(vars=basic_model.x0, # basic_model.alfa,basic_model.rtV],
 #                         S=np.abs(map_estimate['x0_interval__'])),
 #                         scaling=1e-1,
@@ -319,49 +313,58 @@ with projectionModel:
 
 #    step = pm.Metropolis()
 
-    trace = pm.sample(draws=nDraws, step=step, start=start, njobs=nChains, tune=20,
-                      chains=nChains, progressbar=True) # , live_plot=True,
+    trace = pm.sample(draws=nDraws, step=step, start=start, njobs=nChains,
+                      tune=20, chains=nChains, progressbar=True,
+                      random_seed=123)
+                        # , live_plot=True,
 #                      compute_convergence_checks=True) #,
-#                      init='auto', n_init=200,  random_seed=123)
+#                      init='auto', n_init=200,)
 
 
+
+plt.figure()
+plt.plot(np.abs(trace['xAll'] - trace['xAll'][-1]))
 
 # %%
-plt.figure()
-plt.plot(trace['xAll'] - trace['xAll'][-1])
 
 Scov = np.cov(trace['xAll'].T)
 
 sVals = np.linalg.svd(Scov)[1]
 
-Scov += np.eye(sVals.shape[0]) * sVals[-1]
+# regularizo para que sea simidefinida no negativa
+Scov += np.eye(sVals.shape[0]) * np.max([sVals[-1]**2, 1e-18])
 Smean = np.mean(trace['xAll'], axis=0)
 
+plt.matshow(np.log(np.abs(Scov)))
 
-# %%
+
+
+
+
+
+
+
+# %% metropolis
+'''
+http://docs.pymc.io/api/inference.html
+'''
+
+
+start = {'xAll' : Smean}
+nDraws = 50
+nChains = 4
+
+
+with projectionModel:
+    step = pm.Metropolis(S=Scov, scaling=1e-1, tune_interval=10)
+
+    trace = pm.sample(draws=nDraws, step=step, start=start, njobs=nChains,
+                      tune=20, chains=nChains, progressbar=True,
+                      random_seed=123)
+
+
 plt.figure()
-plt.plot(trace['alfa'])
-
-plt.hist(trace['alfa'], 20)
-plt.hist(trace['x0'], 100)
-
-plt.figure()
-plt.plot(trace['rtV'].reshape(-1,nIm*4))
-
-plt.figure()
-plt.plot(trace['x0'][:,0], trace['x0'][:,1])
-
-plt.hist2d(trace['x0'][:,0], trace['x0'][:,1], 100)
-
-
-
-
-
-
-
-
-
-
+plt.plot(np.abs(trace['xAll'] - trace['xAll'][-1]))
 
 
 
