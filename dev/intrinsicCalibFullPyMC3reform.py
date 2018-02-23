@@ -242,10 +242,10 @@ def logp(X):
     '''
     logp de la probabilidad de muchas gaussianas
     '''
-    print(X.shape.eval(), mu.shape.eval())
-    err = X - mu  # shaped as (n*m,2)
+#    print(X.shape.eval(), mu.shape.eval())
+    err = T.reshape(X, (-1,2)) - T.reshape(mu, (-1,2))  # shaped as (n*m,2)
 
-    S = np.linalg.inv(cov)
+    S = T.inv(cov)  # np.linalg.inv(cov)
 
     E = (T.reshape(err, (-1, 2, 1)) *
          S *
@@ -264,16 +264,16 @@ with projectionModel:
 
     # apply numpy based function
     xyM, cM = projTheanoWrap(xIn, xEx)
-    print(xyM.shape.eval(), cM.shape.eval())
+#    print(xyM.shape.eval(), cM.shape.eval())
 
     # defino la distribucion especifica para muchas gaussianas
     multimultinormal = pm.DensityDist('multimultinormal', logp,
                                       observed={'X': observedData})
 
     # instancio
-    Y_obs = multimultinormal('Y_obs', mu=T.reshape(xyM, (-1, 2)),
-                             cov=T.reshape(cM, (-1, 2, 2)),
-                             observed=observedData)
+    mu = T.reshape(xyM, (-1, 2))
+    cov = T.reshape(cM, (-1, 2, 2))
+    Y_obs = multimultinormal('Y_obs', mu=mu, cov=cov, observed=observedData)
 
     # define steps
     stepInt = pm.Metropolis(vars=[xIn], S=intrDelta)
