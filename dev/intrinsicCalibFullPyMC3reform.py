@@ -7,6 +7,8 @@ do metropolis sampling to estimate PDF of chessboard calibration. this involves
 intrinsic and extrinsic parameters, so it's a very high dimensional search
 space (before it was only intrinsic)
 
+reformig definition to try and separate all variables to see if it speeds up
+
 @author: sebalander
 """
 
@@ -199,20 +201,17 @@ print(out)
 plt.scatter(out[0][:, :, 0], out[0][:, :, 1])
 
 
-# %%
+# %% http://docs.pymc.io/api/inference.html
 # from importlib import reload
 # reload(cl)
 # reload(bl)
 
 
-# indexes to read diagona 2x2 blocks of a matrix
+# indexes to read diagonal 2x2 blocks of a matrix
 nTot = 2 * n * m
 xInxs = [[[i, i], [i+1, i+1]] for i in range(0, nTot, 2)]
 yInxs = [[[i, i+1], [i, i+1]] for i in range(0, nTot, 2)]
 
-projectionModel = pm.Model()
-
-projTheanoWrap = ProjectionT()
 
 # set lower and upper bounds for uniform prior distributions
 # for camera matrix is important to avoid division by zero
@@ -221,120 +220,70 @@ intrDelta = np.abs([100, 100, 200, 100,
                     Xint[4] / 2, Xint[5] / 2, Xint[6] / 2, Xint[7] / 2])
 intrLow = Xint - intrDelta  # intrinsic
 intrUpp = Xint + intrDelta
-# extrLow = np.array([[-3.2, -3.2, -3.2, -25, -25, -25]]*n)
-# extrUpp = np.array( [[3.2,  3.2,  3.2,  25,  25,  25]]*n)
 
-extrLow = XextList - [0.3, 0.3, 0.3, 3, 3, 3]
-extrUpp = XextList + [0.3, 0.3, 0.3, 3, 3, 3]
+extrDelta = np.array([[0.3, 0.3, 0.3, 3, 3, 3]]*n)
+extrLow = XextList - extrDelta
+extrUpp = XextList + extrDelta
 
 
-allLow = np.concatenate([intrLow, extrLow.reshape(-1)])
-allUpp = np.concatenate([intrUpp, extrUpp.reshape(-1)])
+projectionModel = pm.Model()
+projTheanoWrap = ProjectionT()
 
-xAll0 = np.concatenate([Xint, XextList.reshape(-1)], 0)
+
+#cm
+#xy
+#
+#objpoints2D
+#
+#err = (objpoints2D - xy).reshape((-1,2))
+#covar = cm.reshape((-1,2,2))
+
+def logp(X):
+    '''
+    logp de la probabilidad de muchas gaussianas
+    '''
+    print(X.shape.eval(), mu.shape.eval())
+    err = X - mu  # shaped as (n*m,2)
+
+    S = np.linalg.inv(cov)
+
+    E = (T.reshape(err, (-1, 2, 1)) *
+         S *
+         T.reshape(err, (-1, 1, 2))
+         ).sum()
+
+    return - E / 2
+
+
+observedData = objpoints2D.reshape((-1,2))
 
 with projectionModel:
     # Priors for unknown model parameters
+    xIn = pm.Uniform('xIn', lower=intrLow, upper=intrUpp, shape=(8,),  transform=None)
+    xEx = pm.Uniform('xEx', lower=extrLow, upper=extrUpp, shape=(33, 6), transform=None)
 
-    xAll = pm.Uniform('xAll', lower=allLow, upper=allUpp, shape=allLow.shape)
-
-    xIn = xAll[:Ns[-1]]
-    xEx = xAll[Ns[-1]:].reshape((n, 6))
-
+    # apply numpy based function
     xyM, cM = projTheanoWrap(xIn, xEx)
+    print(xyM.shape.eval(), cM.shape.eval())
 
-    mu = T.reshape(xyM, (-1,))
+    # defino la distribucion especifica para muchas gaussianas
+    multimultinormal = pm.DensityDist('multimultinormal', logp,
+                                      observed={'X': observedData})
 
-    # sp.block_diag(out[1].reshape((-1,2,2))) # for sparse
-    bigC = T.zeros((nTot, nTot))
-    c3Diag = T.reshape(cM, (-1, 2, 2))  # list of 2x2 covariance blocks
-    bigC = T.set_subtensor(bigC[xInxs, yInxs], c3Diag)
+    # instancio
+    Y_obs = multimultinormal('Y_obs', mu=T.reshape(xyM, (-1, 2)),
+                             cov=T.reshape(cM, (-1, 2, 2)),
+                             observed=observedData)
 
-    Y_obs = pm.MvNormal('Y_obs', mu=mu, cov=bigC, observed=yObs)
+    # define steps
+    stepInt = pm.Metropolis(vars=[xIn], S=intrDelta)
+    stepExt = pm.Metropolis(vars=[xEx], S=extrDelta.reshape(-1))
+    step = [stepInt, stepExt]
 
+    start = {'xIn': Xint, 'xEx': XextList}  # initial condition
 
-# %% avoid map estimate as reccomended in
-# https://discourse.pymc.io/t/frequently-asked-questions/74
-# # aca saco el maximo a posteriori, bastante util para hacer montecarlo
-# despues
-# import scipy.optimize as opt
-#
-# #
-# #try:
-# #    map_estimate
-# #except:
-# #    print('set initial state arbitrarily')
-# #    start = {'xIn': Xint,
-# #             'xEx': XextList}
-# #else:
-# #    print('set initial state with previous map_estiamte')
-# #    start=map_estimate
-#
-# start = {'xIn': Xint, 'xEx': XextList}
-#
-#
-#
-# #niter = 1000
-# #map_estimate = pm.find_MAP(model=projectionModel, start=start,
-#                             maxeval=int(niter * 10), maxiter=niter,
-#                             fmin=opt.fmin, xtol=1e-2,ftol=1e-3)
-#
-#
-# map_estimate = pm.find_MAP(model=projectionModel, start=start)
-#
-#
-#
-# print(map_estimate['xIn']- Xint)
-# #print(map_estimate['x0'], x0True)
+    # trace = pm.sample(step=step, start=start)
 
-
-# %% metropolis desde MAP. a ver si zafo de la proposal dist
-'''
-http://docs.pymc.io/api/inference.html
-'''
-
-# start = map_estimate
-# start = {'xIn': Xint, 'xEx': XextList}
-start = {'xAll' : xAll0}
-# start = {'xAll' : Smean}
-
-# start = {'x0': map_estimate['x0']}#,
-#          'alfa': map_estimate['alfa'],
-#          'rtV': map_estimate['rtV']}
-
-# scale = {'x0': map_estimate['x0_interval__'],
-#          'alfa': map_estimate['alfa_interval__'],
-#          'rtV': map_estimate['rtV_interval__']}
-#
-# scale = [map_estimate['x0_interval__'], map_estimate['alfa_interval__'], map_estimate['rtV_interval__']]
-
-nDraws = 50
-nChains = 8
-
-# Sproposal = np.concatenate([XextList.reshape((-1)), Xint.reshape((-1))])
-# Sproposal = np.abs(Sproposal) * 1e-3
-#
-# Sproposal = {'xIn_interval__' : np.abs(Xint) * 1e-3,
-#             'xEx_interval__' : np.abs(XextList) * 1e-3}
-
-Scov = allUpp - allLow
-
-with projectionModel:
-    step = pm.Metropolis(S=Scov, scaling=1e-8, tune_interval=10)
-#    step = pm.Metropolis(vars=basic_model.x0, # basic_model.alfa,basic_model.rtV],
-#                         S=np.abs(map_estimate['x0_interval__'])),
-#                         scaling=1e-1,
-#                         tune=True,
-#                         tune_interval=50)
-
-#    step = pm.Metropolis()
-
-    trace = pm.sample(draws=nDraws, step=step, start=start, njobs=nChains,
-                      tune=20, chains=nChains, progressbar=True,
-                      random_seed=123)
-                      # , live_plot=True,
-                      # compute_convergence_checks=True) #,
-                      # init='auto', n_init=200,)
 
 # %%
 plt.figure()
@@ -422,8 +371,6 @@ Smean = np.array(
        -3.29153925e-02,  1.08510732e+00,  5.22249671e-01,  1.81473165e+01,
         1.98678517e+00,  1.03291327e+01])
 
-Scov = np.zeros((Smean.shape[0], Smean.shape[0]))
-
 Scov[:NintrParams,:NintrParams] = np.array(
       [[ 4.50624463e-06, -4.45948406e-07,  2.59841173e-07,
          1.54850295e-06, -1.49079806e-22, -7.24359240e-28,
@@ -499,15 +446,15 @@ http://docs.pymc.io/api/inference.html
 '''
 
 start = {'xAll' : Smean}
-nDraws = 800
-nChains = 8
+nDraws = 100
+nChains = 6
 
 
 with projectionModel:
-    step = pm.Metropolis(S=ScovNew, scaling=1e-3, tune_interval=40)
+    step = pm.Metropolis(S=ScovNew, scaling=1e-3, tune_interval=10)
 
     trace = pm.sample(draws=nDraws, step=step, start=start, njobs=nChains,
-                      tune=200, chains=nChains, progressbar=True,
+                      tune=100, chains=nChains, progressbar=True,
                       discard_tuned_samples=False)
 
 
@@ -526,31 +473,24 @@ os.system("espeak 'simulation finished'")
 
 # %%
 corner.corner(trace['xAll'][:,:NintrParams])
-i=19
-corner.corner(trace['xAll'][:,NintrParams+6*i:NintrParams+6*(i+1)])
 
-repeats = np.zeros_like(trace['xAll'])
-repeats[1:] = trace['xAll'][1:] == trace['xAll'][:-1]
+repeats = trace['xAll'][1:] == trace['xAll'][:-1]
 
 plt.matshow(repeats, cmap='binary')
-plt.matshow(repeats.reshape((1000,-1)), cmap='binary')
 
 plt.figure()
 plt.plot(trace['xAll'][:,7])
 
-plt.figure()
-plt.plot(trace['xAll'][:,0] + trace['xAll_interval__'][:,0])
-plt.plot(trace['xAll'][:,0])
-plt.plot(trace['xAll'][:,0] - trace['xAll_interval__'][:,0])
 
 
+plt.matshow(repeats[:6000].reshape((1000,-1)), cmap='binary')
 
 
 # %%
 #
 #traceConc = np.concatenate([trace['xAll'], trace2['xAll']], axis=0)
 #
-np.save("/home/sebalander/Code/VisionUNQextra/Videos y Mediciones/extraDataSebaPhD/intrinsicTracesAllNoReps3", trace['xAll'])
+#np.save("/home/sebalander/Code/VisionUNQextra/Videos y Mediciones/extraDataSebaPhD/intrinsicTracesAllNoReps2", trace['xAll'])
 
 
 # %% ========== initial approach based on iterative importance sampling

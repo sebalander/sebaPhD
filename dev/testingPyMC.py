@@ -28,7 +28,7 @@ def projection(x, x0, alfa, rtV, cI):
 #    x0 = param[:2]
 #    alpha = param[2]
 #    rtV = param[3:].reshape((nIm,2,2))
-    
+
     # proyecto la distorsion optica
     x1 = x - x0
     # print(x1.shape)
@@ -36,15 +36,15 @@ def projection(x, x0, alfa, rtV, cI):
     r2 = np.tan(r1 * alfa)
     q = r2 / r1
     x2 = x1 * q.reshape((nIm, nPts, 1))
-    
+
     # if cI is not None:
     c2 = (q**2).reshape((nIm, nPts, 1, 1)) * cI
-    
-    # aca debería poner la dependencia de la incerteza a través de q, pero por ahora no # cq = 
-    
+
+    # aca debería poner la dependencia de la incerteza a través de q, pero por ahora no # cq =
+
     # parte extrinseca
     x3 = np.sum(x2.reshape((nIm, nPts,2,1)) * rtV.reshape((nIm,1,2,2)), axis=3)
-    
+
     # if cI is not None:
     c3 = (rtV.reshape((nIm,1,2,2,1,1)) *
           c2.reshape((nIm,nPts,1,2,2,1)) *
@@ -55,17 +55,17 @@ def projection(x, x0, alfa, rtV, cI):
 def matSqrt(C):
     '''
     devuelve la lista de matrices tal que T.dot(T.T) = C
-    
+
     **unused**
-    
+
     '''
     sh = C.shape
     u, s, v = np.linalg.svd(C)
-    
+
     T = u * np.sqrt(s).reshape((sh[0],sh[1],1,sh[2]))
     T = T.reshape((sh[0],sh[1],sh[2],sh[2],1))
     T = T * v.reshape((sh[0],sh[1],1,sh[2],sh[2]))
-    
+
     return  np.sum(T, axis=3)
 
 
@@ -126,9 +126,9 @@ class ProjectionT(theano.Op):
     def perform(self, node, inputs_storage, output_storage):
         x, x0, alfa, rtV, cI = inputs_storage
         y, cM = output_storage
-        
+
         y[0], cM[0] = projection(x, x0, alfa, rtV, cI)
-        
+
     # optional:
     check_input = True
 
@@ -176,15 +176,15 @@ with basic_model:
     x0 = pm.Uniform('x0', lower=0, upper=1, shape=2)
     alfa = pm.Uniform('alfa', lower=0, upper=1)
     rtV = pm.Uniform('rtV', lower=0, upper=1, shape=(nIm,2,2))
-    
+
     yM, cM = projT(xObsConst, x0, alfa, rtV, cIConst)
-    
+
     mu = T.reshape(yM, (-1,))
-    
+
     bigC = T.zeros((nTot, nTot))
     c3Diag = T.reshape(cM, (-1,2,2)) # list of blocks
     bigC = T.set_subtensor(bigC[xInxs, yInxs], c3Diag)
-    
+
     Y_obs = pm.MvNormal('Y_obs', mu=mu, cov=bigC, observed=Yobs)
 
 # %%
@@ -240,9 +240,9 @@ with basic_model:
 #                         tune_interval=50)
 
 #    step = pm.Metropolis()
-    
+
     trace = pm.sample(tune=1000, draws=nDraws, step=step, start=start,
-                      njobs=4, chains=nChains, progressbar=True) #, 
+                      njobs=4, chains=nChains, progressbar=True) #,
 #                      init='auto', n_init=200,  random_seed=123)
 
 # %%
@@ -273,20 +273,20 @@ class proposalDist:
     def __init__(self, S, n=1):
         self.S = S
         self.n = n
-    
-    
+
+
     def __call__(self):
         Sx = self.S[:4].reshape((2,2))
         Sal = self.S[4]
         Srt = self.S[5:].reshape((4,4))
-        
+
         xSam = pm.MvNormal.dist(mu=np.array([0,0]), cov=Sx).random(size=self.n)
         alfaSam = pm.Normal.dist(mu=0, sd=Sal).random(size=self.n)
         rtVsam = pm.MvNormal.dist(mu=np.array([0,0,0,0]),
                                   cov=Srt).random(size=(self.n, nIm))
-        
+
         rtVsam = rtVsam.reshape((self.n, nIm*4))
-        
+
 #        return np.concatenate([xSam.reshape((self.n,-1)),
 #                               alfaSam.reshape((self.n,-1)),
 #                               rtVsam.reshape((self.n,-1))], axis=1)
@@ -422,3 +422,6 @@ with basic_model:
     # draw 500 posterior samples
     trace = pm.iter_sample(draws=nDraws, step=stepMeth)
 
+
+
+# %%
