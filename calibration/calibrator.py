@@ -198,10 +198,10 @@ def ccd2homJacobian(imagePoints, cameraMatrix):
     returns jacobian to propagate uncertainties in ccd2homogemous mapping
     '''
     Jd_i = diag(1 / cameraMatrix[[0, 1], [0, 1]])  # doesn't depend on position
-    
+
     unos = ones_like(imagePoints[:, 0])
     ceros = zeros_like(unos)
-    
+
     a = - unos / cameraMatrix[0, 0]
     b = (cameraMatrix[0, 2] - imagePoints[:, 0]) * a**2
     c = - unos / cameraMatrix[1, 1]
@@ -209,35 +209,35 @@ def ccd2homJacobian(imagePoints, cameraMatrix):
 
     Jd_k = array([[b, ceros, a, ceros], [ceros, d, ceros, c]])
     Jd_k = Jd_k.transpose((2, 0, 1))  # first index iterates points
-    
+
     return Jd_i, Jd_k
 
 
 def ccd2hom(imagePoints, cameraMatrix, Cccd=False, Cf=False):
     '''
     must provide covariances for every point if cov is not None
-    
+
     Cf is the covariance matrix of intrinsic linear parameters fx, fy, u, v
     (in that order).
     '''
     # undo CCD projection, asume diagonal ccd rescale
     xpp = (imagePoints[:, 0] - cameraMatrix[0, 2]) / cameraMatrix[0, 0]
     ypp = (imagePoints[:, 1] - cameraMatrix[1, 2]) / cameraMatrix[1, 1]
-    
+
     Cccdbool = anny(Cccd)
     Cfbool = anny(Cf)
-    
+
     if Cccdbool or Cfbool:
         Cpp = zeros((xpp.shape[0], 2, 2))  # create covariance matrix
         Jd_i, Jd_k = ccd2homJacobian(imagePoints, cameraMatrix)
-        
+
         if Cccdbool:
             Jd_iResh = Jd_i.reshape((-1, 2, 2, 1, 1))
             Cpp += (Jd_iResh *
                     Cccd.reshape((-1, 1, 2, 2, 1)) *
                     Jd_iResh.transpose((0, 4, 3, 2, 1))
                     ).sum((2, 3))
-        
+
         if Cfbool:
             # propagate uncertainty via Jacobians
             Jd_kResh = Jd_k.reshape((-1, 2, 4, 1, 1))
@@ -271,27 +271,27 @@ def homDist2homUndist_ratioJacobians(xpp, ypp, distCoeffs, model):
     rpp = norm([xpp, ypp], axis=0)
     q, ret, dQdP, dQdK = undistort[model](rpp, distCoeffs, quot=True,
                                            der=True)
-    
+
     xp = xpp / q
     yp = ypp / q
     rp = rpp / q
-    
+
     # jacobiano PP (distort) respecto a coord distorsioandas
     xyp = xp * yp
     Jpp_p = array([[xp**2, xyp], [xyp, yp**2]]) / rp
     Jpp_p *= dQdP.reshape(1, 1, -1)
     Jpp_p[[0,1], [0,1], :] += q
-    
+
     # jacobiano PP (distort) respecto a parametros
     Jpp_f = array([xp * dQdK, yp * dQdK]).transpose((1, 0, 2))
-    
+
     # los invierto
     Jp_pp = linalg.inv(Jpp_p.T)  # jacobiano respecto a xpp, ypp
 
     # multiply each jacobian
     Jp_f = -(Jpp_f.T.reshape((-1, 2, 1, dQdK.shape[0])) *
              Jp_pp.reshape((-1, 2, 2, 1))).sum(1)
-    
+
     return q, ret, Jp_pp, Jp_f
 
 
@@ -303,34 +303,34 @@ def homDist2homUndist(xpp, ypp, distCoeffs, model,
     '''
     # Hay notacion confusa a veces a xpp se la refiere como d o pp
     # a xp se la refiere como p; a ccd matrix como k y a distors como f o k
-    
+
     Cppbool = anny(Cpp)
     Cfbool = anny(Cf)
-    
+
     if Cppbool or Cfbool :  # no hay incertezas Ck ni Cpp
         q, _, Jp_pp, Jp_f = homDist2homUndist_ratioJacobians(xpp, ypp,
                                                             distCoeffs,
                                                             model)
         xp = xpp / q  # undistort in homogenous coords
         yp = ypp / q
-        
+
         Cp = zeros((len(xp),2,2))
-        
-        if Cppbool:  # incerteza Cpp 
+
+        if Cppbool:  # incerteza Cpp
             Jp_ppResh = Jp_pp.reshape((-1, 2, 1, 2, 1))
             Cp = (Jp_ppResh *
                   Cpp.reshape((-1,1,2,2,1)) *
                   Jp_ppResh.transpose((0,4,3,2,1))
                   ).sum((2,3))
-        
-        if Cfbool:  # incerteza Ck 
+
+        if Cfbool:  # incerteza Ck
             nf = Jp_f.shape[-1] # nro de param distorsion
             Jp_fResh = Jp_f.reshape((-1, 2, 1, nf, 1))
             Cp += (Jp_fResh *
                    Cf.reshape((1, 1, nf, nf, 1)) *
                    Jp_fResh.transpose((0, 4, 3, 2, 1))
                    ).sum((2, 3))
-        
+
         if anny(Cfk) and anny(Jd_k):  # si hay covarianza cruzada
             # jacobiano de xp respecto a ccd matrix
             Jp_k = (Jd_k.reshape((-1,1,2,4)) *
@@ -347,7 +347,7 @@ def homDist2homUndist(xpp, ypp, distCoeffs, model,
         # calculate ratio of distortion
         rpp = norm([xpp, ypp], axis=0)
         q, _ = undistort[model](rpp, distCoeffs, quot=True, der=False)
-        
+
         xp = xpp / q  # undistort in homogenous coords
         yp = ypp / q
         Cp = False
@@ -361,7 +361,7 @@ def homDist2homUndist(xpp, ypp, distCoeffs, model,
 #    DEPRECATED, it is not an aproximation it's non linear, so the projected
 #    ellipse will not be the projected gaussian via linear aproximation. the
 #    error this encompases is hard to deal with
-#    
+#
 #    propaga la elipse proyectada por el conoide soble el plano del mapa
 #    solo toma en cuenta la incerteza en xp, yp
 #    '''
@@ -512,7 +512,7 @@ def jacobianosHom2Map(xp, yp, rV, tV):
                      x37*(-tz*x34 - x17*x40) + x42*x43],
                     [x37*(-tz*x35 - x0*x38) + x39*x44,
                      x37*(tz*x29 + x38*x40) + x43*x44]])
-    
+
     # jacobiano respecto a la rototraslacion, tres primeras columnas son wrt
     # rotacion y las ultimas tres son wrt traslacion
     JXm_rtV = array([[x37*(x0*x64 - x40*x58) + x42*x75,     # x wrt r1
@@ -555,14 +555,14 @@ def xypToZplane(xp, yp, rV, tV, Cp=False, Crt=False):
         Cm = zeros((xm.shape[0],2,2))
         # calculo jacobianos
         JXm_Xp, JXm_rtV = jacobianosHom2Map(xp, yp, rV, tV)
-        
+
         if Crtbool:  # contribucion incerteza Crt
             JXm_rtVResh = JXm_rtV.reshape((2,6,1,1,-1))
             Cm += (JXm_rtVResh *
                    Crt.reshape((1,6,6,1,1)) *
                    JXm_rtVResh.transpose((3,2,1,0,4))
                    ).sum((1,2)).transpose((2,0,1))
-        
+
         if Cpbool:  # incerteza Cp
             Cp = Cp.transpose((1,2,0))
             JXm_XpResh = JXm_Xp.reshape((2,2,1,1,-1))
@@ -570,10 +570,10 @@ def xypToZplane(xp, yp, rV, tV, Cp=False, Crt=False):
                    Cp.reshape((1,2,2,1,-1)) *
                    JXm_XpResh.transpose((3,2,1,0,4))
                    ).sum((1,2)).transpose((2,0,1))
-    
+
     else:
         Cm = False  # return None covariance
-    
+
     return xm, ym, Cm
 
 
@@ -593,13 +593,13 @@ def inverse(imagePoints, rV, tV, cameraMatrix, distCoeffs, model,
     '''
     # project to homogenous distorted
     xpp, ypp, Cpp, Jd_k = ccd2hom(imagePoints, cameraMatrix, Cccd, Cf)
-    
+
     # undistort
     xp, yp, Cp = homDist2homUndist(xpp, ypp, distCoeffs, model, Cpp, Ck,
                                    Cfk, Jd_k)
-    
+
     # add covariance dependence in intrinsic parameters
-    
+
     # project to plane z=0 from homogenous
     xm, ym, Cm = xypToZplane(xp, yp, rV, tV, Cp, Crt)
     return xm, ym, Cm
@@ -962,9 +962,9 @@ def unit2CovTransf(C):
     ## matrix such that T.dot(T.T)==C
     # T =  sqrt(l.real) * v
     # return T.real
-    
+
     u, s, v = svd(C)
-    u.dot(diag(sqrt(s))).dot(v.T)
+    # u.dot(diag(sqrt(s))).dot(v.T)
     return u.dot(diag(sqrt(s))).dot(v.T)
 
 
@@ -972,7 +972,7 @@ def plotEllipse(ax, C, mux, muy, col):
     '''
     se grafica una elipse asociada a la covarianza c, centrada en mux, muy
     '''
-    
+
     T = unit2CovTransf(C)
     # roto reescaleo para lleve del circulo a la elipse
     xeli, yeli = dot(T, Xcirc)
@@ -987,7 +987,7 @@ def plotPointsUncert(ax, C, mux, muy, col):
     '''
     se grafican los puntos centrados en mux, muy con covarianzas C (una lista)
     '''
-    
+
     for i in range(len(mux)):
         plotEllipse(ax, C[i], mux[i], muy[i], col)
 

@@ -79,7 +79,8 @@ NintrParams = distCoeffs.shape[0] + 4
 NfreeParams = n*6 + NintrParams
 NdataPoints = n*m
 
-# 0.3pix as image std
+# 0.1pix as image std
+# https://stackoverflow.com/questions/12102318/opencv-findcornersubpix-precision
 stdPix = 0.1
 Ci = np.repeat([stdPix**2 * np.eye(2)], n*m, axis=0).reshape(n, m, 2, 2)
 
@@ -233,24 +234,36 @@ allUpp = np.concatenate([intrUpp, extrUpp.reshape(-1)])
 
 xAll0 = np.concatenate([Xint, XextList.reshape(-1)], 0)
 
+observedNormed = np.zeros((n * m * 2))
+
+
 with projectionModel:
+#    # Priors for unknown model parameters
+#    xAll = pm.Uniform('xAll', lower=allLow, upper=allUpp, shape=allLow.shape)
+#
+#    xIn = xAll[:Ns[-1]]
+#    xEx = xAll[Ns[-1]:].reshape((n, 6))
+#
+#    xyM, cM = projTheanoWrap(xIn, xEx)
+#
+#    mu = T.reshape(xyM, (-1,))
+#
+#    # sp.block_diag(out[1].reshape((-1,2,2))) # for sparse
+#    bigC = T.zeros((nTot, nTot))
+#    c3Diag = T.reshape(cM, (-1, 2, 2))  # list of 2x2 covariance blocks
+#    bigC = T.set_subtensor(bigC[xInxs, yInxs], c3Diag)
+#
+#    Y_obs = pm.MvNormal('Y_obs', mu=mu, cov=bigC, observed=yObs)
+
     # Priors for unknown model parameters
+    xIn = pm.Uniform('xIn', lower=intrLow, upper=intrUpp, shape=(8,),  transform=None)
+    xEx = pm.Uniform('xEx', lower=extrLow, upper=extrUpp, shape=(33, 6), transform=None)
 
-    xAll = pm.Uniform('xAll', lower=allLow, upper=allUpp, shape=allLow.shape)
+    # apply numpy based function
+    xyMNor = projTheanoWrap(xIn, xEx)
 
-    xIn = xAll[:Ns[-1]]
-    xEx = xAll[Ns[-1]:].reshape((n, 6))
-
-    xyM, cM = projTheanoWrap(xIn, xEx)
-
-    mu = T.reshape(xyM, (-1,))
-
-    # sp.block_diag(out[1].reshape((-1,2,2))) # for sparse
-    bigC = T.zeros((nTot, nTot))
-    c3Diag = T.reshape(cM, (-1, 2, 2))  # list of 2x2 covariance blocks
-    bigC = T.set_subtensor(bigC[xInxs, yInxs], c3Diag)
-
-    Y_obs = pm.MvNormal('Y_obs', mu=mu, cov=bigC, observed=yObs)
+    mu = T.reshape(xyMNor, (-1, ))
+    Y_obs = pm.Normal('Y_obs', mu=mu, sd=1, observed=observedNormed)
 
 
 # %% avoid map estimate as reccomended in
@@ -347,8 +360,14 @@ corner.corner(trace['xAll'][:,:8])
 
 
 # %%
-Smean = np.mean(trace['xAll'], axis=0)
-Scov = np.cov(trace['xAll'].T)
+#Smean = np.mean(trace['xAll'], axis=0)
+#Scov = np.cov(trace['xAll'].T)
+
+Smean = np.load(pathFiles + "Smean.npy")
+Scov = np.load(pathFiles + "Scov.npy")
+
+
+
 #Smean = np.mean(traceConc, axis=0)
 #Scov = np.cov(traceConc.T)
 
@@ -499,15 +518,15 @@ http://docs.pymc.io/api/inference.html
 '''
 
 start = {'xAll' : Smean}
-nDraws = 800
+nDraws = 10
 nChains = 8
 
 
 with projectionModel:
-    step = pm.Metropolis(S=ScovNew, scaling=1e-3, tune_interval=40)
+    step = pm.Metropolis(S=Scov, scaling=1e-3, tune_interval=50)
 
     trace = pm.sample(draws=nDraws, step=step, start=start, njobs=nChains,
-                      tune=200, chains=nChains, progressbar=True,
+                      tune=0, chains=nChains, progressbar=True,
                       discard_tuned_samples=False)
 
 
@@ -550,7 +569,49 @@ plt.plot(trace['xAll'][:,0] - trace['xAll_interval__'][:,0])
 #
 #traceConc = np.concatenate([trace['xAll'], trace2['xAll']], axis=0)
 #
-np.save("/home/sebalander/Code/VisionUNQextra/Videos y Mediciones/extraDataSebaPhD/intrinsicTracesAllNoReps3", trace['xAll'])
+
+pathFiles = "/home/sebalander/Code/VisionUNQextra/Videos y Mediciones/extraDataSebaPhD/"
+
+
+np.save(pathFiles + "intrinsicTracesAllNoReps" + str(5), trace['xAll'])
+
+'''
+2, 3, 4 y 5 parece que van
+'''
+
+# %% load all data simulated
+
+iis = [2, 3, 4, 5]
+
+traces = list()
+
+for i in iis:
+    traces.append(np.load(pathFiles + "intrinsicTracesAllNoReps"
+                          + str(i) + ".npy"))
+
+tracesCon = np.concatenate(traces,axis=0)
+
+Smean = np.mean(tracesCon, axis=0)
+
+Scov = np.cov(tracesCon.T)
+
+np.save(pathFiles + "Smean", Smean)
+np.save(pathFiles + "Scov", Scov)
+
+
+
+
+
+
+# %%
+for trac in traces:
+    corner.corner(trac[:,4:6])
+
+corner.corner(tracesCon[:,4:6])
+
+[print(tra.shape) for tra in traces]
+
+
 
 
 # %% ========== initial approach based on iterative importance sampling
