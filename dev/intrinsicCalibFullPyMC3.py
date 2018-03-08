@@ -17,7 +17,6 @@ import numpy as np
 import scipy.stats as sts
 import matplotlib.pyplot as plt
 from copy import deepcopy as dc
-from calibration import calibrator as cl
 import corner
 import time
 
@@ -25,10 +24,15 @@ import time
 import theano
 import theano. tensor as T
 import pymc3 as pm
+import scipy as sc
+import seaborn as sns
 
 import sys
 sys.path.append("/home/sebalander/Code/sebaPhD")
+from calibration import calibrator as cl
 from dev import bayesLib as bl
+
+print('libraries imported')
 
 # %% LOAD DATA
 # input
@@ -36,8 +40,8 @@ plotCorners = False
 # cam puede ser ['vca', 'vcaWide', 'ptz'] son los datos que se tienen
 camera = 'vcaWide'
 # puede ser ['rational', 'fisheye', 'poly']
-modelos = ['poly', 'rational', 'fisheye']
-model = modelos[2]
+modelos = ['poly', 'rational', 'fisheye', 'stereographic']
+model = modelos[3]
 
 imagesFolder = "./resources/intrinsicCalib/" + camera + "/"
 cornersFile = imagesFolder + camera + "Corners.npy"
@@ -70,52 +74,42 @@ cameraMatrix = np.load(linearCoeffsFile)
 rVecs = np.load(rVecsFile)[imageSelection]
 tVecs = np.load(tVecsFile)[imageSelection]
 
+print('raw data loaded')
 
 # pongo en forma flat los valores iniciales
 Xint, Ns = bl.int2flat(cameraMatrix, distCoeffs, model)
 XextList = np.array([bl.ext2flat(rVecs[i], tVecs[i])for i in range(n)])
 
-NintrParams = distCoeffs.shape[0] + 4
-NfreeParams = n*6 + NintrParams
+NintrParams = Xint.shape[0]
+NextrParams = n * 6
+NfreeParams = NextrParams + NintrParams
 NdataPoints = n*m
 
 # 0.1pix as image std
 # https://stackoverflow.com/questions/12102318/opencv-findcornersubpix-precision
-stdPix = 0.1
+# increase to 1pix porque la posterior da demasiado rara
+stdPix = 1.0
 Ci = np.repeat([stdPix**2 * np.eye(2)], n*m, axis=0).reshape(n, m, 2, 2)
 
-# Cf = np.eye(distCoeffs.shape[0])
-# Ck = np.eye(4)
-# Cfk = np.eye(distCoeffs.shape[0], 4)  # rows for distortion coeffs
-
-# Crt = np.eye(6) # 6x6 covariance of pose
-# Crt[[0,1,2],[0,1,2]] *= np.deg2rad(1)**2 # 5 deg stdev in every angle
-# Crt[[3,4,5],[3,4,5]] *= 0.01**2 # 1/100 of the unit length as std for pos
-# Crt = np.repeat([Crt] , n, axis=0)
 Crt = np.repeat([False], n)  # no RT error
 
 # output file
 intrinsicParamsOutFile = imagesFolder + camera + model + "intrinsicParamsML"
 intrinsicParamsOutFile = intrinsicParamsOutFile + str(stdPix) + ".npy"
 
-# pruebo con un par de imagenes
-for j in range(0, n, 3):
-    xm, ym, Cm = cl.inverse(imagePoints[j, 0], rVecs[j], tVecs[j],
-                            cameraMatrix,
-                            distCoeffs, model, Cccd=Ci[j], Cf=False, Ck=False,
-                            Crt=False, Cfk=False)
-    print(xm, ym, Cm)
+## pruebo con un par de imagenes
+#for j in range(0, n, 3):
+#    xm, ym, Cm = cl.inverse(imagePoints[j, 0], rVecs[j], tVecs[j],
+#                            cameraMatrix,
+#                            distCoeffs, model, Cccd=Ci[j], Cf=False, Ck=False,
+#                            Crt=False, Cfk=False)
+#    print(xm, ym, Cm)
 
 
 # datos medidos, observados, experimentalmente en el mundo y en la imagen
 yObs = objpoints2D.reshape(-1)
 
-
-# no usar las constantes como tensores porque da error...
-# # diccionario de parametros, constantes de calculo
-# xObsConst = T.as_tensor_variable(imagePoints.reshape((n,m,2)), 'xObsConst',
-#                                  ndim=3)
-# CiConst = T.as_tensor_variable(Ci, 'cIConst', ndim=4)
+print('data formated')
 
 
 # %%
@@ -123,10 +117,7 @@ yObs = objpoints2D.reshape(-1)
 aca defino la proyeccion para que la pueda usar thean0
 http://deeplearning.net/software/theano/extending/extending_theano.html
 '''
-global projIDXcounter
-projIDXcounter = 0
-global projCount
-projCount = 0
+
 
 class ProjectionT(theano.Op):
     # itypes and otypes attributes are
@@ -135,24 +126,14 @@ class ProjectionT(theano.Op):
     # xInt, xExternal
     itypes = [T.dvector, T.dmatrix]
     # xm, ym, cM
-    otypes = [T.dtensor3, T.dtensor4]
-
-#    def __init__(self):
-#        global projIDXcounter
-#        self.idx = projIDXcounter
-#        projIDXcounter += 1
-#
-#        self.count = 0
+    otypes = [T.dtensor3]  # , T.dtensor4]
 
     # Python implementation:
     def perform(self, node, inputs_storage, output_storage):
-        # global projCount
-        # projCount += 1
-        # self.count += 1
         # print('IDX %d projection %d, global %d' %
         #       (self.idx, self.count, projCount))
         Xint, Xext = inputs_storage
-        xyM, cM = output_storage
+#        xyM, cM = output_storage
 
         # saco los parametros de flat para que los use la func de projection
         # print(Xint)
@@ -167,23 +148,38 @@ class ProjectionT(theano.Op):
                     imagePoints.reshape((n, m, 2))[j], rVec, tVec,
                     cameraMatrix, distCoeffs, model, Cccd=Ci[j])
 
-        # print(xy)
+        xy -= objpoints2D
 
-        xyM[0] = xy
-        cM[0] = cm
+        S = np.linalg.inv(cm)
+
+        u, s, v = np.linalg.svd(S)
+
+        sdiag = np.zeros_like(u)
+        sdiag[:, :, [0, 1], [0, 1]] = np.sqrt(s)
+
+        A = (u.reshape((n, m, 2, 2, 1, 1)) *
+             sdiag.reshape((n, m, 1, 2, 2, 1)) *
+             v.transpose((0, 1, 3, 2)).reshape((n, m, 1, 1, 2, 2))
+             ).sum(axis=(3, 4))
+
+        xy = np.sum(xy.reshape((n, m, 2, 1)) * A, axis=3)
+
+        output_storage[0][0] = xy
 
     # optional:
     check_input = True
 
 
+print('projection defined for theano')
+
 # %% pruebo si esta bien como OP
 
-try:
-    del XintOP, XextOP, projTheanoWrap, projTfunction
-except:
-    pass
-else:
-    pass
+#try:
+#    del XintOP, XextOP, projTheanoWrap, projTfunction
+#except:
+#    pass
+#else:
+#    pass
 
 XintOP = T.dvector('XintOP')
 XextOP = T.dmatrix('XextOP')
@@ -193,11 +189,15 @@ projTheanoWrap = ProjectionT()
 projTfunction = theano.function([XintOP, XextOP],
                                 projTheanoWrap(XintOP, XextOP))
 
-out = projTfunction(Xint, XextList)
+try:
+    out = projTfunction(Xint, XextList)
+except:
+    sys.exit("no anduvo el wrapper de la funciona  theano")
+else:
+    pass
+    # print(out)
 
-print(out)
-
-plt.scatter(out[0][:, :, 0], out[0][:, :, 1])
+plt.scatter(out[:, :, 0], out[:, :, 1])
 
 
 # %%
@@ -207,9 +207,9 @@ plt.scatter(out[0][:, :, 0], out[0][:, :, 1])
 
 
 # indexes to read diagona 2x2 blocks of a matrix
-nTot = 2 * n * m
-xInxs = [[[i, i], [i+1, i+1]] for i in range(0, nTot, 2)]
-yInxs = [[[i, i+1], [i, i+1]] for i in range(0, nTot, 2)]
+# nTot = 2 * n * m
+# xInxs = [[[i, i], [i+1, i+1]] for i in range(0, nTot, 2)]
+# yInxs = [[[i, i+1], [i, i+1]] for i in range(0, nTot, 2)]
 
 projectionModel = pm.Model()
 
@@ -218,15 +218,15 @@ projTheanoWrap = ProjectionT()
 # set lower and upper bounds for uniform prior distributions
 # for camera matrix is important to avoid division by zero
 
-intrDelta = np.abs([100, 100, 200, 100,
-                    Xint[4] / 2, Xint[5] / 2, Xint[6] / 2, Xint[7] / 2])
+# intrDelta = np.abs([100, 100, 200, 100,
+#                    Xint[4] / 2, Xint[5] / 2, Xint[6] / 2, Xint[7] / 2])
+intrDelta = np.abs([100, 100, 100])
 intrLow = Xint - intrDelta  # intrinsic
 intrUpp = Xint + intrDelta
-# extrLow = np.array([[-3.2, -3.2, -3.2, -25, -25, -25]]*n)
-# extrUpp = np.array( [[3.2,  3.2,  3.2,  25,  25,  25]]*n)
 
-extrLow = XextList - [0.3, 0.3, 0.3, 3, 3, 3]
-extrUpp = XextList + [0.3, 0.3, 0.3, 3, 3, 3]
+extrDelta = np.array([[0.3, 0.3, 0.3, 3, 3, 3]]*n)
+extrLow = XextList - extrDelta
+extrUpp = XextList + extrDelta
 
 
 allLow = np.concatenate([intrLow, extrLow.reshape(-1)])
@@ -238,26 +238,12 @@ observedNormed = np.zeros((n * m * 2))
 
 
 with projectionModel:
-#    # Priors for unknown model parameters
-#    xAll = pm.Uniform('xAll', lower=allLow, upper=allUpp, shape=allLow.shape)
-#
-#    xIn = xAll[:Ns[-1]]
-#    xEx = xAll[Ns[-1]:].reshape((n, 6))
-#
-#    xyM, cM = projTheanoWrap(xIn, xEx)
-#
-#    mu = T.reshape(xyM, (-1,))
-#
-#    # sp.block_diag(out[1].reshape((-1,2,2))) # for sparse
-#    bigC = T.zeros((nTot, nTot))
-#    c3Diag = T.reshape(cM, (-1, 2, 2))  # list of 2x2 covariance blocks
-#    bigC = T.set_subtensor(bigC[xInxs, yInxs], c3Diag)
-#
-#    Y_obs = pm.MvNormal('Y_obs', mu=mu, cov=bigC, observed=yObs)
 
     # Priors for unknown model parameters
-    xIn = pm.Uniform('xIn', lower=intrLow, upper=intrUpp, shape=(8,),  transform=None)
-    xEx = pm.Uniform('xEx', lower=extrLow, upper=extrUpp, shape=(33, 6), transform=None)
+    xIn = pm.Uniform('xIn', lower=intrLow, upper=intrUpp, shape=(NintrParams,),
+                     transform=None)
+    xEx = pm.Uniform('xEx', lower=extrLow, upper=extrUpp, shape=(n, 6),
+                     transform=None)
 
     # apply numpy based function
     xyMNor = projTheanoWrap(xIn, xEx)
@@ -265,718 +251,316 @@ with projectionModel:
     mu = T.reshape(xyMNor, (-1, ))
     Y_obs = pm.Normal('Y_obs', mu=mu, sd=1, observed=observedNormed)
 
+print('model defined')
 
-# %% avoid map estimate as reccomended in
-# https://discourse.pymc.io/t/frequently-asked-questions/74
-# # aca saco el maximo a posteriori, bastante util para hacer montecarlo
-# despues
-# import scipy.optimize as opt
 #
-# #
-# #try:
-# #    map_estimate
-# #except:
-# #    print('set initial state arbitrarily')
-# #    start = {'xIn': Xint,
-# #             'xEx': XextList}
-# #else:
-# #    print('set initial state with previous map_estiamte')
-# #    start=map_estimate
+# # %% saco de las sampleadas anteriores
 #
-# start = {'xIn': Xint, 'xEx': XextList}
+# pathFiles = "/home/sebalander/Code/VisionUNQextra/Videos y Mediciones/extraDataSebaPhD/"
 #
+# Smean = np.load(pathFiles + "Smean.npy")
+# Scov = np.load(pathFiles + "Scov.npy")
 #
+# Sintr = np.sqrt(np.diag(Scov[:NintrParams,:NintrParams]))
+# Sextr = np.sqrt(np.diag(Scov)[NintrParams:])
+
+
+# %% aca harcodeo buenas condiciones iniciales
+## esto es para el modelo wide fisheye
+#inMean = np.array(
+#      [ 3.98204193e+02,  4.11166644e+02,  8.08151855e+02,  4.67128941e+02,
+#        9.58414611e-02, -1.79782629e-02,  1.71555867e-02, -4.14991611e-03])
 #
-# #niter = 1000
-# #map_estimate = pm.find_MAP(model=projectionModel, start=start,
-#                             maxeval=int(niter * 10), maxiter=niter,
-#                             fmin=opt.fmin, xtol=1e-2,ftol=1e-3)
-#
-#
-# map_estimate = pm.find_MAP(model=projectionModel, start=start)
-#
-#
-#
-# print(map_estimate['xIn']- Xint)
-# #print(map_estimate['x0'], x0True)
+#Sin = np.array(
+#      [1.10881031e-01, 1.02037362e-01, 4.34863593e-02, 4.69344339e-02,
+#       7.05596265e-05, 2.74114158e-06, 3.53176045e-06, 2.32011924e-07])
+
+#inCov = np.array(
+#      [[ 9.03278324e-02,  8.01184408e-02,  5.93501910e-03,
+#        -3.28437427e-03, -1.37613801e-04, -2.13500585e-06,
+#         1.37155732e-05,  3.80320535e-07],
+#       [ 8.01184408e-02,  9.03987874e-02,  9.05846356e-03,
+#        -4.98390308e-03, -1.34137229e-04, -1.73441031e-06,
+#         1.69912087e-05,  3.51041632e-07],
+#       [ 5.93501910e-03,  9.05846356e-03,  9.05394824e-03,
+#        -7.48250515e-04, -3.81539942e-07, -8.56656518e-07,
+#         1.44193878e-06,  4.07269304e-08],
+#       [-3.28437427e-03, -4.98390308e-03, -7.48250515e-04,
+#         1.01802146e-02,  4.58709928e-06, -1.55095197e-06,
+#        -1.32518335e-06,  1.01157804e-07],
+#       [-1.37613801e-04, -1.34137229e-04, -3.81539942e-07,
+#         4.58709928e-06,  4.99190949e-07, -1.04398026e-08,
+#        -7.71458599e-08,  2.34150723e-09],
+#       [-2.13500585e-06, -1.73441031e-06, -8.56656518e-07,
+#        -1.55095197e-06, -1.04398026e-08,  3.49035741e-09,
+#         1.30677751e-09, -2.78472504e-10],
+#       [ 1.37155732e-05,  1.69912087e-05,  1.44193878e-06,
+#        -1.32518335e-06, -7.71458599e-08,  1.30677751e-09,
+#         1.71681579e-08, -6.80709826e-10],
+#       [ 3.80320535e-07,  3.51041632e-07,  4.07269304e-08,
+#         1.01157804e-07,  2.34150723e-09, -2.78472504e-10,
+#        -6.80709826e-10,  1.22395226e-10]])
+
+inMean = np.array([809.30185034, 468.47943396, 803.95311444])
+
+Sin = np.array([0.12922189, 0.11908904, 0.52271924])
+
+inCov = np.array(
+      [[ 0.0166983 ,  0.00027483, -0.02344957],
+       [ 0.00027483,  0.0141822 , -0.03783155],
+       [-0.02344957, -0.03783155,  0.27323541]])
+
+exMean = np.array(
+      [[-2.02900500e-01,  9.25537630e-02, -8.14360504e-02,
+        -3.20281763e+00, -5.49314862e+00,  6.19169297e+00],
+       [ 9.23834843e-01,  8.05854969e-02, -7.50334368e-02,
+        -3.05558934e+00, -4.20798532e+00,  4.02127694e+00],
+       [ 9.16549702e-01, -3.44500609e-01,  9.75640329e-01,
+         9.62113959e+00, -5.94970738e+00,  4.03319310e+00],
+       [ 1.46112337e-01, -5.24183650e-01,  6.45232087e-01,
+        -6.44909323e+00, -4.06099958e+00,  3.78554670e+00],
+       [-3.27525387e-02,  8.63881899e-01, -6.78215598e-04,
+        -1.75798602e-01, -2.45663021e+00,  7.66089994e+00],
+       [ 8.52834805e-01,  5.27537686e-01,  8.95318834e-01,
+         7.84115177e+00, -6.87750026e+00,  5.30007509e+00],
+       [ 7.17500056e-01,  9.69240935e-01,  1.77926988e+00,
+         1.84242465e+01,  6.09000951e+00,  7.46251627e+00],
+       [-7.70341274e-01,  1.02344491e-01,  1.10849035e+00,
+        -4.84078919e+00, -3.62527346e+00,  1.13076158e+01],
+       [ 1.74844844e-02,  1.48729410e-02, -1.58285577e+00,
+        -2.38826271e+00,  4.90076009e+00,  5.29722932e+00],
+       [-6.50141511e-02, -3.23483371e-02, -3.09970003e+00,
+         4.00829176e+00,  4.91086156e+00,  5.54717360e+00],
+       [ 1.83322538e-01,  6.87823603e-02,  2.28079820e-02,
+        -3.81470276e+00,  2.06902738e+00,  5.18498779e+00],
+       [ 6.00646640e-01,  1.93417482e-01,  2.22281700e-01,
+        -5.68431661e-01, -2.02142755e+01,  1.46221938e+01],
+       [-5.40246651e-02, -2.11416475e-02, -3.46167052e-02,
+        -4.64614371e+00, -6.10521670e-01,  1.97420798e+01],
+       [-1.29085724e+00,  3.38850937e-02,  2.86479602e+00,
+        -1.71855968e+01, -3.08509499e+00,  1.22469318e+01],
+       [-1.19643867e-01, -1.03032120e+00,  1.69608012e+00,
+        -1.66315194e+00, -5.16443395e+00,  7.83821379e+00],
+       [-4.11945939e-01, -4.93823676e-01,  1.38214030e+00,
+        -4.90789664e+00, -5.48551830e+00,  1.25222984e+01],
+       [-2.48968404e-01,  8.12261110e-01,  1.71485247e+00,
+         1.42569779e+00,  1.62324346e+01,  2.05873641e+01],
+       [-2.60641385e-01,  1.03297098e+00,  6.34638796e-01,
+         1.66267689e+01,  6.87308555e+00,  1.74012455e+01],
+       [-3.58361931e-02,  8.85904462e-02, -1.42242336e-01,
+        -2.28331352e+00, -1.03515875e+01,  1.85797135e+01],
+       [-7.46337080e-03, -2.31705739e-01, -1.65967353e-01,
+        -9.53505587e+00, -7.72944180e-01,  2.54809527e+00],
+       [ 3.31512333e-01,  9.94144601e-01,  1.43126397e+00,
+         1.20317350e+01, -4.16889736e+00,  7.56476727e+00],
+       [ 6.69736580e-01, -3.85378259e-03, -2.98763261e+00,
+         3.60961811e+00,  4.58737087e-01,  1.45480781e+01],
+       [-4.18210917e-02, -5.51931465e-01,  2.98756682e-01,
+        -1.12870948e+01,  1.76878170e+00,  3.42917339e+00],
+       [ 1.63747969e-02, -1.25657362e+00,  6.87570265e-03,
+        -5.15171266e+00, -2.42541991e+00,  1.44296422e+00],
+       [-1.09297417e+00,  2.18058512e-01,  2.59279787e+00,
+        -1.69360549e+01,  7.18385625e+00,  1.21823376e+01],
+       [-9.39109252e-01,  6.32381201e-01,  2.06790553e+00,
+        -1.07440343e+01,  1.42858283e+01,  1.52089400e+01],
+       [-1.24097228e-01, -9.09715866e-01, -2.92556195e+00,
+         1.45284452e+00,  1.63514037e+01,  1.21710293e+01],
+       [ 7.21540140e-01,  4.53978514e-01,  1.34881949e+00,
+         9.23677484e+00, -6.61865917e+00,  4.40814476e+00],
+       [-6.74234890e-01, -1.13367190e-01, -3.01580072e+00,
+         1.87882990e+00,  6.97763629e+00,  9.88923284e+00],
+       [ 1.81284625e-02, -2.97165890e-02, -6.30578294e-02,
+        -3.90798997e+00, -2.73066603e+00,  4.30922692e+00],
+       [ 3.41445501e-01,  5.68740081e-01, -3.02838759e-01,
+         1.36736316e+01, -9.31810618e+00,  1.55915990e+01],
+       [ 3.82671084e-02,  7.39319537e-01,  9.78552251e-04,
+         1.65080339e+01, -2.83679638e+00,  1.05353317e+01],
+       [-3.29204302e-02,  9.12735610e-01,  5.42426360e-01,
+         1.73778406e+01,  1.89384698e+00,  1.01839145e+01]])
+
+Sex = np.array(
+      [[1.27530323e-03, 4.61496190e-04, 6.17624002e-05, 2.64167986e-03,
+        4.06590691e-03, 6.96282946e-03],
+       [1.35843570e-03, 1.79694082e-04, 2.39294451e-04, 2.46379225e-03,
+        3.58693625e-03, 4.49898830e-03],
+       [2.32338162e-03, 1.68299109e-03, 1.54269987e-03, 1.35668786e-02,
+        9.24758098e-03, 1.24990840e-02],
+       [4.53146829e-04, 2.89060477e-03, 8.83822950e-04, 5.23888965e-03,
+        3.63430037e-03, 7.66343735e-03],
+       [4.96534461e-05, 8.67338632e-04, 6.24528154e-08, 4.01021275e-03,
+        1.87784245e-03, 4.79765194e-03],
+       [5.87680568e-03, 6.78744934e-03, 3.08703493e-03, 2.81537779e-02,
+        1.82938300e-02, 2.76630944e-02],
+       [4.21309285e-03, 1.49557237e-02, 3.59630689e-03, 5.06876146e-02,
+        2.61425518e-02, 3.20083010e-02],
+       [4.20935460e-03, 1.44937570e-04, 1.61716207e-03, 9.94731165e-03,
+        1.03901335e-02, 1.27805223e-02],
+       [2.36014560e-05, 1.22763892e-05, 6.90275535e-04, 4.19398531e-03,
+        1.91265659e-03, 4.74281049e-03],
+       [1.65440181e-04, 1.02943722e-04, 4.95108232e-04, 2.99871758e-03,
+        4.21499907e-03, 7.74795852e-03],
+       [1.18327242e-03, 2.56307645e-04, 2.76878010e-05, 3.38846305e-03,
+        5.80309100e-03, 9.94147696e-03],
+       [7.06931660e-03, 5.63815987e-04, 4.01030484e-04, 9.30700715e-03,
+        4.95542024e-02, 4.46503059e-02],
+       [1.22748679e-04, 1.17529397e-05, 2.27023068e-05, 9.76140407e-03,
+        7.28874896e-03, 3.18146519e-02],
+       [1.26075654e-02, 1.22441066e-04, 7.72107825e-03, 7.30853645e-02,
+        2.00119532e-02, 5.42588621e-02],
+       [9.69910348e-04, 3.60264548e-03, 1.27429789e-03, 1.03072213e-02,
+        8.87562757e-03, 1.51296272e-02],
+       [4.19959814e-03, 3.01106058e-03, 1.11812325e-03, 1.12594651e-02,
+        5.83877593e-03, 2.56891671e-02],
+       [5.61690019e-03, 1.17757900e-02, 5.33904434e-03, 9.66027837e-03,
+        4.89172719e-02, 5.86029318e-02],
+       [7.33013186e-03, 7.57060191e-03, 4.48325457e-03, 3.70556944e-02,
+        2.10520053e-02, 2.71239973e-02],
+       [6.13170880e-05, 1.41950521e-04, 6.71835640e-04, 7.37182778e-03,
+        1.83021644e-02, 3.54792818e-02],
+       [1.75100977e-06, 1.06694396e-03, 6.16752735e-04, 4.86903510e-03,
+        3.74962055e-03, 6.55862290e-03],
+       [1.63501422e-03, 4.32187309e-03, 1.29785354e-03, 1.46388204e-02,
+        5.93853365e-03, 1.30657561e-02],
+       [7.38336449e-03, 2.62381099e-07, 1.87348094e-03, 7.26648603e-03,
+        1.19799503e-02, 2.97337118e-02],
+       [1.77206300e-05, 2.11540771e-03, 1.29369330e-03, 7.39306870e-03,
+        5.24392593e-03, 9.02557086e-03],
+       [1.18019397e-05, 1.16121417e-03, 2.96600157e-06, 4.32993425e-03,
+        2.06334293e-03, 5.76236667e-03],
+       [1.27000652e-02, 9.80669988e-04, 5.01767396e-03, 8.21875239e-02,
+        2.74069575e-02, 5.09904049e-02],
+       [1.38904601e-02, 1.29778491e-02, 8.45081195e-03, 4.13958084e-02,
+        5.54787194e-02, 5.56717191e-02],
+       [3.58669948e-04, 1.31092333e-02, 4.42702516e-03, 9.74733786e-03,
+        2.58419497e-02, 2.46060877e-02],
+       [6.25257490e-03, 2.50690445e-03, 2.57496833e-03, 2.09548152e-02,
+        7.71735278e-03, 2.13891543e-02],
+       [6.57576596e-03, 1.04827863e-03, 1.09088852e-03, 6.45272030e-03,
+        1.38782199e-02, 3.56914703e-02],
+       [2.61166969e-05, 1.03725148e-05, 2.12454697e-04, 2.69632797e-03,
+        1.92431546e-03, 4.40232470e-03],
+       [5.14253430e-03, 6.28147338e-03, 2.55781969e-03, 4.56242502e-02,
+        2.60156448e-02, 4.75348607e-02],
+       [2.20239646e-05, 5.04380402e-03, 3.33848752e-08, 4.46334047e-02,
+        7.50863391e-03, 3.08903317e-02],
+       [4.75858435e-05, 9.08161061e-03, 1.50584491e-03, 5.84477978e-02,
+        1.72236169e-02, 3.56940114e-02]]).reshape(-1)
+
+
+print('defined harcoded initial conditions')
+
+
+# %% calculate estimated radius step
+'''
+para ver que tan disperso es el paso de cada propuesta. como las propuestas se
+sacan de una pdf gaussiana n-dimendional pasa que empieza a haber mucho volumen
+de muestras que se acumulan mucho a un cierto radio. hay un compromiso entre
+que el volumen aumenta
+'''
+
+
+def radiusStepsNdim(n):
+    '''
+    retorna moda, la media y la desv est del radio  de pasos al samplear
+    de gaussianas hiperdimensionales de norma 1
+    '''
+    # https://www.wolframalpha.com/input/?i=integrate+x%5E(n-1)+exp(-x%5E2%2F2)+from+0+to+infinity
+    # integral_0^∞ x^(n - 1) exp(-x^2/2) dx = 2^(n/2 - 1) Γ(n/2) for Re(n)>0
+    Inorm = 2**(n/2 - 1) * sc.special.gamma(n/2)
+
+    # https://www.wolframalpha.com/input/?i=integrate+x%5En+exp(-x%5E2%2F2)+from+0+to+infinity
+    # integral_0^∞ x^n exp(-x^2/2) dx = 2^((n - 1)/2) Γ((n + 1)/2) for Re(n)>-1
+    ExpectedR = 2**((n-1)/2) * sc.special.gamma((n+1)/2)
+
+    # https://www.wolframalpha.com/input/?i=integrate+x%5E(n%2B1)+exp(-x%5E2%2F2)+from+0+to+infinity
+    # integral_0^∞ x^(n + 1) exp(-x^2/2) dx = 2^(n/2) Γ(n/2 + 1) for Re(n)>-2
+    ExpectedR2 = 2**(n/2) * sc.special.gamma(n/2 + 1)
+
+    ModeR = np.sqrt(n - 1)
+
+    # normalizo las integrales:
+    ExpectedR /= Inorm
+    ExpectedR2 /= Inorm
+
+    DesvEstR = np.sqrt(ExpectedR2 - ExpectedR**2)
+
+    return np.array([ModeR, ExpectedR, DesvEstR])
+
+
+ModeR, ExpectedR, DesvEstR = radiusStepsNdim(NfreeParams)
+
+
+print("moda, la media y la desv est del radio\n", ModeR, ExpectedR, DesvEstR)
 
 
 # %% metropolis desde MAP. a ver si zafo de la proposal dist
 '''
 http://docs.pymc.io/api/inference.html
 '''
-
-# start = map_estimate
-# start = {'xIn': Xint, 'xEx': XextList}
-start = {'xAll' : xAll0}
-# start = {'xAll' : Smean}
-
-# start = {'x0': map_estimate['x0']}#,
-#          'alfa': map_estimate['alfa'],
-#          'rtV': map_estimate['rtV']}
-
-# scale = {'x0': map_estimate['x0_interval__'],
-#          'alfa': map_estimate['alfa_interval__'],
-#          'rtV': map_estimate['rtV_interval__']}
-#
-# scale = [map_estimate['x0_interval__'], map_estimate['alfa_interval__'], map_estimate['rtV_interval__']]
-
-nDraws = 50
+nDraws = 125000
+nTune = 0
+tuneBool = nTune != 0
 nChains = 8
 
-# Sproposal = np.concatenate([XextList.reshape((-1)), Xint.reshape((-1))])
-# Sproposal = np.abs(Sproposal) * 1e-3
-#
-# Sproposal = {'xIn_interval__' : np.abs(Xint) * 1e-3,
-#             'xEx_interval__' : np.abs(XextList) * 1e-3}
+# escalas características del tipical set
+scaIn = 1 / radiusStepsNdim(NintrParams)[1]
+scaEx = 1 / radiusStepsNdim(6)[1]
 
-Scov = allUpp - allLow
+InSeed = pm.MvNormal.dist(mu=inMean, cov=inCov*scaIn**2).random(size=nChains)
+exSeed = np.random.randn(n, 6, nChains) * Sex.reshape((n, 6, 1)) * scaEx
+exSeed += exMean.reshape((n, 6, 1))
 
-with projectionModel:
-    step = pm.Metropolis(S=Scov, scaling=1e-8, tune_interval=10)
-#    step = pm.Metropolis(vars=basic_model.x0, # basic_model.alfa,basic_model.rtV],
-#                         S=np.abs(map_estimate['x0_interval__'])),
-#                         scaling=1e-1,
-#                         tune=True,
-#                         tune_interval=50)
+start = [dict({'xIn': InSeed[i], 'xEx': exSeed[:,:,i]}) for i in range(nChains)]
 
-#    step = pm.Metropolis()
+scaIn /= 10 # achico la escala un orden de magnitud mas
+scaEx /= 20
 
-    trace = pm.sample(draws=nDraws, step=step, start=start, njobs=nChains,
-                      tune=20, chains=nChains, progressbar=True,
-                      random_seed=123)
-                      # , live_plot=True,
-                      # compute_convergence_checks=True) #,
-                      # init='auto', n_init=200,)
-
-# %%
-plt.figure()
-Smin = np.min(trace['xAll'], axis=0)
-plt.plot(np.abs(trace['xAll'] - Smin),'x-', markersize=1)
-
-
-# %%
-corner.corner(trace['xAll'][:,:8])
-
-
-# %%
-#Smean = np.mean(trace['xAll'], axis=0)
-#Scov = np.cov(trace['xAll'].T)
-
-Smean = np.load(pathFiles + "Smean.npy")
-Scov = np.load(pathFiles + "Scov.npy")
-
-
-
-#Smean = np.mean(traceConc, axis=0)
-#Scov = np.cov(traceConc.T)
-
-sigmas = np.sqrt(np.diag(Scov))
-Scorr = Scov / ( sigmas.reshape((-1,1)) * sigmas.reshape((1,-1)))
-plt.matshow(Scorr, cmap='coolwarm')
-
-
-# saco el promedio de las matrices de covarianza de los bloques 6x6 extrinsecos
-xBlk = [[0, 1, 2, 3, 4, 5]] * 6
-xBlkAll = np.arange(NintrParams,NfreeParams,6).reshape((-1,1,1)) + [xBlk]*n
-yBlkAll = xBlkAll.transpose((0,2,1))
-extrS = np.mean(Scov[xBlkAll, yBlkAll], axis=0)
-
-plt.matshow(extrS, cmap='coolwarm')
-
-
-
-'''
-Smean = np.array(
-      [ 3.98213840e+02,  4.11224396e+02,  8.08170703e+02,  4.67121459e+02,
-        9.58412207e-02, -1.79782432e-02,  1.71556081e-02, -4.14991879e-03,
-       -2.28322462e-01,  9.20027735e-02, -8.14613082e-02, -3.17308934e+00,
-       -5.38585657e+00,  6.26164383e+00,  9.45077936e-01,  8.08304282e-02,
-       -7.51600297e-02, -3.03507465e+00, -4.06491057e+00,  4.00096601e+00,
-        9.50916102e-01, -3.38361474e-01,  9.60425885e-01,  9.60555438e+00,
-       -5.72674887e+00,  3.88570300e+00,  1.46053354e-01, -5.57198700e-01,
-        6.43733030e-01, -6.43676977e+00, -4.00413471e+00,  3.72567547e+00,
-       -3.27605373e-02,  8.62886207e-01, -6.78201432e-04, -1.27359412e-01,
-       -2.44355042e+00,  7.63205909e+00,  8.88361698e-01,  5.26028732e-01,
-        8.64146244e-01,  7.80177035e+00, -6.70277531e+00,  5.20695030e+00,
-        7.30336876e-01,  8.99827967e-01,  1.78243857e+00,  1.86150936e+01,
-        5.98526378e+00,  7.29298765e+00, -8.08738428e-01,  1.02303559e-01,
-        1.09629125e+00, -4.95598455e+00, -3.51410147e+00,  1.14528430e+01,
-        1.75068619e-02,  1.48805221e-02, -1.58488521e+00, -2.35995566e+00,
-        4.91849779e+00,  5.37940157e+00, -6.50590283e-02, -3.22829044e-02,
-       -3.09914039e+00,  4.02494559e+00,  4.89104703e+00,  5.56949282e+00,
-        1.97581406e-01,  6.88105109e-02,  2.27910698e-02, -3.79923073e+00,
-        1.99756603e+00,  5.16839394e+00,  5.68235709e-01,  1.93106014e-01,
-        2.22484490e-01, -4.74288722e-01, -1.97951364e+01,  1.48902312e+01,
-       -5.40230272e-02, -2.11437124e-02, -3.46421590e-02, -4.59416797e+00,
-       -5.82225412e-01,  1.97710238e+01, -1.41653099e+00,  3.38020448e-02,
-        2.78678950e+00, -1.75695022e+01, -2.96368188e+00,  1.23532714e+01,
-       -1.18460309e-01, -1.05137374e+00,  1.69773008e+00, -1.69412489e+00,
-       -5.06532137e+00,  7.90455051e+00, -4.14649903e-01, -4.94426169e-01,
-        1.38043596e+00, -5.03135277e+00, -5.43547007e+00,  1.26991966e+01,
-       -2.50042201e-01,  8.02786932e-01,  1.72645413e+00,  1.47947989e+00,
-        1.60842477e+01,  2.09283726e+01, -2.68805247e-01,  1.03164360e+00,
-        6.40659057e-01,  1.68264894e+01,  6.68865788e+00,  1.73046827e+01,
-       -3.58352735e-02,  8.85232394e-02, -1.41836937e-01, -2.20225564e+00,
-       -1.01215599e+01,  1.87058555e+01, -7.46207061e-03, -2.65485197e-01,
-       -1.61748892e-01, -9.54394554e+00, -7.97594735e-01,  2.41651826e+00,
-        3.29768724e-01,  1.04935133e+00,  1.43090193e+00,  1.22238773e+01,
-       -4.11740103e+00,  7.54633038e+00,  6.08319706e-01, -3.85403982e-03,
-       -2.99504577e+00,  3.68058002e+00,  5.48597576e-01,  1.45748882e+01,
-       -4.18170179e-02, -5.97130394e-01,  3.06790855e-01, -1.12050748e+01,
-        1.66399217e+00,  3.24935875e+00,  1.63730986e-02, -1.23804169e+00,
-        6.87577835e-03, -5.26068417e+00, -2.40616638e+00,  1.44066156e+00,
-       -1.21411378e+00,  2.17619172e-01,  2.55174591e+00, -1.73766332e+01,
-        7.20953855e+00,  1.22812383e+01, -9.95886791e-01,  6.40191151e-01,
-        2.05514621e+00, -1.08960679e+01,  1.41197214e+01,  1.53498848e+01,
-       -1.24198097e-01, -8.39867265e-01, -2.94574793e+00,  1.48699765e+00,
-        1.61442015e+01,  1.23622436e+01,  7.38455019e-01,  4.61661711e-01,
-        1.33651323e+00,  9.35040071e+00, -6.55144173e+00,  4.39687080e+00,
-       -6.33742277e-01, -1.13585852e-01, -3.01844512e+00,  1.92689848e+00,
-        6.99976307e+00,  1.01504128e+01,  1.81275476e-02, -2.97138175e-02,
-       -6.27459196e-02, -3.89081176e+00, -2.70593243e+00,  4.32909703e+00,
-        3.42741379e-01,  6.03378276e-01, -3.02368589e-01,  1.38806225e+01,
-       -9.07390614e+00,  1.55793088e+01,  3.82664071e-02,  8.75231097e-01,
-        9.78528144e-04,  1.74233332e+01, -2.79635047e+00,  1.07892644e+01,
-       -3.29153925e-02,  1.08510732e+00,  5.22249671e-01,  1.81473165e+01,
-        1.98678517e+00,  1.03291327e+01])
-
-Scov = np.zeros((Smean.shape[0], Smean.shape[0]))
-
-Scov[:NintrParams,:NintrParams] = np.array(
-      [[ 4.50624463e-06, -4.45948406e-07,  2.59841173e-07,
-         1.54850295e-06, -1.49079806e-22, -7.24359240e-28,
-        -2.01264916e-27, -9.97816956e-28],
-       [-4.45948406e-07,  1.47318063e-05, -2.32025200e-06,
-        -1.09655759e-06, -8.29869100e-21,  9.17866270e-28,
-         2.55030500e-27,  1.26437266e-27],
-       [ 2.59841173e-07, -2.32025200e-06,  4.58277279e-06,
-        -5.42906035e-08, -1.29573103e-21,  1.66673555e-28,
-         4.63106387e-28,  2.29595598e-28],
-       [ 1.54850295e-06, -1.09655759e-06, -5.42906035e-08,
-         2.32529916e-06,  5.86264191e-22, -1.00901083e-27,
-        -2.80356099e-27, -1.38992936e-27],
-       [-1.49079806e-22, -8.29869100e-21, -1.29573103e-21,
-         5.86264191e-22,  1.59799658e-28, -6.53517210e-30,
-        -1.81581292e-29, -9.00230922e-30],
-       [-7.24359240e-28,  9.17866270e-28,  1.66673555e-28,
-        -1.00901083e-27, -6.53517210e-30,  2.67262657e-31,
-         7.42595570e-31,  3.68158794e-31],
-       [-2.01264916e-27,  2.55030500e-27,  4.63106387e-28,
-        -2.80356099e-27, -1.81581292e-29,  7.42595570e-31,
-         2.06331923e-30,  1.02293786e-30],
-       [-9.97816956e-28,  1.26437266e-27,  2.29595598e-28,
-        -1.38992936e-27, -9.00230922e-30,  3.68158794e-31,
-         1.02293786e-30,  5.07144916e-31]])
-
-
-extrS = np.array(
-      [[ 4.74447530e-27,  4.53038827e-28, -9.40778298e-29,
-         6.21366640e-26,  2.17814537e-25, -9.40559558e-25],
-       [ 4.53038827e-28,  6.30658437e-27,  6.74397365e-28,
-         8.33772783e-26,  1.41196774e-24, -3.16477259e-25],
-       [-9.40778298e-29,  6.74397365e-28,  3.79095768e-26,
-         8.74665288e-25,  1.75611480e-25,  9.40061577e-25],
-       [ 6.21366640e-26,  8.33772783e-26,  8.74665288e-25,
-         5.45773843e-19, -2.24294151e-20,  1.31456205e-19],
-       [ 2.17814537e-25,  1.41196774e-24,  1.75611480e-25,
-        -2.24294151e-20,  7.34643697e-19,  3.96008448e-20],
-       [-9.40559558e-25, -3.16477259e-25,  9.40061577e-25,
-         1.31456205e-19,  3.96008448e-20,  4.35689213e-19]])
-
-'''
-
-
-# %%
-
-ScovNew = np.zeros_like(Scov)
-ScovNew[:NintrParams,:NintrParams] = Scov[:NintrParams,:NintrParams]
-ScovNew[xBlkAll, yBlkAll] = extrS
-
-diagmin = (Smean * 1e-6) **2  # minimo relativo para la covarianza
-
-diagmin < np.diag(ScovNew)
-
-plt.figure()
-plt.plot(np.diag(ScovNew))
-plt.plot(diagmin)
-
-
-ScovNew[np.diag_indices_from(Scov)] = np.max([np.diag(ScovNew), diagmin], axis=0)
-
-plt.matshow(np.log(np.abs(ScovNew)), cmap='coolwarm')
-
-sigmasNew = np.sqrt(np.diag(ScovNew))
-ScorrNew = ScovNew / ( sigmasNew.reshape((-1,1)) * sigmasNew.reshape((1,-1)))
-
-plt.matshow(ScorrNew, cmap='coolwarm', vmin=-1, vmax=1)
-
-
-# %% metropolis
-'''
-http://docs.pymc.io/api/inference.html
-'''
-
-start = {'xAll' : Smean}
-nDraws = 10
-nChains = 8
-
+print("starting metropolis",
+      "|nnDraws =", nDraws, " nChains = ", nChains,
+      "|nscaIn = ", scaIn, "scaEx = ", scaEx)
 
 with projectionModel:
-    step = pm.Metropolis(S=Scov, scaling=1e-3, tune_interval=50)
+    stepInt = pm.Metropolis(vars=[xIn], S=Sin, tune=tuneBool)
+    stepInt.scaling = scaIn
 
-    trace = pm.sample(draws=nDraws, step=step, start=start, njobs=nChains,
-                      tune=0, chains=nChains, progressbar=True,
-                      discard_tuned_samples=False)
+    stepExt = pm.Metropolis(vars=[xEx], S=Sex, tune=tuneBool)
+    stepExt.scaling = scaEx
 
+    step = [stepInt, stepExt]
 
-plt.figure()
-plt.plot(np.abs(trace['xAll'] - trace['xAll'][-1]), '-x', markersize=1.5)
+    trace = pm.sample(draws=nDraws, step=step, njobs=nChains, start=start,
+                      tune=nTune, chains=nChains, progressbar=True,
+                      discard_tuned_samples=False,
+                      compute_convergence_checks=False)
 
+repsIn = np.diff(trace['xIn'], axis=0) == 0
+repsEx = np.diff(trace['xEx'], axis=0) == 0
 
-# probabilidad de repeticion
+repsInRate = np.sum(repsIn) / np.prod(repsIn.shape)
+repsExRate = np.sum(repsEx) / np.prod(repsEx.shape)
 
-nRepet = np.sum(trace['xAll'][1:,0] == trace['xAll'][:-1,0])
-pRep = nRepet / (trace['xAll'].shape[0] - 1)
+print("las repeticiones: intrin=", repsInRate, " y extrin=", repsExRate)
 
-print('tasa de repeticion es', pRep)
 
-os.system("espeak 'simulation finished'")
+# las 5 y 6 posrian considerarse cuasi definitivas
+# la 7 le pongo un paso un poco mas grande a ver que onda pero sigue siendo
+# con tuneo
+# la 8 le saco el tuneo y el paso es fijo en
+# 1 / 10 / radiusStepsNdim(NintrParams)[1]
+# en la 9 pongo 1 / 20 para extrinseco. la proxima tengo que cambiar el inicio?
+# no el inicio esta bien pero en todas las cadenas es igual y eso hace que
+# tarde en hacer una exploracion hasta que se separan
+# el 10 tiene starts aleatoriso distribuidos
+# el 11 tiene actualizado covarianza y media con start distribuido
+# el 12 ademas escaleado apra evitar cond iniciales demasiado lejanas y es
+# larga
 
-# %%
-corner.corner(trace['xAll'][:,:NintrParams])
-i=19
-corner.corner(trace['xAll'][:,NintrParams+6*i:NintrParams+6*(i+1)])
+pathFiles = "/home/sebalander/Code/VisionUNQextra/Videos y Mediciones/"
+pathFiles += "extraDataSebaPhD/traces" + str(12)
 
-repeats = np.zeros_like(trace['xAll'])
-repeats[1:] = trace['xAll'][1:] == trace['xAll'][:-1]
+np.save(pathFiles + "Int", trace['xIn'])
+np.save(pathFiles + "Ext", trace['xEx'])
 
-plt.matshow(repeats, cmap='binary')
-plt.matshow(repeats.reshape((1000,-1)), cmap='binary')
-
-plt.figure()
-plt.plot(trace['xAll'][:,7])
-
-plt.figure()
-plt.plot(trace['xAll'][:,0] + trace['xAll_interval__'][:,0])
-plt.plot(trace['xAll'][:,0])
-plt.plot(trace['xAll'][:,0] - trace['xAll_interval__'][:,0])
-
-
-
-
-# %%
-#
-#traceConc = np.concatenate([trace['xAll'], trace2['xAll']], axis=0)
-#
-
-pathFiles = "/home/sebalander/Code/VisionUNQextra/Videos y Mediciones/extraDataSebaPhD/"
-
-
-np.save(pathFiles + "intrinsicTracesAllNoReps" + str(5), trace['xAll'])
-
-'''
-2, 3, 4 y 5 parece que van
-'''
-
-# %% load all data simulated
-
-iis = [2, 3, 4, 5]
-
-traces = list()
-
-for i in iis:
-    traces.append(np.load(pathFiles + "intrinsicTracesAllNoReps"
-                          + str(i) + ".npy"))
-
-tracesCon = np.concatenate(traces,axis=0)
-
-Smean = np.mean(tracesCon, axis=0)
-
-Scov = np.cov(tracesCon.T)
-
-np.save(pathFiles + "Smean", Smean)
-np.save(pathFiles + "Scov", Scov)
-
-
-
-
-
-
-# %%
-for trac in traces:
-    corner.corner(trac[:,4:6])
-
-corner.corner(tracesCon[:,4:6])
-
-[print(tra.shape) for tra in traces]
-
-
-
-
-# %% ========== initial approach based on iterative importance sampling
-# in each iteration sample points from search space assuming gaussian pdf
-# calculate total error and use that as log of probability
-
-class sampleadorExtrinsecoNormal:
-    '''
-    manages the sampling of extrinsic parameters
-    '''
-    def __init__(self, muList, covarList):
-        '''
-        receive a list of rtvectors and define mu and covar and start sampler
-        '''
-        self.mean = np.array(muList)
-        # gaussian normalizing factor
-        self.piConst = (np.pi*2)**(np.prod(self.mean.shape)/2)
-        self.setCov(covarList)
-
-    def rvs(self, retPdf=False):
-        x = sts.multivariate_normal.rvs(size=(len(self.matrixTransf),6))
-        x2 = (x.reshape(-1,6,1) * self.matrixTransf).sum(2)
-
-        if retPdf:
-            pdf = np.exp(- np.sum(x**2) / 2) / self.piConst
-            return x2 + self.mean, pdf
-
-        return x2 + self.mean
-
-    def setCov(self, covarList):
-        self.cov = np.array(covarList)
-        self.matrixTransf = np.array([cl.unit2CovTransf(x) for x in self.cov])
-
-
-# %%
-'''
-se propone una pdf de donde samplear. se trata de visualizar y de hacer un
-ajuste grueso
-'''
-
-# propongo covarianzas de donde samplear el espacio de busqueda
-Cfk = np.diag((Xint/1000)**2 + 1e-6)  # 1/1000 de desv est
-# regularizado para que no sea singular
-
-Crt = np.eye(6) # 6x6 covariance of pose
-Crt[[0,1,2],[0,1,2]] *= np.deg2rad(1)**2 # 1 deg stdev in every angle
-Crt[[3,4,5],[3,4,5]] *= 0.1**2 # 1/10 of the unit length as std for pos
-
-# reduzco la covarianza en un factor (por la dimensionalidad??)
-fkFactor = 1e-6
-rtFactor = 1e-6
-Cfk *= fkFactor
-Crt = np.repeat([Crt * rtFactor] , n, axis=0)
-
-# instancio los sampleadres
-sampleadorInt = sts.multivariate_normal(Xint, dc(Cfk))
-sampleadorExt = sampleadorExtrinsecoNormal(XextList, dc(Crt))
-# evaluo
-intSamp = sampleadorInt.rvs()
-extSamp, pdfExtSamp = sampleadorExt.rvs(retPdf=True)
-
-errSamp = etotal(intSamp, Ns, extSamp, params)
-
-# trayectoria de medias
-meanList = list()
-
-
-
-
-
-# %% trato de hacer una especie de gradiente estocástico con momentum
-# cond iniciales
-Xint0 = dc(Xint)
-Xext0 = dc(np.array(XextList))
-Xerr0 = etotal(Xint0, Ns, Xext0, params)
-
-beta = 0.9
-beta1 = 1 - beta + 1e-2 # un poco mas grande para que no se achique el paso
-
-deltaInt = np.zeros_like(Xint0)
-deltaExt = np.zeros_like(Xext0)
-
-sampleIntList = list([Xint0])
-sampleExtList = list([Xext0])
-sampleErrList = list([Xerr0])
-
-# %% loop
-
-
-for i in range(5000):
-    print(i, "%.20f"%sampleErrList[-1])
-    Xint1 = sampleadorInt.rvs()
-    Xext1 = sampleadorExt.rvs()
-    Xerr1 = etotal(Xint1, Ns, Xext1, params)
-
-    if Xerr0 > Xerr1: # caso de que dé mejor
-        deltaInt = deltaInt * beta + beta1 * (Xint1 - Xint0)
-        deltaExt = deltaExt * beta + beta1 * (Xext1 - Xext0)
-        print('a la primera', np.linalg.norm(deltaInt), np.linalg.norm(deltaExt))
-
-        # salto a ese lugar
-        Xint0 = dc(Xint1)
-        Xext0 = dc(Xext1)
-        Xerr0 = dc(Xerr1)
-
-        sampleadorInt.mean = Xint0  + deltaInt
-        sampleadorExt.mean = Xext0 + deltaExt
-        sampleIntList.append(Xint0)
-        sampleExtList.append(Xext0)
-        sampleErrList.append(Xerr0)
-
-    else: # busco para el otro lado a ver que dá
-        Xint2 = 2 * Xint0 - Xint1
-        Xext2 = 2 * Xext0 - Xext1
-        Xerr2 = etotal(Xint2, Ns, Xext2, params)
-
-        if Xerr0 > Xerr2: # caso de que dé mejor la segunda opcion
-            deltaInt = deltaInt * beta + beta1 * (Xint2 - Xint0)
-            deltaExt = deltaExt * beta + beta1 * (Xext2 - Xext0)
-            print('a la segunda', np.linalg.norm(deltaInt), np.linalg.norm(deltaExt))
-
-            # salto a ese lugar
-            Xint0 = dc(Xint2)
-            Xext0 = dc(Xext2)
-            Xerr0 = dc(Xerr2)
-
-            sampleadorInt.mean = Xint0 + deltaInt
-            sampleadorExt.mean = Xext0 + deltaExt
-            sampleIntList.append(Xint0)
-            sampleExtList.append(Xext0)
-            sampleErrList.append(Xerr0)
-        else: # las dos de los costados dan peor
-            ## mido la distancia hacia la primera opcion
-            #dist = np.sqrt(np.sum((Xint1 - Xint0)**2) + np.sum((Xext1 - Xext0)**2))
-            # distancia al vertice de la parabola
-            r = (Xerr2 - Xerr1) / 2 / (Xerr1 + Xerr2 - 2 * Xerr0) #* dist / dist
-            if np.isnan(r) or np.isinf(r):
-                print('r is nan inf')
-                sampleadorInt.cov *= 1.5  # agrando covarianzas
-                sampleadorExt.setCov(sampleadorExt.cov * 1.5)
-                continue # empiezo loop nuevo
-
-            # calculo un nuevo lugar como vertice de la parabola en 1D
-            Xint3 = Xint0 + (Xint1 - Xint0) * r
-            Xext3 = Xext0 + (Xext1 - Xext0) * r
-            Xerr3 = etotal(Xint3, Ns, Xext3, params)
-
-            # trato de usar el dato de curvatura para actualizar la covarianza
-            diffVectIntr = Xint1 - Xint0
-            distInt = np.linalg.norm(diffVectIntr)
-            XtX = diffVectIntr.reshape((-1,1)) * diffVectIntr.reshape((1,-1))
-            XtX = XtX + np.eye(NintrParams) * distInt * 1e-2 # regularizo
-
-            # saco la curvatura forzando que sea positiva (en gral es)
-            a = np.abs((Xerr1 + Xerr2 - 2 * Xerr0)) / distInt**2
-            Hintr = a * np.linalg.inv(XtX) # hessiano intrinseco
-
-
-            diffVectExtr = Xext1 - Xext0
-            distExt = np.linalg.norm(diffVectExtr, axis=1)
-            # saco la curvatura forzando que sea positiva (en gral es)
-            a = np.abs((Xerr1 + Xerr2 - 2 * Xerr0)) / distExt**2
-            XtX = diffVectExtr.reshape((n,6,1)) * diffVectExtr.reshape((n,1,6))
-            XtX[:,[0,1,2,3,4,5],[0,1,2,3,4,5]] += distExt.reshape((-1,1)) * 1e-3
-            Hextr = a.reshape((-1,1,1)) * np.linalg.inv(XtX) # hessiano intrinseco
-
-            # actualizo las covarianzas
-            sampleadorInt.cov = sampleadorInt.cov * beta + beta1 * Hintr
-            sampleadorExt.setCov(sampleadorExt.cov * beta + beta1 * Hextr)
-
-
-
-            if Xerr0 > Xerr3:
-                deltaInt = deltaInt * beta + beta1 * (Xint3 - Xint0)
-                deltaExt = deltaExt * beta + beta1 * (Xext3 - Xext0)
-                print('a la tercera', np.linalg.norm(deltaInt), np.linalg.norm(deltaExt))
-
-                # salto a ese lugar
-                Xint0 = dc(Xint3)
-                Xext0 = dc(Xext3)
-                Xerr0 = dc(Xerr3)
-
-                sampleadorInt.mean = Xint0 + deltaInt
-                sampleadorExt.mean = Xext0 + deltaExt
-                sampleIntList.append(Xint0)
-                sampleExtList.append(Xext0)
-                sampleErrList.append(Xerr0)
-            else:
-                print('no anduvo, probar de nuevo corrigiendo', r)
-                sampleadorInt.cov *= 0.9  # achico covarianzas
-                sampleadorExt.setCov(sampleadorExt.cov * 0.9)
-
-                deltaInt *= 0.7 # achico el salto para buscar mas cerca
-                deltaExt *= 0.7
-
-                sampleadorInt.mean = Xint0 + deltaInt
-                sampleadorExt.mean = Xext0 + deltaExt
-
-# %%
-
-intrinsicGradientList = np.array(sampleIntList)
-extrinsicGradientList = np.array(sampleExtList)
-errorGradientList = np.array(sampleErrList)
-
-
-plt.figure(1)
-plt.plot(errorGradientList - errorGradientList[-1])
-
-
-sampleadorIntBkp = dc(sampleadorInt)
-sampleadorExtBkp = dc(sampleadorExt)
-
-# %%
-plt.figure(2)
-minErr = np.min(errorGradientList)
-for i in range(NintrParams):
-    plt.plot(intrinsicGradientList[:,i] - intrinsicGradientList[-1,i],
-             errorGradientList - minErr, '-x')
-
-plt.figure(3)
-for i in range(n):
-    for j in range(6):
-        plt.plot(extrinsicGradientList[:,i,j] - extrinsicGradientList[-1,i,j],
-                 errorGradientList - minErr, '-x')
-plt.semilogy()
-
-
-
-    # %% metropolis hastings
-from numpy.random import rand as rn
-
-def nuevo(oldInt, oldExt, oldErr, retPb=False):
-    global generados
-    global gradPos
-    global gradNeg
-    global mismo
-    global sampleador
-
-    # genero nuevo
-    newInt = sampleadorInt.rvs() # rn(8) * intervalo + cotas[:,0]
-    newExt = sampleadorExt.rvs()
-    generados += 1
-
-    # cambio de error
-    newErr = etotal(newInt, Ns, newExt, params)
-    deltaErr = newErr - oldErr
-
-    if deltaErr < 0:
-        gradPos += 1
-        print(generados, gradPos, gradNeg, mismo, "Gradiente Positivo")
-        if retPb:
-            return newInt, newExt, newErr, 1.0
-        return newInt, newExt, newErr # tiene menor error, listo
-    else:
-        # nueva oportunidad, sampleo contra rand
-        pb = np.exp(- deltaErr / 2)
-
-        if pb > rn():
-            gradNeg += 1
-            print(generados, gradPos, gradNeg, mismo, "Gradiente Negativo, pb=", pb)
-            if retPb:
-                return newInt, newExt, newErr, pb
-            return newInt, newExt, newErr  # aceptado a la segunda oportunidad
-        else:
-#            # vuelvo recursivamente al paso2 hasta aceptar
-#            print('rechazado, pb=', pb)
-#            new, newE = nuevo(old, oldE)
-            mismo +=1
-            print(generados, gradPos, gradNeg, mismo, "Mismo punto,        pb=", pb)
-            if retPb:
-                return oldInt, oldExt, oldErr, pb
-            return oldInt, oldExt, oldErr
-
-#    return newInt, newExt, newErr
-
-generados = 0
-gradPos = 0
-gradNeg = 0
-mismo = 0
-
-
-intSamp = sampleadorInt.rvs()
-extSamp = sampleadorExt.rvs()
-errSamp = etotal(intSamp, Ns, extSamp, params)
-
-# pruebo una iteracion
-newInt, newExt, newErr = nuevo(intSamp, extSamp, errSamp)
-
-
-# %% metropolis para hacer burnin y sacar una covarianza para q
-
-Nmuestras = 1000
-#Mmuestras = int(50)
-#nTot = Nmuestras * Mmuestras
-
-generados = 0
-gradPos = 0
-gradNeg = 0
-mismo = 0
-
-sampleIntList = np.zeros((Nmuestras, distCoeffs.shape[0] + 4))
-sampleExtList = np.zeros((Nmuestras,n,6))
-sampleErrList = np.zeros(Nmuestras)
-
-# cargo samplers
-sampleadorInt = dc(sampleadorIntBkp)
-sampleadorExt = dc(sampleadorExtBkp)
-
-sampleadorInt.cov = Cfk
-sampleadorExt.setCov(Crt / 1000) # no se porque hay que dividir por mil
-
-# primera
-sampleIntList[0] = sampleadorInt.rvs()
-sampleExtList[0] = sampleadorExt.rvs()
-sampleErrList[0] = etotal(intSamp, Ns, extSamp, params)
-
-tiempoIni = time.time()
-
-for i in range(1, Nmuestras):
-    sampleIntList[i], sampleExtList[i], sampleErrList[i], pb = nuevo(sampleIntList[i-1], sampleExtList[i-1], sampleErrList[i-1], retPb=True)
-
-    if np.isnan(pb):
-        break
-
-    # actualizo centroide
-    sampleadorInt.mean = sampleIntList[i]
-    sampleadorExt.mean = sampleExtList[i]
-
-    tiempoNow = time.time()
-    Dt = tiempoNow - tiempoIni
-    frac = i / Nmuestras # (i  + Nmuestras * j)/ nTot
-    DtEstimeted = (tiempoNow - tiempoIni) / frac
-    stringTimeEst = time.asctime(time.localtime(tiempoIni + DtEstimeted))
-
-    print('Epoch: %d/%d. Tfin: %s'
-          %(i, Nmuestras, stringTimeEst),
-          np.linalg.norm(sampleadorInt.cov),
-          np.linalg.norm(sampleadorExt.cov))
-
-
-
-
-corner.corner(sampleIntList)
-
-
-os.system("speak 'aadfafañfañieñiweh'")
-
-
-
-# %% usando PYMC3
-import pymc3 as pm
-
-projection_model = pm.Model()
-
-with projection_model:
-
-    # Priors for unknown model parameters
-    alpha = pm.Normal('alpha', mu=0, sd=10)
-    beta = pm.Normal('beta', mu=0, sd=10, shape=2)
-    sigma = pm.HalfNormal('sigma', sd=1)
-
-    # Expected value of outcome
-    mu = alpha + beta[0]*X1 + beta[1]*X2
-
-    # Likelihood (sampling distribution) of observations
-    Y_obs = pm.Normal('Y_obs', mu=mu, sd=sigma, observed=Y)
-
+print("saved data to")
+print(pathFiles)
 

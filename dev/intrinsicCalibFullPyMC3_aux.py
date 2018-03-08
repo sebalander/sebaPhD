@@ -1,323 +1,340 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Created on Jan 2018
+Created on Mon Mar  5 11:14:37 2018
 
-do metropolis sampling to estimate PDF of chessboard calibration. this involves
-intrinsic and extrinsic parameters, so it's a very high dimensional search
-space (before it was only intrinsic)
-
-reformig definition to try and separate all variables to see if it speeds up
+aca tiro todo el codigo de intrinsicFullPyMC3.py que ya casi que ahi no sirve
 
 @author: sebalander
 """
 
+
 # %%
-# import glob
-import os
-import numpy as np
-import scipy.stats as sts
-import matplotlib.pyplot as plt
-from copy import deepcopy as dc
-from calibration import calibrator as cl
-import corner
-import time
-
-# %env THEANO_FLAGS='device=cuda, floatX=float32'
-import theano
-import theano. tensor as T
-import pymc3 as pm
-
-import sys
-sys.path.append("/home/sebalander/Code/sebaPhD")
-from dev import bayesLib as bl
-
-# %% LOAD DATA
-# input
-plotCorners = False
-# cam puede ser ['vca', 'vcaWide', 'ptz'] son los datos que se tienen
-camera = 'vcaWide'
-# puede ser ['rational', 'fisheye', 'poly']
-modelos = ['poly', 'rational', 'fisheye']
-model = modelos[2]
-
-imagesFolder = "./resources/intrinsicCalib/" + camera + "/"
-cornersFile = imagesFolder + camera + "Corners.npy"
-patternFile = imagesFolder + camera + "ChessPattern.npy"
-imgShapeFile = imagesFolder + camera + "Shape.npy"
-
-# model data files
-distCoeffsFile = imagesFolder + camera + model + "DistCoeffs.npy"
-linearCoeffsFile = imagesFolder + camera + model + "LinearCoeffs.npy"
-tVecsFile = imagesFolder + camera + model + "Tvecs.npy"
-rVecsFile = imagesFolder + camera + model + "Rvecs.npy"
-
-imageSelection = np.arange(0, 33)  # selecciono con que imagenes trabajar
-n = len(imageSelection)  # cantidad de imagenes
-
-# ## load data
-imagePoints = np.load(cornersFile)[imageSelection]
-
-chessboardModel = np.load(patternFile)
-m = chessboardModel.shape[1]  # cantidad de puntos por imagen
-imgSize = tuple(np.load(imgShapeFile))
-# images = glob.glob(imagesFolder+'*.png')
-
-# Parametros de entrada/salida de la calibracion
-objpoints2D = np.array([chessboardModel[0, :, :2]]*n).reshape((n, m, 2))
-
-# load model specific data from opencv Calibration
-distCoeffs = np.load(distCoeffsFile)
-cameraMatrix = np.load(linearCoeffsFile)
-rVecs = np.load(rVecsFile)[imageSelection]
-tVecs = np.load(tVecsFile)[imageSelection]
 
 
-# pongo en forma flat los valores iniciales
-Xint, Ns = bl.int2flat(cameraMatrix, distCoeffs, model)
-XextList = np.array([bl.ext2flat(rVecs[i], tVecs[i])for i in range(n)])
+pathFiles = "/home/sebalander/Code/VisionUNQextra/Videos y Mediciones/"
+pathFiles += "extraDataSebaPhD/traces" + str(12)
 
-NintrParams = distCoeffs.shape[0] + 4
-NfreeParams = n*6 + NintrParams
-NdataPoints = n*m
+trace = dict()
 
-# 0.3pix as image std
-stdPix = 0.1
-Ci = np.repeat([stdPix**2 * np.eye(2)], n*m, axis=0).reshape(n, m, 2, 2)
+trace['xIn'] = np.load(pathFiles + "Int" + ".npy")
+trace['xEx'] = np.load(pathFiles + "Ext" + ".npy")
 
-# Cf = np.eye(distCoeffs.shape[0])
-# Ck = np.eye(4)
-# Cfk = np.eye(distCoeffs.shape[0], 4)  # rows for distortion coeffs
-
-# Crt = np.eye(6) # 6x6 covariance of pose
-# Crt[[0,1,2],[0,1,2]] *= np.deg2rad(1)**2 # 5 deg stdev in every angle
-# Crt[[3,4,5],[3,4,5]] *= 0.01**2 # 1/100 of the unit length as std for pos
-# Crt = np.repeat([Crt] , n, axis=0)
-Crt = np.repeat([False], n)  # no RT error
-
-# output file
-intrinsicParamsOutFile = imagesFolder + camera + model + "intrinsicParamsML"
-intrinsicParamsOutFile = intrinsicParamsOutFile + str(stdPix) + ".npy"
-
-# pruebo con un par de imagenes
-for j in range(0, n, 3):
-    xm, ym, Cm = cl.inverse(imagePoints[j, 0], rVecs[j], tVecs[j],
-                            cameraMatrix,
-                            distCoeffs, model, Cccd=Ci[j], Cf=False, Ck=False,
-                            Crt=False, Cfk=False)
-    print(xm, ym, Cm)
+# %% concateno y salculo la diferencia
+concDat = np.concatenate([trace['xIn'], trace['xEx'].reshape((-1,n*6))], axis=1)
+difAll = np.diff(concDat, axis=0)
 
 
-# datos medidos, observados, experimentalmente en el mundo y en la imagen
-yObs = objpoints2D.reshape(-1)
+repeats = np.zeros_like(concDat)
+repeats[1:] = difAll == 0
+print("tasa de repetidos", repeats.sum() / np.prod(repeats.shape))
+print("tasa de repetidos Intrinsico",
+      repeats[:,:NintrParams].sum() / (repeats.shape[0] * NintrParams))
+print("tasa de repetidos extrinseco",
+      repeats[:,NintrParams:].sum() / (repeats.shape[0] * n * 6))
+
+# %% calculo los estadísticos para analizar ocnvergencia
+# medias de cada cadena
+traceIn = trace['xIn'].reshape((-1, nDraws, NintrParams)).transpose((2,0,1))
+traceEx = trace['xEx'].reshape((-1, nDraws, n, 6)).transpose((2,3,0,1))
+
+inMeanChain = np.mean(traceIn, axis=-1)
+exMeanChain = np.mean(traceEx, axis=-1)
+
+inDifChain = (traceIn.T - inMeanChain.T).T
+exDifChain = (traceEx.T - exMeanChain.T).T
+
+inCovChain = np.mean(inDifChain**2, axis=-1)
+exCovChain = np.mean(exDifChain**2, axis=-1)
+
+nDrawsSqrt = np.sqrt(nDraws)
+
+# calculo la diferencia mutua de la media
+inMeanChainDiff = (inMeanChain.reshape((NintrParams, -1, 1)) -
+                   inMeanChain.reshape((NintrParams, 1, -1)))
+inMeanChainDiff *= nDrawsSqrt / np.sqrt(inCovChain).reshape((NintrParams, -1,1))
 
 
-# no usar las constantes como tensores porque da error...
-# # diccionario de parametros, constantes de calculo
-# xObsConst = T.as_tensor_variable(imagePoints.reshape((n,m,2)), 'xObsConst',
-#                                  ndim=3)
-# CiConst = T.as_tensor_variable(Ci, 'cIConst', ndim=4)
 
 
 # %%
-'''
-aca defino la proyeccion para que la pueda usar thean0
-http://deeplearning.net/software/theano/extending/extending_theano.html
-'''
-global projIDXcounter
-projIDXcounter = 0
-global projCount
-projCount = 0
+corner.corner(trace['xIn'])
+corner.corner(trace['xEx'][:,4])
 
-class ProjectionT(theano.Op):
-    # itypes and otypes attributes are
-    # compulsory if make_node method is not defined.
-    # They're the type of input and output respectively
-    # xInt, xExternal
-    itypes = [T.dvector, T.dmatrix]
-    # xm, ym, cM
-    otypes = [T.dtensor3]
+plt.figure()
+plt.plot(trace['xEx'][:,4,3].reshape((nChains, -1)).T)
 
-#    def __init__(self):
-#        global projIDXcounter
-#        self.idx = projIDXcounter
-#        projIDXcounter += 1
-#
-#        self.count = 0
-
-    # Python implementation:
-    def perform(self, node, inputs_storage, output_storage):
-        # global projCount
-        # projCount += 1
-        # self.count += 1
-        # print('IDX %d projection %d, global %d' %
-        #       (self.idx, self.count, projCount))
-        Xint, Xext = inputs_storage
-
-        # saco los parametros de flat para que los use la func de projection
-        # print(Xint)
-        cameraMatrix, distCoeffs = bl.flat2int(Xint, Ns, model)
-        # print(cameraMatrix, distCoeffs)
-        xy = np.zeros((n, m, 2))
-        cm = np.zeros((n, m, 2, 2))
-
-        for j in range(n):
-            rVec, tVec = bl.flat2ext(Xext[j])
-            xy[j, :, 0], xy[j, :, 1], cm[j] = cl.inverse(
-                    imagePoints.reshape((n, m, 2))[j], rVec, tVec,
-                    cameraMatrix, distCoeffs, model, Cccd=Ci[j])
-
-        # print(xy)
-
-        xy -= objpoints2D
-
-        S = np.linalg.inv(cm)
-
-        u, s, v = np.linalg.svd(S)
-
-        sdiag = np.zeros_like(u)
-        sdiag[:,:,[0,1],[0,1]] = np.sqrt(s)
-
-        A = (u.reshape((n, m, 2, 2, 1, 1)) *
-             sdiag.reshape((n, m, 1, 2 ,2, 1)) *
-             v.transpose((0,1,3,2)).reshape((n, m, 1, 1, 2, 2))
-             ).sum(axis=(3,4))
-
-        xy = np.sum(xy.reshape((n,m,2,1)) * A, axis=3)
-
-        output_storage[0][0] = xy
-
-    # optional:
-    check_input = True
+plt.plot(trace['xIn'][:,0].reshape((nChains, -1)).T)
 
 
-# %% pruebo si esta bien como OP
+# %% select to prune burn in
+leChain = trace['xEx'].shape[0] / nChains
+indexCut = 25e3
+noBurnInIndexes = np.arange(indexCut, leChain, dtype=int)
+noBurnInIndexes = np.array(noBurnInIndexes.reshape((1,-1)) +
+                           (np.arange(nChains) * leChain).reshape((-1,1)),
+                           dtype=int)
+noBurnInIndexes = np.concatenate(noBurnInIndexes)
 
-try:
-    del XintOP, XextOP, projTheanoWrap, projTfunction
-except:
-    pass
-else:
-    pass
+trace['xIn'] = trace['xIn'][noBurnInIndexes]
+trace['xEx'] = trace['xEx'][noBurnInIndexes]
 
-XintOP = T.dvector('XintOP')
-XextOP = T.dmatrix('XextOP')
-
-projTheanoWrap = ProjectionT()
-
-projTfunction = theano.function([XintOP, XextOP],
-                                projTheanoWrap(XintOP, XextOP))
-
-out = projTfunction(Xint, XextList)
-
-print(out)
-
-plt.scatter(out[:, :, 0], out[:, :, 1])
-
-
-# %% http://docs.pymc.io/api/inference.html
-# from importlib import reload
-# reload(cl)
-# reload(bl)
-
-
-# indexes to read diagonal 2x2 blocks of a matrix
-nTot = 2 * n * m
-xInxs = [[[i, i], [i+1, i+1]] for i in range(0, nTot, 2)]
-yInxs = [[[i, i+1], [i, i+1]] for i in range(0, nTot, 2)]
-
-
-# set lower and upper bounds for uniform prior distributions
-# for camera matrix is important to avoid division by zero
-
-intrDelta = np.abs([100, 100, 200, 100,
-                    Xint[4] / 2, Xint[5] / 2, Xint[6] / 2, Xint[7] / 2])
-intrLow = Xint - intrDelta  # intrinsic
-intrUpp = Xint + intrDelta
-
-extrDelta = np.array([[0.3, 0.3, 0.3, 3, 3, 3]]*n)
-extrLow = XextList - extrDelta
-extrUpp = XextList + extrDelta
-
-
-projectionModel = pm.Model()
-projTheanoWrap = ProjectionT()
-
-
-#cm
-#xy
-#
-#objpoints2D
-#
-#err = (objpoints2D - xy).reshape((-1,2))
-#covar = cm.reshape((-1,2,2))
-
-def logp(X):
-    '''
-    logp de la probabilidad de muchas gaussianas
-    '''
-#    print(X.shape.eval(), mu.shape.eval())
-    err = T.reshape(X, (-1,2)) - T.reshape(mu, (-1,2))  # shaped as (n*m,2)
-
-    S = T.inv(cov)  # np.linalg.inv(cov)
-
-    E = (T.reshape(err, (-1, 2, 1)) *
-         S *
-         T.reshape(err, (-1, 1, 2))
-         ).sum()
-
-    return - E / 2
-
-
-observedData = objpoints2D.reshape((-1,2))
-
-observedNormed = np.zeros((n*m* 2))
-
-with projectionModel:
-    # Priors for unknown model parameters
-    xIn = pm.Uniform('xIn', lower=intrLow, upper=intrUpp, shape=(8,),  transform=None)
-    xEx = pm.Uniform('xEx', lower=extrLow, upper=extrUpp, shape=(33, 6), transform=None)
-
-    # apply numpy based function
-    xyMNor = projTheanoWrap(xIn, xEx)
-##    print(xyM.shape.eval(), cM.shape.eval())
-#
-#    # defino la distribucion especifica para muchas gaussianas
-#    multimultinormal = pm.DensityDist('multimultinormal', logp,
-#                                      observed={'X': observedData})
-#
-#    # instancio
-#    mu = T.reshape(xyM, (-1, 2))
-#    cov = T.reshape(cM, (-1, 2, 2))
-
-#    Y_obs = multimultinormal('Y_obs', mu=mu, cov=cov, observed=observedData)
-    mu = T.reshape(xyMNor, (-1, ))
-    Y_obs = pm.Normal('Y_obs', mu=mu, sd=1, observed=observedNormed)
-
-
-    # define steps
-    stepInt = pm.Metropolis(vars=[xIn], S=intrDelta)
-    stepExt = pm.Metropolis(vars=[xEx], S=extrDelta.reshape(-1))
-    step = [stepInt, stepExt]
-
-    start = {'xIn': Xint, 'xEx': XextList}  # initial condition
-
-    trace = pm.sample(step=step, start=start)
+plt.figure()
+plt.plot(trace['xEx'][:,1,0].reshape((-1, int(leChain - indexCut))).T)
 
 
 # %%
 plt.figure()
-Smin = np.min(trace['xAll'], axis=0)
-plt.plot(np.abs(trace['xAll'] - Smin),'x-', markersize=1)
+Smin = np.min(trace['xIn'], axis=0)
+plt.plot(np.abs(trace['xIn'] - Smin), 'x-', markersize=1)
+
+plt.matshow(inCorr, cmap='coolwarm', vmin=-1, vmax=1)
+
 
 
 # %%
-corner.corner(trace['xAll'][:,:8])
+plt.figure()
+#ax = fig.gca()
+ticksCovMatrix = np.arange(NintrParams,NfreeParams,6) - 0.5
+plt.grid('on')
+plt.xticks(ticksCovMatrix)
+plt.yticks(ticksCovMatrix)
+plt.imshow(exCorr, cmap='coolwarm', vmin=-1, vmax=1)
 
 
 # %%
-Smean = np.mean(trace['xAll'], axis=0)
-Scov = np.cov(trace['xAll'].T)
+a, b = [4, 5]
+tira = 2*nDraws
+plt.figure()
+for i in range(nChains):
+    plt.plot(trace['xEx'][i*tira:(i+1)*tira, 0, a],
+             trace['xEx'][i*tira:(i+1)*tira, 0, b])
+for i in range(nChains):
+    plt.plot(trace['xEx'][i*tira, 0, a],
+             trace['xEx'][i*tira, 0, b], 'o', markersize=10)
+
+
+
+# %%
+corner.corner(trace['xEx'][:, 4])
+
+# par graficar histogramas de los parametros extrisnecos
+difEx = trace['xEx'] - exMean
+normedDifEx = difEx / Sex.reshape((n, 6))
+
+paramInd = 0
+plt.figure()
+for i in range(n):
+    plt.hist(normedDifEx[:,i,paramInd], 50, normed=True)
+
+plt.figure()
+plt.hist(normedDifEx[:,:,paramInd].reshape(-1), 50, normed=True)
+
+
+
+
+
+
+# %% saco un histograma de la distancia desplazada en cada paso
+stepsIn = np.linalg.norm(np.diff(trace['xIn'], axis=0) / Sin, axis=1)
+
+# saco los ceros
+stepsIn = stepsIn[stepsIn != 0]
+stepsIn = stepsIn[stepsIn < 1]
+
+plt.figure()
+plt.hist(stepsIn,50)
+print(radiusStepsNdim(NintrParams))
+print(np.mean(stepsIn), np.std(stepsIn))
+
+# %%
+stepsEx = np.linalg.norm(np.diff(trace['xEx'], axis=0) / Sex.reshape((n,-1)), axis=2)
+
+stepsEx = stepsEx[stepsEx.all(axis=1)]
+
+plt.figure()
+plt.hist(stepsEx.reshape(-1),100)
+
+plt.figure()
+plt.plot(stepsEx[:,1])
+
+print(radiusStepsNdim(6))
+print(np.mean(stepsIn), np.std(stepsIn))
+
+# %% pruebo la estadistica de paso promedio en muchas dimensiones
+ndimshit = 100
+randomshit = np.random.randn(ndimshit,10000)
+rads = np.linalg.norm(randomshit, axis=0)
+
+plt.figure()
+plt.hist(rads,100)
+radiusStepsNdim(ndimshit)
+
+
+
+# %% saco media y varianza
+inMean = np.mean(trace['xIn'], axis=0)
+inCov = np.cov(trace['xIn'].T)
+Sin = np.sqrt(np.diag(inCov))
+inCorr = inCov / (Sin.reshape((-1, 1)) * Sin.reshape((1, -1)))
+
+exMean = np.mean(trace['xEx'], axis=0)
+exCov = np.cov(trace['xEx'].reshape(-1, n*6).T)
+Sex = np.sqrt(np.diag(exCov)).reshape((n,6))
+exCorr = exCov / (Sex.reshape((-1, 1)) * Sex.reshape((1, -1)))
+
+
+# %%
+#
+#
+#plt.figure()
+#plt.plot(Sex, 'r')
+#plt.plot(Sex / np.abs(exMean.reshape(-1)), 'b')
+#
+## trunco para que no sea demasiado chico que no puede ser
+#Sin = np.max([Sin, np.abs(inMean.reshape(-1)) * 1e-6], axis=0)
+#Sex = np.max([Sex, np.abs(exMean.reshape(-1)) * 1e-6], axis=0)
+#
+#plt.figure()
+#plt.plot(np.abs(inMean), Sin, '+')
+#plt.plot(np.abs(exMean), Sex.reshape((n,6)), '*')
+#
+#
+#stepsDist = np.linalg.norm(np.diff(trace['xEx'][1:]),axis=(1,2))
+#plt.figure()
+#
+#
+#plt.figure()
+#for i in range(nChains):
+#    plt.hist(stepsDist[i*2*nDraws:(i+1)*2*nDraws],30)
+
+# %%
+# indexes to read diagona 2x2 blocks of a matrix
+nTot = 6 * n
+irange = np.arange(0, nTot, 6, dtype=int)
+jrange = np.array([range(6)] * 6, dtype=int)
+
+xInxs = irange.reshape((-1,1,1)) + jrange.reshape((1,6,6))
+yInxs = np.transpose(xInxs, (0,2,1))
+
+#xInxs = [[[i, i], [i+1, i+1]] for i in range(0, nTot, 6)]
+#yInxs = [[[i, i+1], [i, i+1]] for i in range(0, nTot, 6)]
+
+# extraigo los bloques de 6x6 de cada pose
+exCovBloks = exCov[xInxs, yInxs]
+
+## chequeo que la lectura en bloques da bien
+#i = 0
+#j0 = 6*i
+#j1 = j0+6
+#print(exCovBloks[i] == exCov[j0:j1, j0:j1])
+
+corner.corner(trace['xEx'][:,1])
+exCovBloks[1]
+
+u, s, v = np.linalg.svd(exCovBloks[1])
+
+#l, v2 = np.linalg.eig(exCovBloks[1])
+
+# tomo el sing val mas chico
+s[-1] * u[:,-1]
+# multiplico por el autovector correspondiente
+
+# %% pruebo grficar las elipses para ciertas correlaciones, para pensar mejor
+# como proponer la escala caracteristica de cada parametro
+sabc = np.array([3, 5, 7], dtype=float)
+rabc = np.array([-0.81, 0.1, 0.5])
+
+fakeCov = sabc.reshape((-1,1)) * sabc.reshape((1,-1))
+
+fakeCov[np.tril_indices_from(fakeCov,k=-1) ] *= rabc
+fakeCov[np.triu_indices_from(fakeCov,k=1) ] *= rabc
+
+fakeDist = pm.MvNormal.dist(mu=[0,0,0], cov=fakeCov)
+fakeX = fakeDist.random(size=100000)
+
+corner.corner(fakeX)
+
+fakeCovInv = np.linalg.inv(fakeCov)
+fakeCovInvdiagsqrt = np.sqrt(np.diag(fakeCovInv))
+
+fakeCov
+np.sqrt(np.abs(fakeCovInv))
+fakeCovInvdiagsqrt
+
+fakeCovEstim = np.cov(fakeX.T)
+Sfake = np.sqrt(np.diag(fakeCovEstim))
+1 / Sfake
+
+# %%
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+# %%
+#Smean = np.mean(trace['xAll'], axis=0)
+#Scov = np.cov(trace['xAll'].T)
+
+Smean = np.load(pathFiles + "Smean.npy")
+Scov = np.load(pathFiles + "Scov.npy")
+
+
+
 #Smean = np.mean(traceConc, axis=0)
 #Scov = np.cov(traceConc.T)
 
@@ -390,6 +407,8 @@ Smean = np.array(
         9.78528144e-04,  1.74233332e+01, -2.79635047e+00,  1.07892644e+01,
        -3.29153925e-02,  1.08510732e+00,  5.22249671e-01,  1.81473165e+01,
         1.98678517e+00,  1.03291327e+01])
+
+Scov = np.zeros((Smean.shape[0], Smean.shape[0]))
 
 Scov[:NintrParams,:NintrParams] = np.array(
       [[ 4.50624463e-06, -4.45948406e-07,  2.59841173e-07,
@@ -466,15 +485,15 @@ http://docs.pymc.io/api/inference.html
 '''
 
 start = {'xAll' : Smean}
-nDraws = 100
-nChains = 6
+nDraws = 10
+nChains = 8
 
 
 with projectionModel:
-    step = pm.Metropolis(S=ScovNew, scaling=1e-3, tune_interval=10)
+    step = pm.Metropolis(S=Scov, scaling=1e-3, tune_interval=50)
 
     trace = pm.sample(draws=nDraws, step=step, start=start, njobs=nChains,
-                      tune=100, chains=nChains, progressbar=True,
+                      tune=0, chains=nChains, progressbar=True,
                       discard_tuned_samples=False)
 
 
@@ -493,24 +512,60 @@ os.system("espeak 'simulation finished'")
 
 # %%
 corner.corner(trace['xAll'][:,:NintrParams])
+i=19
+corner.corner(trace['xAll'][:,NintrParams+6*i:NintrParams+6*(i+1)])
 
-repeats = trace['xAll'][1:] == trace['xAll'][:-1]
+repeats = np.zeros_like(trace['xIn'])
+repeats[1:] = trace['xIn'][1:] == trace['xIn'][:-1]
 
 plt.matshow(repeats, cmap='binary')
+plt.matshow(repeats.reshape((200,-1)), cmap='binary')
 
 plt.figure()
 plt.plot(trace['xAll'][:,7])
 
+plt.figure()
+plt.plot(trace['xAll'][:,0] + trace['xAll_interval__'][:,0])
+plt.plot(trace['xAll'][:,0])
+plt.plot(trace['xAll'][:,0] - trace['xAll_interval__'][:,0])
 
 
-plt.matshow(repeats[:6000].reshape((1000,-1)), cmap='binary')
+
+
+
+# %% load all data simulated
+
+iis = [2, 3, 4, 5]
+
+traces = list()
+
+for i in iis:
+    traces.append(np.load(pathFiles + "intrinsicTracesAllNoReps"
+                          + str(i) + ".npy"))
+
+tracesCon = np.concatenate(traces,axis=0)
+
+Smean = np.mean(tracesCon, axis=0)
+
+Scov = np.cov(tracesCon.T)
+
+np.save(pathFiles + "Smean", Smean)
+np.save(pathFiles + "Scov", Scov)
+
+
+
+
 
 
 # %%
-#
-#traceConc = np.concatenate([trace['xAll'], trace2['xAll']], axis=0)
-#
-#np.save("/home/sebalander/Code/VisionUNQextra/Videos y Mediciones/extraDataSebaPhD/intrinsicTracesAllNoReps2", trace['xAll'])
+for trac in traces:
+    corner.corner(trac[:,4:6])
+
+corner.corner(tracesCon[:,4:6])
+
+[print(tra.shape) for tra in traces]
+
+
 
 
 # %% ========== initial approach based on iterative importance sampling
