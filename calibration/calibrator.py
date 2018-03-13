@@ -43,12 +43,8 @@ def euler(al, be, ga):
     devuelve matriz de rotacion según angulos de euler.
     Craigh, pag 42
     '''
-    ca = cos(al)
-    sa = sin(al)
-    cb = cos(be)
-    sb = sin(be)
-    cg = cos(ga)
-    sg = sin(ga)
+    ca, cb, cg = cos([al, be, ga])
+    sa, sb, sg = sin([al, be, ga])
 
     rot = array([[ca*cb, ca*sb*sg-sa*cg, ca*sb*cg+sa*sg],
                  [sa*cb, sa*sb*sg+ca*cg, sa*sb*cg+ca*sa],

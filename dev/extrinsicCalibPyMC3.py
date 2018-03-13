@@ -19,6 +19,7 @@ import matplotlib.pyplot as plt
 from copy import deepcopy as dc
 import corner
 import time
+import cv2
 
 # %env THEANO_FLAGS='device=cuda, floatX=float32'
 import theano
@@ -43,73 +44,133 @@ camera = 'vcaWide'
 modelos = ['poly', 'rational', 'fisheye', 'stereographic']
 model = modelos[3]
 
-imagesFolder = "./resources/intrinsicCalib/" + camera + "/"
-cornersFile = imagesFolder + camera + "Corners.npy"
-patternFile = imagesFolder + camera + "ChessPattern.npy"
-imgShapeFile = imagesFolder + camera + "Shape.npy"
+# puntos da calibracion sacadas
+calibPointsFile = "./resources/nov16/puntosCalibracion.txt"
 
-# model data files
-distCoeffsFile = imagesFolder + camera + model + "DistCoeffs.npy"
-linearCoeffsFile = imagesFolder + camera + model + "LinearCoeffs.npy"
-tVecsFile = imagesFolder + camera + model + "Tvecs.npy"
-rVecsFile = imagesFolder + camera + model + "Rvecs.npy"
+pathFiles = "/home/sebalander/Code/VisionUNQextra/Videos y Mediciones/"
+pathFiles += "extraDataSebaPhD/traces" + str(15)
 
-imageSelection = np.arange(0, 33)  # selecciono con que imagenes trabajar
-n = len(imageSelection)  # cantidad de imagenes
+imageFile = "/home/sebalander/Code/VisionUNQextra/Videos y Mediciones/"
+imageFile += "2016-11-13 medicion/vcaSnapShot.png"
 
 # ## load data
-imagePoints = np.load(cornersFile)[imageSelection]
+img = plt.imread(imageFile) # imagen
+calibPoints = np.loadtxt(calibPointsFile) # puntos de calibracion extrinseca
+imagePoints = calibPoints[:,:2]
+objecPoints = calibPoints[:,2:]
+m = calibPoints.shape[0]
+intrCalibResults = np.load(pathFiles + "IntrCalibResults.npy").item() # param intrinsecos
 
-chessboardModel = np.load(patternFile)
-m = chessboardModel.shape[1]  # cantidad de puntos por imagen
-imgSize = tuple(np.load(imgShapeFile))
-# images = glob.glob(imagesFolder+'*.png')
+imgSize = img.shape
+Xint = intrCalibResults['inMean']
+Ns = np.array([2,3])
+cameraMatrix, distCoeffs = bl.flat2int(intrCalibResults['inMean'], Ns, model)
 
-# Parametros de entrada/salida de la calibracion
-objpoints2D = np.array([chessboardModel[0, :, :2]]*n).reshape((n, m, 2))
-
-# load model specific data from opencv Calibration
-distCoeffs = np.load(distCoeffsFile)
-cameraMatrix = np.load(linearCoeffsFile)
-rVecs = np.load(rVecsFile)[imageSelection]
-tVecs = np.load(tVecsFile)[imageSelection]
+Cint = intrCalibResults['inCov']
+Cf = np.zeros((4,4))
+Cf[2:,2:] = Cint[:2,:2]
+Ck = Cint[2, 2]
+Cfk = np.zeros((4,1))
+Cfk[2:] = Cint[2:,2]
 
 print('raw data loaded')
 
-# pongo en forma flat los valores iniciales
-Xint, Ns = bl.int2flat(cameraMatrix, distCoeffs, model)
-XextList = np.array([bl.ext2flat(rVecs[i], tVecs[i])for i in range(n)])
-
-NintrParams = Xint.shape[0]
-NextrParams = n * 6
-NfreeParams = NextrParams + NintrParams
-NdataPoints = n*m
-
-# 0.1pix as image std
 # https://stackoverflow.com/questions/12102318/opencv-findcornersubpix-precision
 # increase to 1pix porque la posterior da demasiado rara
 stdPix = 1.0
-Ci = np.repeat([stdPix**2 * np.eye(2)], n*m, axis=0).reshape(n, m, 2, 2)
+Cccd = np.repeat([stdPix**2 * np.eye(2)], m, axis=0)
 
-Crt = np.repeat([False], n)  # no RT error
-
-# output file
-intrinsicParamsOutFile = imagesFolder + camera + model + "intrinsicParamsML"
-intrinsicParamsOutFile = intrinsicParamsOutFile + str(stdPix) + ".npy"
-
-## pruebo con un par de imagenes
-#for j in range(0, n, 3):
-#    xm, ym, Cm = cl.inverse(imagePoints[j, 0], rVecs[j], tVecs[j],
-#                            cameraMatrix,
-#                            distCoeffs, model, Cccd=Ci[j], Cf=False, Ck=False,
-#                            Crt=False, Cfk=False)
-#    print(xm, ym, Cm)
+Crt = np.repeat([False], m)  # no RT error
 
 
-# datos medidos, observados, experimentalmente en el mundo y en la imagen
-yObs = objpoints2D.reshape(-1)
 
-print('data formated')
+
+# camera position prior
+camPrior = np.array([-34.629344, -58.370350])
+
+aEarth = 6378137.0#Equatorial radius in m
+bEarth = 6356752.3#Polar radius in m
+def ll2m(lat, lon, lat0, lon0):
+    '''
+    lat0 en grados
+    '''
+    lat0 = np.deg2rad(lat0)
+    lat = np.deg2rad(lat)
+    dlat = lat - lat0
+
+    lon0 = np.deg2rad(lon0)
+    dlon = np.deg2rad(lon) - lon0
+
+    a_cos_cuad = (aEarth * np.cos(lat))**2
+    b_sin_cuad = (bEarth * np.sin(lat))**2
+    Rm = (aEarth * bEarth)**2 / np.power(a_cos_cuad + b_sin_cuad, 3 / 2)
+    Rn = aEarth**2 / np.sqrt(a_cos_cuad + b_sin_cuad)
+
+    dy = dlat * Rm
+    dx = dlon * Rn * np.cos(lat)
+
+    return dx, dy
+
+objM = np.array(ll2m(objecPoints[:,0], objecPoints[:,1], camPrior[0], camPrior[1])).T
+
+plt.figure()
+plt.scatter(objM[:,0],objM[:,1])
+plt.scatter(0,0) # la camara esta en el cero
+
+
+plt.figure()
+plt.imshow(img)
+plt.scatter(imagePoints[:,0], imagePoints[:,1])
+
+h0cam = 15.7  # altura medida en metros
+x0cam = np.array([0, 0, h0cam])
+
+
+# %% saco rvec, t vec con solve pnp. nopuedo porque no hay para este modelo
+# tiro a ojo las condicioenes iniciales
+versors0 = cl.euler(np.pi / 3, np.pi / 10, np.pi)
+
+rV0 = cv2.Rodrigues(versors0)[0][:,0]
+tV0 = versors0.dot(- np.array([0, 0, h0cam]))
+
+rVinterval = np.array([(np.pi / 3)**2] * 3) # 60 grados para cada lado
+tVcov = np.diag([16, 16, 1])  # le pongo una std de 4m en horizontal y 1m en vertical
+tVcov0 = versors0.dot(tVcov).dot(versors0.T)
+
+xm, ym, cm = cl.inverse(imagePoints, rV0, tV0, cameraMatrix, distCoeffs, model,
+                        Cccd=Cccd, Cf=Cf, Ck=Ck, Crt=False, Cfk=Cfk)
+
+
+def mahalanobosDiff(xm, ym, cm, objM):
+    '''
+    calcula la proyeccion de las diferencias de predicciones pero proyectadas
+    sobre las bases que diagonalizan las covarianzas
+    '''
+    xy = np.array([xm, ym]).T - objM
+
+    S = np.linalg.inv(cm)
+
+    u, s, v = np.linalg.svd(S)
+
+    sdiag = np.zeros_like(u)
+    sdiag[:, [0, 1], [0, 1]] = np.sqrt(s)
+
+    A = (u.reshape((m, 2, 2, 1, 1)) *
+         sdiag.reshape((m, 1, 2, 2, 1)) *
+         v.transpose((0, 2, 1)).reshape((m, 1, 1, 2, 2))
+         ).sum(axis=(2, 3))
+
+    return np.sum(xy.reshape((m, 2, 1)) * A, axis=2)
+
+mahalanobosDiff(xm, ym, cm, objM)
+
+
+plt.figure()
+ax = plt.gca()
+ax.scatter(objM[:,0],objM[:,1])
+ax.scatter(0,0) # la camara esta en el cero
+cl.plotPointsUncert(ax, cm, xm, ym, 'k')
+
 
 
 # %%
@@ -124,47 +185,27 @@ class ProjectionT(theano.Op):
     # compulsory if make_node method is not defined.
     # They're the type of input and output respectively
     # xInt, xExternal
-    itypes = [T.dvector, T.dmatrix]
+    itypes = [T.dvector]
     # xm, ym, cM
-    otypes = [T.dtensor3]  # , T.dtensor4]
+    otypes = [T.dvector]  # , T.dtensor4]
 
     # Python implementation:
     def perform(self, node, inputs_storage, output_storage):
         # print('IDX %d projection %d, global %d' %
         #       (self.idx, self.count, projCount))
-        Xint, Xext = inputs_storage
+        Xext = inputs_storage[0]
 #        xyM, cM = output_storage
 
         # saco los parametros de flat para que los use la func de projection
-        # print(Xint)
-        cameraMatrix, distCoeffs = bl.flat2int(Xint, Ns, model)
-        # print(cameraMatrix, distCoeffs)
-        xy = np.zeros((n, m, 2))
-        cm = np.zeros((n, m, 2, 2))
+        rVec, tVec = bl.flat2ext(Xext)
 
-        for j in range(n):
-            rVec, tVec = bl.flat2ext(Xext[j])
-            xy[j, :, 0], xy[j, :, 1], cm[j] = cl.inverse(
-                    imagePoints.reshape((n, m, 2))[j], rVec, tVec,
-                    cameraMatrix, distCoeffs, model, Cccd=Ci[j])
+        xm, ym, cm = cl.inverse(imagePoints, rV0, tV0, cameraMatrix,
+                                distCoeffs, model, Cccd=Cccd, Cf=Cf, Ck=Ck,
+                                Crt=False, Cfk=Cfk)
 
-        xy -= objpoints2D
+        xy = mahalanobosDiff(xm, ym, cm, objM)
 
-        S = np.linalg.inv(cm)
-
-        u, s, v = np.linalg.svd(S)
-
-        sdiag = np.zeros_like(u)
-        sdiag[:, :, [0, 1], [0, 1]] = np.sqrt(s)
-
-        A = (u.reshape((n, m, 2, 2, 1, 1)) *
-             sdiag.reshape((n, m, 1, 2, 2, 1)) *
-             v.transpose((0, 1, 3, 2)).reshape((n, m, 1, 1, 2, 2))
-             ).sum(axis=(3, 4))
-
-        xy = np.sum(xy.reshape((n, m, 2, 1)) * A, axis=3)
-
-        output_storage[0][0] = xy
+        output_storage[0] = xy.reshape(-1)
 
     # optional:
     check_input = True

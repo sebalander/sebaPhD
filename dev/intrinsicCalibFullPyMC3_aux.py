@@ -13,12 +13,12 @@ aca tiro todo el codigo de intrinsicFullPyMC3.py que ya casi que ahi no sirve
 
 
 pathFiles = "/home/sebalander/Code/VisionUNQextra/Videos y Mediciones/"
-pathFiles += "extraDataSebaPhD/traces" + str(12)
+pathFiles += "extraDataSebaPhD/traces" + str(15)
 
 trace = dict()
 
-trace['xIn'] = np.load(pathFiles + "Int" + ".npy")
-trace['xEx'] = np.load(pathFiles + "Ext" + ".npy")
+trace['xIn'] = np.load(pathFiles + "Int.npy")
+trace['xEx'] = np.load(pathFiles + "Ext.npy")
 
 # %% concateno y salculo la diferencia
 concDat = np.concatenate([trace['xIn'], trace['xEx'].reshape((-1,n*6))], axis=1)
@@ -33,43 +33,66 @@ print("tasa de repetidos Intrinsico",
 print("tasa de repetidos extrinseco",
       repeats[:,NintrParams:].sum() / (repeats.shape[0] * n * 6))
 
-# %% calculo los estadísticos para analizar ocnvergencia
-# medias de cada cadena
-traceIn = trace['xIn'].reshape((-1, nDraws, NintrParams)).transpose((2,0,1))
-traceEx = trace['xEx'].reshape((-1, nDraws, n, 6)).transpose((2,3,0,1))
-
-inMeanChain = np.mean(traceIn, axis=-1)
-exMeanChain = np.mean(traceEx, axis=-1)
-
-inDifChain = (traceIn.T - inMeanChain.T).T
-exDifChain = (traceEx.T - exMeanChain.T).T
-
-inCovChain = np.mean(inDifChain**2, axis=-1)
-exCovChain = np.mean(exDifChain**2, axis=-1)
-
-nDrawsSqrt = np.sqrt(nDraws)
-
-# calculo la diferencia mutua de la media
-inMeanChainDiff = (inMeanChain.reshape((NintrParams, -1, 1)) -
-                   inMeanChain.reshape((NintrParams, 1, -1)))
-inMeanChainDiff *= nDrawsSqrt / np.sqrt(inCovChain).reshape((NintrParams, -1,1))
+## %% calculo los estadísticos para analizar ocnvergencia
+## medias de cada cadena
+#traceIn = trace['xIn'].reshape((-1, nDraws, NintrParams)).transpose((2,0,1))
+#traceEx = trace['xEx'].reshape((-1, nDraws, n, 6)).transpose((2,3,0,1))
+#
+#inMeanChain = np.mean(traceIn, axis=-1)
+#exMeanChain = np.mean(traceEx, axis=-1)
+#
+#inDifChain = (traceIn.T - inMeanChain.T).T
+#exDifChain = (traceEx.T - exMeanChain.T).T
+#
+#inCovChain = np.mean(inDifChain**2, axis=-1)
+#exCovChain = np.mean(exDifChain**2, axis=-1)
+#
+#nDrawsSqrt = np.sqrt(nDraws)
+#
+## calculo la diferencia mutua de la media
+#inMeanChainDiff = (inMeanChain.reshape((NintrParams, -1, 1)) -
+#                   inMeanChain.reshape((NintrParams, 1, -1)))
+#inMeanChainDiff *= nDrawsSqrt / np.sqrt(inCovChain).reshape((NintrParams, -1,1))
 
 
 
 
 # %%
+
 corner.corner(trace['xIn'])
-corner.corner(trace['xEx'][:,4])
+corner.corner(trace['xEx'][:,2])
+
+# %%
+
+# indices para elegir que traza extrínseca
+a = 2
+b = 1
+
+trazaSelect = trace['xEx'][:,a,b].reshape((nChains, -1)).T
+trazaMean = np.mean(trazaSelect, axis=1)
+trazaStd = np.sqrt(np.mean((trazaSelect.T - trazaMean)**2, axis=0))
+trazaMeanAll = np.mean(trazaMean)
+trazaStdAll = np.sqrt(np.mean((trazaSelect.T - trazaMeanAll)**2))
+trazaStdMax = trazaMeanAll + trazaStdAll
+trazaStdMin = trazaMeanAll - trazaStdAll
+
 
 plt.figure()
-plt.plot(trace['xEx'][:,4,3].reshape((nChains, -1)).T)
+plt.plot(trazaSelect, linewidth=2)
+plt.plot(trazaMean, 'k-', linewidth=3)
+plt.fill_between(range(nDraws), trazaMean - trazaStd, trazaMean + trazaStd,
+                 facecolor='black', alpha=0.3)
+plt.fill_between([0, nDraws - 1], [trazaStdMax, trazaStdMax],
+                 [trazaStdMin, trazaStdMin], facecolor='green', alpha=0.2)
 
-plt.plot(trace['xIn'][:,0].reshape((nChains, -1)).T)
+# %%
+plt.figure()
+plt.plot(trace['xIn'][:,2].reshape((nChains, -1)).T)
 
 
 # %% select to prune burn in
 leChain = trace['xEx'].shape[0] / nChains
-indexCut = 25e3
+indexCut = 150e3
 noBurnInIndexes = np.arange(indexCut, leChain, dtype=int)
 noBurnInIndexes = np.array(noBurnInIndexes.reshape((1,-1)) +
                            (np.arange(nChains) * leChain).reshape((-1,1)),
@@ -82,6 +105,8 @@ trace['xEx'] = trace['xEx'][noBurnInIndexes]
 plt.figure()
 plt.plot(trace['xEx'][:,1,0].reshape((-1, int(leChain - indexCut))).T)
 
+corner.corner(trace['xIn'])
+corner.corner(trace['xEx'][:,4])
 
 # %%
 plt.figure()
@@ -182,6 +207,116 @@ exMean = np.mean(trace['xEx'], axis=0)
 exCov = np.cov(trace['xEx'].reshape(-1, n*6).T)
 Sex = np.sqrt(np.diag(exCov)).reshape((n,6))
 exCorr = exCov / (Sex.reshape((-1, 1)) * Sex.reshape((1, -1)))
+
+
+# %% testeo sobre la imagen
+
+cameraMatrix, distCoeffs = bl.flat2int(inMean, Ns, model)
+
+Cint = intrCalibResults['inCov']
+Cf = np.zeros((4,4))
+Cf[2:,2:] = inCov[:2,:2]
+Ck = inCov[2, 2]
+Cfk = inCov[:2, 2]
+
+xy = np.zeros((n, m, 2))
+cm = np.zeros((n, m, 2, 2))
+
+Xext = exMean.reshape((n,6))
+
+for j in range(n):
+    rVec, tVec = bl.flat2ext(Xext[j])
+    xy[j, :, 0], xy[j, :, 1], cm[j] = cl.inverse(
+            imagePoints.reshape((n, m, 2))[j], rVec, tVec,
+            cameraMatrix, distCoeffs, model, Ci[j], Cf, Ck, Crt=False, Cfk=Cfk)
+
+
+plt.figure()
+plt.scatter(xy[:,:,0], xy[:,:,1])
+
+fig = plt.figure()
+ax = fig.gca()
+C = cm.reshape(-1,2,2)
+mux = xy[:, :, 0].reshape(-1)
+muy = xy[:, :, 1].reshape(-1)
+col = 'k'
+cl.plotPointsUncert(ax, C, mux, muy, col)
+
+# %% guardo los resultdos de la calibracion intrinseca
+intrCalibResults = dict()
+
+intrCalibResults['model'] = model
+intrCalibResults['inMean'] = inMean
+intrCalibResults['exMean'] = exMean
+intrCalibResults['inCov'] = inCov
+intrCalibResults['exCov'] = exCov
+intrCalibResults['nChains'] = nChains
+intrCalibResults['chainLength'] = np.int(trace['xEx'].shape[0] / nChains)
+intrCalibResults['filenameStem'] = pathFiles
+intrCalibResults['help'] = '''
+este diccionario tiene los resultados de la calibracion intrinseca
+inMean : promedio de los puntos sampleados con Metropolis
+exMean : promedio de los puntos sampleados, parametros extrinsecos
+inCov : matriz de covarianza de los parametros intrinsecos
+exCov : covarianza de los parametros extrinsecos
+nChains : cantidad decadenas de sampleo Metropolis
+chainLength : longitud de las cadenas de markov
+pathFiles : nombre del archivo con las muestras, agregar Int.py o Ext.py
+'''
+
+np.save(pathFiles + "IntrCalibResults", intrCalibResults)
+
+
+# %%
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 # %%
