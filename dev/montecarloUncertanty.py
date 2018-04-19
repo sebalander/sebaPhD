@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
+
 """
 Created on Fri Jun  2 20:11:26 2017
 
@@ -16,7 +17,10 @@ import matplotlib.pyplot as plt
 from importlib import reload
 import scipy.linalg as ln
 from numpy import sqrt, cos, sin
-
+from dev.bayesLib import flat2int
+import dev.bayesLib as bl
+import scipy.stats as sts
+import scipy.special as spe
 
 def calculaCovarianza(xM, yM,):
     '''
@@ -39,16 +43,106 @@ def calculaCovarianza(xM, yM,):
     return [muXm, muYm], CmNum
 
 
+
+# %% funcion que hace todas las cuentas
+def analyticVsMC(imgPts, Ci, F, Cf, K, Ck, Cfk, rtV, Crt, retPts=True):
+    '''
+    Parameters and shapes
+    -------
+    imagePoints: coordinates in image (N,2)
+    Ci: uncertainty of imegePoints (N,2,2)
+    F: Camera Matrix (3,3)
+    Cf: uncertainty on the 4 parameters of camera matrix (nF,nF), tipically
+        nF=4.
+    K: intrinsic parameters, a vector (nK,)
+    Ck: uncertainty of intrinsic parameters (nK, nK)
+    Cfk: covariance of cross intrinsic parameters (nF,nK)
+    rtV: vector of 6 pose params (6,)
+    Crt: covariance on pose (6,6)
+    '''
+    rV, tV = rtV.reshape((2,-1))
+
+    # propagate to homogemous
+    xd, yd, Cd, _ = cl.ccd2dis(imgPts[:,0], imgPts[:,1], F, Cccd=Ci, Cf=Cf)
+
+    # go to undistorted homogenous
+    xh, yh, Ch = cl.dis2hom(xd, yd, K, model, Cd=Cd, Ck=Ck, Cfk=Cfk)
+
+    # project to map
+    xm, ym, Cm = cl.xyhToZplane(xh, yh, rV, tV, Ch=Ch, Crt=Crt)
+
+    # generar puntos y parametros
+    # por suerte todas las pdfs son indep
+    xI = (np.random.randn(N, nPts, 2, 1) *
+          Di.reshape((1, -1, 2, 2))).sum(-1) + imgPts
+
+    rtVsamples = np.random.randn(N, 6).dot(Dextr) + rtV
+    rots = rtVsamples[:,:3] # np.random.randn(N, 3).dot(np.sqrt(Cr)) + rV
+    tras = rtVsamples[:,3:] # np.random.randn(N, 3).dot(np.sqrt(Ct)) + tV
+
+#    # para chequear que esta bien multiplicado esto
+#    ertest = (rtVsamples[0] - rtV).dot(Crt).dot((rtVsamples[0] - rtV).T)
+#    np.isclose(ertest, np.sum(((rtVsamples[0] - rtV).dot(Dextr))**2))
+#    np.isclose(ertest, np.sum(((rtVsamples[0] - rtV).dot(Dextr.T))**2))
+
+
+    fkVsamples = np.random.randn(N, fkV.shape[0]).dot(Dintr) + fkV
+    kL = fkVsamples[:,:Ns[0]]
+    kD = fkVsamples[:,Ns[0]:]
+#    kD = np.random.randn(N, Cf.shape[0]).dot(np.sqrt(Cf)) + K  # distorsion
+#    kL = np.zeros((N, 3, 3), dtype=float)  # lineal
+#    kL[:, 2, 2] = 1
+#    kL[:, :2, 2] = np.random.randn(N, 2).dot(np.sqrt(Ck[2:, 2:])) + F[:2, 2]
+#    kL[:, [0, 1], [0, 1]] = np.random.randn(N, 2).dot(np.sqrt(Ck[:2, :2]))
+#    kL[:, [0, 1], [0, 1]] += F[[0, 1], [0, 1]]
+
+
+    # estos son los puntos sampleados por montecarlo, despues de
+    xD, yD, xH, yH, xM, yM = np.empty((6, N, npts), dtype=float)
+
+    for i in range(N):
+#        F, K = flat2int(fkVsamples[i], Ns, model)
+        # % propagate to homogemous
+
+        xD[i], yD[i], _, _ = cl.ccd2dis(xI[i,:,0], xI[i,:,1], bl.flat2CamMatrix(kL[i], model))
+
+        # % go to undistorted homogenous
+        xH[i], yH[i], _ = cl.dis2hom(xD[i], yD[i], kD[i], model)
+
+        # % project to map
+        xM[i], yM[i], _ = cl.xyhToZplane(xH[i], yH[i], rots[i], tras[i])
+
+    muI, CiNum = calculaCovarianza(xI[:, :, 0], xI[:, :, 1])
+    muD, CdNum = calculaCovarianza(xD, yD)
+    muH, ChNum = calculaCovarianza(xH, yH)
+    muM, CmNum = calculaCovarianza(xM, yM)
+
+    ptsTeo = [[xd, yd], [xh, yh], [xm, ym]]
+    ptsNum = [muI, muD, muH, muM]
+    ptsMC = [xI, xD, yD, xH, yH, xM, yM]
+
+    covTeo = [Ci, Cd, Ch, Cm]
+    covNum = [CiNum, CdNum, ChNum, CmNum]
+
+    if retPts:
+        return ptsTeo, ptsNum, covTeo, covNum, ptsMC
+    else:
+        return covTeo, covNum
+
+
 # %% LOAD DATA
 # input
 plotCorners = False
 # cam puede ser ['vca', 'vcaWide', 'ptz'] son los datos que se tienen
 camera = 'vcaWide'
 # puede ser ['rational', 'fisheye', 'poly']
-modelos = ['poly', 'rational', 'fisheye']
-model = modelos[2]
-
+modelos = ['poly', 'rational', 'fisheye', 'stereographic']
+model = modelos[3]
+Ns = [2,3]
 model
+
+intrCalibFile = "/home/sebalander/Code/VisionUNQextra/Videos y Mediciones/"
+intrCalibFile +="extraDataSebaPhD/traces15IntrCalibResults.npy"
 
 imagesFolder = "./resources/intrinsicCalib/" + camera + "/"
 cornersFile =      imagesFolder + camera + "Corners.npy"
@@ -62,169 +156,226 @@ imgSize = tuple(np.load(imgShapeFile))
 images = glob.glob(imagesFolder+'*.png')
 imagePointsAll = np.load(cornersFile)
 
+intrCalib = np.load(intrCalibFile).all()
+
 nIm, _, nPts, _ = imagePoints.shape  # cantidad de imagenes
 # Parametros de entrada/salida de la calibracion
 objpoints = np.array([chessboardModel]*nIm)
 
-distCoeffsFile =   imagesFolder + camera + model + "DistCoeffs.npy"
-linearCoeffsFile = imagesFolder + camera + model + "LinearCoeffs.npy"
-tVecsFile =        imagesFolder + camera + model + "Tvecs.npy"
-rVecsFile =        imagesFolder + camera + model + "Rvecs.npy"
+#distCoeffsFile =   imagesFolder + camera + model + "DistCoeffs.npy"
+#linearCoeffsFile = imagesFolder + camera + model + "LinearCoeffs.npy"
+#tVecsFile =        imagesFolder + camera + model + "Tvecs.npy"
+#rVecsFile =        imagesFolder + camera + model + "Rvecs.npy"
 
 # load model specific data
-distCoeffs = np.load(distCoeffsFile).reshape(-1)
-cameraMatrix = np.load(linearCoeffsFile)
-rVecs = np.load(rVecsFile)
-tVecs = np.load(tVecsFile)
+imSel = 30  # ELIJO UNA DE LAS IMAGENES
 
-# %% invento unas covarianzas
-Ci = (1.0**2) * np.array([np.eye(2)]*imagePointsAll.shape[2])
-Cr = np.eye(3) * (np.pi / 180)**2
-Ct = np.eye(3) * 0.1**2
-Crt = [Cr, Ct]
-# covarianza de los parametros intrinsecos de la camara
-Cf = np.eye(4) * 0.1**2
-if model is 'poly':
-    Ck = np.diag((distCoeffs[[0, 1, 4]]*0.001)**2)  # 0.1% error distorsion
-if model is 'rational':
-    Ck = np.diag((distCoeffs[[0, 1, 4, 5, 6, 7]]*0.001)**2)  # 0.1% dist er
-if model is 'fisheye':
-    Ck = np.diag((distCoeffs*0.001)**2)  # 0.1% error distorsion
+fkV = intrCalib['inMean']
+cameraMatrix, distCoeffs = flat2int(fkV, Ns, model)
+rtV = intrCalib['exMean'][imSel]
+imgPts = imagePoints[imSel,0]
 
-N = 1000  # cantidad de realizaciones 
+Cintr = intrCalib['inCov'] / 100
+Cf = np.zeros((4,4))  # param de CCD, dist focal, centro
+Cf[2:,2:] += Cintr[:Ns[0], :Ns[0]]
+Ck = Cintr[Ns[0]:, Ns[0]:]  # k de distorsion
+Cfk = Cintr[:Ns[0], Ns[0]:]
+Dintr = cl.unit2CovTransf(Cintr)
+
+covLim0 = 6 * imSel
+covLim1 = covLim0 + 6
+Crt = intrCalib['exCov'][covLim0:covLim1,covLim0:covLim1] / 100
+Dextr = cl.unit2CovTransf(Crt)
+
+rtSigmas = np.sqrt(np.diag(Crt))
+CorrRT = Crt / rtSigmas.reshape((-1,1)) / rtSigmas.reshape((1,-1))
+#plt.matshow(CorrRT, cmap='coolwarm', vmax=1, vmin=-1)
+
+## %% invento unas covarianzas
+Ci = (1.0**2) * np.array([np.eye(2)]*nPts) / 100
+Di = np.sqrt(Ci) # a estas las supongo diagonales y listo
+#Cr = np.eye(3) * (np.pi / 180)**2
+#Ct = np.eye(3) * 0.1**2
+#Crt = [Cr, Ct]
+## covarianza de los parametros intrinsecos de la camara
+#Cf = np.eye(4) * 0.1**2
+#if model is 'poly':
+#    Ck = np.diag((distCoeffs[[0, 1, 4]]*0.001)**2)  # 0.1% error distorsion
+#if model is 'rational':
+#    Ck = np.diag((distCoeffs[[0, 1, 4, 5, 6, 7]]*0.001)**2)  # 0.1% dist er
+#if model is 'fisheye':
+#    Ck = np.diag((distCoeffs*0.001)**2)  # 0.1% error distorsion
+#
+N = 3000  # cantidad de realizaciones
+#
 
 
-# %% choose an image
-imSearch = '22h22m11s'
-for i in range(len(images)):
-    if images[i].find(imSearch) is not -1:
-        j = i
-
-print('\t imagen', j)
-imagePoints = imagePointsAll[j, 0]
-npts = imagePoints.shape[0]
-
-img = plt.imread(images[j])
-
-# cargo la rototraslacion
-rV = rVecs[j].reshape(-1)
-tV = tVecs[j].reshape(-1)
 
 
-# %% funcion que hace todas las cuentas
-def analyticVsMC(imagePoints, Ci, cameraMatrix, Cf, distCoeffs, Ck, rtV, Crt):
-    rV, tV = rtV
-    
-    # propagate to homogemous
-    xpp, ypp, Cpp = cl.ccd2hom(imagePoints, cameraMatrix, Cccd=Ci, Cf=Cf)
-    
-    # go to undistorted homogenous
-    xp, yp, Cp = cl.homDist2homUndist(xpp, ypp, distCoeffs, model, Cpp=Cpp, Ck=Ck)
-    
-    # project to map
-    xm, ym, Cm = cl.xypToZplane(xp, yp, rV, tV, Cp=Cp, Crt=Crt)
-    
-    # generar puntos y parametros
-    # por suerte todas las pdfs son indep
-    xI = np.random.randn(N, npts, 2).dot(np.sqrt(Ci[0])) + imagePoints
-    rots = np.random.randn(N, 3).dot(np.sqrt(Cr)) + rV
-    tras = np.random.randn(N, 3).dot(np.sqrt(Ct)) + tV
-    kD = np.random.randn(N, Ck.shape[0]).dot(np.sqrt(Ck)) + distCoeffs  # disorsion
-    kL = np.zeros((N, 3, 3), dtype=float)  # lineal
-    kL[:, 2, 2] = 1
-    kL[:, :2, 2] = np.random.randn(N, 2).dot(np.sqrt(Cf[2:, 2:])) + cameraMatrix[:2, 2]
-    kL[:, [0, 1], [0, 1]] = np.random.randn(N, 2).dot(np.sqrt(Cf[:2, :2]))
-    kL[:, [0, 1], [0, 1]] += cameraMatrix[[0, 1], [0, 1]]
-    
-    xPP, yPP, xP, yP, xM, yM = np.empty((6, N, npts), dtype=float)
-    
-    for i in range(N):
-        # % propagate to homogemous
-        xPP[i], yPP[i] = cl.ccd2hom(xI[i], kL[i])
-    
-        # % go to undistorted homogenous
-        xP[i], yP[i] = cl.homDist2homUndist(xPP[i], yPP[i], kD[i], model)
-    
-        # % project to map
-        xM[i], yM[i] = cl.xypToZplane(xP[i], yP[i], rots[i], tras[i])
+## %% choose an image
+#imSearch = '22h22m11s'
+#for i in range(len(images)):
+#    if images[i].find(imSearch) is not -1:
+#        j = i
+#
+#print('\t imagen', j)
+#imagePoints = imagePointsAll[j, 0]
+npts = imgPts.shape[0]
+#
+#img = plt.imread(images[j])
+#
+## cargo la rototraslacion
+#rV = rVecs[j].reshape(-1)
+#tV = tVecs[j].reshape(-1)
 
-    muI, CiNum = calculaCovarianza(xI[:, :, 0], xI[:, :, 1])
-    muPP, CppNum = calculaCovarianza(xPP, yPP)
-    muP, CpNum = calculaCovarianza(xP, yP)
-    muM, CmNum = calculaCovarianza(xM, yM)
-
-    ptsTeo = [imagePoints, [xpp, ypp], [xp, yp], [xm, ym]]
-    ptsNum = [muI, muPP, muP, muM]
-
-    covTeo = [Ci, Cpp, Cp, Cm]
-    covNum = [CiNum, CppNum, CpNum, CmNum]
-
-    return ptsTeo, ptsNum, covTeo, covNum
 
 # %%
-rtV = [rV, tV]
-ptsTeo, ptsNum, covTeo, covNum = analyticVsMC(imagePoints, Ci, cameraMatrix, Cf, distCoeffs, Ck, rtV, Crt)
+retAll = analyticVsMC(imgPts, Ci, cameraMatrix, Cf, distCoeffs, Ck, Cfk, rtV, Crt)
+ptsTeo, ptsNum, covTeo, covNum, ptsMC = retAll
 
-xI, [xpp, ypp], [xp, yp], [xm, ym] = ptsTeo
-muI, muPP, muP, muM = ptsNum
-Ci, Cpp, Cp, Cm = covTeo
-CiNum, CppNum, CpNum, CmNum = covNum
+[xd, yd], [xh, yh], [xm, ym] = ptsTeo
+Ci, Cd, Ch, Cm = covTeo
 
-## %% plot everything
-#
-## plot initial uncertanties
-#fig1 = plt.figure(1)
-#ax1 = fig1.gca()
-#ax1.imshow(img)
-##for i in range(nPts):
-##    x, y = imagePoints[i]
-##    cl.plotEllipse(ax1, Ci[i], x, y, 'b')
-#
-## propagate to homogemous
-#fig2 = plt.figure(2)
-#ax2 = fig2.gca()
-##for i in range(nPts):
-##    cl.plotEllipse(ax2, Cpp[i], xpp[i], ypp[i], 'b')
-#
-## go to undistorted homogenous
-#fig3 = plt.figure(3)
-#ax3 = fig3.gca()
-##for i in range(nPts):
-##    cl.plotEllipse(ax3, Cp[i], xp[i], yp[i], 'b')
-#
-## project to map
-#fig4 = plt.figure(4)
-#ax4 = fig4.gca()
-#ax4.plot(xm, ym, '+', markersize=2)
-##for i in range(nPts):
-##    cl.plotEllipse(ax4, Cm[i], xm[i], ym[i], 'b')
-#
-#
-#for i in range(N):
-#    # plot corners
-#    ax1.plot(xI[i, :, 0], xI[i, :, 1], '.k', markersize=0.5)
-#
-#    # % propagate to homogemous
-#    ax2.plot(xPP[i], yPP[i], '.k', markersize=0.5)
-#
-#    # % go to undistorted homogenous
-#    ax3.plot(xP[i], yP[i], '.k', markersize=0.5)
-#
-#    # % project to map
-#    ax4.plot(xM[i], yM[i], '.k', markersize=0.5)
+xI, xD, yD, xH, yH, xM, yM = ptsMC
+
+muI, muD, muH, muM = ptsNum
+CiNum, CdNum, ChNum, CmNum = covNum
+
+# %% plot everything
+
+ptSelected = 0  # de lso 54 puntos este es el seleccionado para acercamiento
+
+
+fig = plt.figure()
+#from mpl_toolkits.axes_grid1.inset_locator import mark_inset
+#from mpl_toolkits.axes_grid1.inset_locator import zoomed_inset_axes
+
+figManager = plt.get_current_fig_manager()
+figManager.window.showMaximized()
+
+# plot initial uncertanties
+#figI = plt.figure(1)
+axI = plt.subplot(241)  # figI.gca()
+cl.plotPointsUncert(axI, Ci, imgPts[:,0], imgPts[:,1], 'b')
+cl.plotPointsUncert(axI, CiNum, muI[0], muI[1], 'k')
+axI.plot(xI[:, :, 0].flat, xI[:, :, 1].flat, '.k', markersize=0.5)
+axI.axis('equal')
+
+# propagate to homogemous
+axD = plt.subplot(242)  # figD.gca()
+cl.plotPointsUncert(axD, Cd, xd, yd, 'b')
+cl.plotPointsUncert(axD, CdNum, muD[0], muD[1], 'k')
+axD.plot(xD.flat, yD.flat, '.k', markersize=0.5)
+#axD.plot(xd[0], yd[0], 'xr', markersize=5)
+axD.axis('equal')
+
+# go to undistorted homogenous
+#figH = plt.figure(3)
+axH = plt.subplot(243)  # figH.gca()
+cl.plotPointsUncert(axH, Ch, xh, yh, 'b')
+cl.plotPointsUncert(axH, ChNum, muH[0], muH[1], 'k')
+axH.plot(xH.flat, yH.flat, '.k', markersize=0.5)
+#axH.plot(xh[0], yh[0], 'xr', markersize=5)
+axH.axis('equal')
+
+# project to map
+#figM = plt.figure(4)
+axM = plt.subplot(244)  # figM.gca()
+axM.plot(xm, ym, '+', markersize=2)
+cl.plotPointsUncert(axM, Cm, xm, ym, 'b')
+cl.plotPointsUncert(axM, CmNum, muM[0], muM[1], 'k')
+axM.plot(xM.flat, yM.flat, '.k', markersize=0.5)
+#axM.plot(xm[0], ym[0], 'xr', markersize=5)
+axM.axis('equal')
+
+
+# inset image
+axIins = plt.subplot(245)
+#axIins = zoomed_inset_axes(axI, 30.0, loc=2) # zoom-factor: 2.5, location: upper-left
+#mark_inset(axI, axIins, loc1=1, loc2=4, fc="none", ec="0.5")
+cl.plotPointsUncert(axIins, [Ci[ptSelected]], [imgPts[ptSelected,0]], [imgPts[ptSelected,1]], 'b')
+cl.plotPointsUncert(axIins, [CiNum[ptSelected]], [muI[0][ptSelected]], [muI[1][ptSelected]], 'k')
+axIins.plot(xI[:, ptSelected, 0], xI[:, ptSelected, 1], '.k', markersize=0.5)
+axIins.axis('equal')
+#axIins.set_xticks([False])
+#axIins.set_yticks([False])
+
+
+#inset distorted
+axDins = plt.subplot(246)
+#axDins = zoomed_inset_axes(axD, 30.0, loc=2) # zoom-factor: 2.5, location: upper-left
+#mark_inset(axD, axDins, loc1=1, loc2=4, fc="none", ec="0.5")
+cl.plotPointsUncert(axDins, [Cd[ptSelected]], [xd[ptSelected]], [yd[ptSelected]], 'b')
+cl.plotPointsUncert(axDins, [CdNum[ptSelected]], [muD[0][ptSelected]], [muD[1][ptSelected]], 'k')
+axDins.plot(xD[:, ptSelected], yD[:, ptSelected], '.k', markersize=0.5)
+axDins.axis('equal')
+
+
+#inset homogenous
+axHins = plt.subplot(247)
+#axDins = zoomed_inset_axes(axD, 30.0, loc=2) # zoom-factor: 2.5, location: upper-left
+#mark_inset(axD, axDins, loc1=1, loc2=4, fc="none", ec="0.5")
+cl.plotPointsUncert(axHins, [Ch[ptSelected]], [xh[ptSelected]], [yh[ptSelected]], 'b')
+cl.plotPointsUncert(axHins, [ChNum[ptSelected]], [muH[0][ptSelected]], [muH[1][ptSelected]], 'k')
+axHins.plot(xH[:, ptSelected], yH[:, ptSelected], '.k', markersize=0.5)
+axHins.axis('equal')
+
+
+#inset homogenous
+axMins = plt.subplot(248)
+#axDins = zoomed_inset_axes(axD, 30.0, loc=2) # zoom-factor: 2.5, location: upper-left
+#mark_inset(axD, axDins, loc1=1, loc2=4, fc="none", ec="0.5")
+cl.plotPointsUncert(axMins, [Cm[ptSelected]], [xm[ptSelected]], [ym[ptSelected]], 'b')
+cl.plotPointsUncert(axMins, [CmNum[ptSelected]], [muM[0][ptSelected]], [muM[1][ptSelected]], 'k')
+axMins.plot(xM[:, ptSelected], yM[:, ptSelected], '.k', markersize=0.5)
+axMins.axis('equal')
+
+# dibujo los rectangulos
+import matplotlib.patches as patches
+
+# caja en imagen
+boxIxy = np.array([axIins.get_xlim()[0], axIins.get_ylim()[0]]) # get caja
+boxIwh = np.array([axIins.get_xlim()[1] - boxIxy[0], axIins.get_ylim()[1] - boxIxy[1]])
+boxIxy -= 0.5 * boxIwh # agrando la caja
+boxIwh*= 2
+axI.add_patch( patches.Rectangle(boxIxy, boxIwh[0], boxIwh[1], fill=False))
+
+# caja en distprsionado
+boxDxy = np.array([axDins.get_xlim()[0], axDins.get_ylim()[0]]) # get caja
+boxDwh = np.array([axDins.get_xlim()[1] - boxDxy[0], axDins.get_ylim()[1] - boxDxy[1]])
+boxDxy -= 0.5 * boxDwh # agrando la caja
+boxDwh*= 2
+axD.add_patch( patches.Rectangle(boxDxy, boxDwh[0], boxDwh[1], fill=False))
+
+# caja en homogeneas
+boxHxy = np.array([axHins.get_xlim()[0], axHins.get_ylim()[0]]) # get caja
+boxHwh = np.array([axHins.get_xlim()[1] - boxHxy[0], axHins.get_ylim()[1] - boxHxy[1]])
+boxHxy -= 0.5 * boxHwh # agrando la caja
+boxHwh*= 2
+axH.add_patch( patches.Rectangle(boxHxy, boxHwh[0], boxHwh[1], fill=False))
+
+# caja en mapa
+boxMxy = np.array([axMins.get_xlim()[0], axMins.get_ylim()[0]]) # get caja
+boxMwh = np.array([axMins.get_xlim()[1] - boxMxy[0], axMins.get_ylim()[1] - boxMxy[1]])
+boxMxy -= 0.5 * boxMwh # agrando la caja
+boxMwh*= 2
+axM.add_patch( patches.Rectangle(boxMxy, boxMwh[0], boxMwh[1], fill=False))
+
+
+plt.tight_layout()
 
 
 # %% comparo numericamente
 
 # calculo las normas de frobenius de cada matriz y de la diferencia
-CiF, CppF, CpF, CmF = [ln.norm(C, axis=(1,2)) for C in [Ci, Cpp, Cp, Cm]]
-CiNF, CppNF, CpNF, CmNF = [ln.norm(C, axis=(1,2)) for C in [CiNum, CppNum, CpNum, CmNum]]
+CiF, CdF, ChF, CmF = [ln.norm(C, axis=(1,2)) for C in [Ci, Cd, Ch, Cm]]
+CiNF, CdNF, ChNF, CmNF = [ln.norm(C, axis=(1,2)) for C in [CiNum, CdNum, ChNum, CmNum]]
 
-CiDF, CppDF, CpDF, CmDF = [ln.norm(C, axis=(1,2))
-    for C in [Ci - CiNum, Cpp - CppNum, Cp - CpNum, Cm - CmNum]]
+CiDF, CdDF, ChDF, CmDF = [ln.norm(C, axis=(1,2))
+    for C in [Ci - CiNum, Cd - CdNum, Ch - ChNum, Cm - CmNum]]
 
-li, lpp, lp, lm = np.empty((4,npts,3), dtype=float)
-liN, lppN, lpN, lmN = np.empty((4,npts,3), dtype=float)
+li, ld, lh, lm = np.empty((4,npts,3), dtype=float)
+liN, ldN, lhN, lmN = np.empty((4,npts,3), dtype=float)
 
 # %%
 def sacoValsAng(C):
@@ -236,14 +387,15 @@ def sacoValsAng(C):
         L[i] = [np.sqrt(l[0].real), np.sqrt(l[1].real), np.arctan(v[0, 1] / v[0, 0])]
     return L
 
-Li, Lpp, Lp, Lm = [sacoValsAng(C) for C in [Ci, Cpp, Cp, Cm]]
-LiN, LppN, LpN, LmN = [sacoValsAng(C) for C in [CiNum, CppNum, CpNum, CmNum]]
+Li, Ld, Lh, Lm = [sacoValsAng(C) for C in [Ci, Cd, Ch, Cm]]
+LiN, LdN, LhN, LmN = [sacoValsAng(C) for C in [CiNum, CdNum, ChNum, CmNum]]
 
 
 # %% "indicadores" de covarianza
-rads = ln.norm(imagePoints - cameraMatrix[:2, 2], axis=1)
+# radio desde centro optico
+rads = ln.norm(imgPts - cameraMatrix[:2, 2], axis=1)
 
-tVm = cl.rotateRodrigues(tV,-rV) # traslation vector in maps frame of ref
+tVm = cl.rotateRodrigues(rtV[3:],-rtV[:3]) # traslation vector in maps frame of ref
 factorVista = ln.norm(chessboardModel[0].T + tVm.reshape(-1,1), axis=0) / tVm[2]
 
 
@@ -268,12 +420,12 @@ plt.scatter(rads, CiF)
 plt.scatter(rads, CiNF)
 
 plt.subplot(222)
-plt.scatter(rads, CppF)
-plt.scatter(rads, CppNF)
+plt.scatter(rads, CdF)
+plt.scatter(rads, CdNF)
 
 plt.subplot(223)
-plt.scatter(rads, CpF)
-plt.scatter(rads, CpNF)
+plt.scatter(rads, ChF)
+plt.scatter(rads, ChNF)
 
 plt.subplot(224)
 plt.scatter(rads, CmF)
@@ -290,12 +442,12 @@ plt.scatter(rads, Li[:, var])
 plt.scatter(rads, LiN[:, var])
 
 plt.subplot(342)
-plt.scatter(rads, Lpp[:, var])
-plt.scatter(rads, LppN[:, var])
+plt.scatter(rads, Ld[:, var])
+plt.scatter(rads, LdN[:, var])
 
 plt.subplot(343)
-plt.scatter(rads, Lp[:, var])
-plt.scatter(rads, LpN[:, var])
+plt.scatter(rads, Lh[:, var])
+plt.scatter(rads, LhN[:, var])
 
 plt.subplot(344)
 plt.scatter(rads, Lm[:, var])
@@ -307,12 +459,12 @@ plt.scatter(rads, Li[:, var])
 plt.scatter(rads, LiN[:, var])
 
 plt.subplot(346)
-plt.scatter(rads, Lpp[:, var])
-plt.scatter(rads, LppN[:, var])
+plt.scatter(rads, Ld[:, var])
+plt.scatter(rads, LdN[:, var])
 
 plt.subplot(347)
-plt.scatter(rads, Lp[:, var])
-plt.scatter(rads, LpN[:, var])
+plt.scatter(rads, Lh[:, var])
+plt.scatter(rads, LhN[:, var])
 
 plt.subplot(348)
 plt.scatter(rads, Lm[:, var])
@@ -325,12 +477,12 @@ plt.scatter(rads, Li[:, var])
 plt.scatter(rads, LiN[:, var])
 
 plt.subplot(3,4,10)
-plt.scatter(rads, Lpp[:, var])
-plt.scatter(rads, LppN[:, var])
+plt.scatter(rads, Ld[:, var])
+plt.scatter(rads, LdN[:, var])
 
 plt.subplot(3,4,11)
-plt.scatter(rads, Lp[:, var])
-plt.scatter(rads, LpN[:, var])
+plt.scatter(rads, Lh[:, var])
+plt.scatter(rads, LhN[:, var])
 
 plt.subplot(3,4,12)
 plt.scatter(rads, Lm[:, var])
@@ -346,14 +498,14 @@ plt.plot([np.min(Li[:, var]), np.max(Li[:, var])],
           [np.min(LiN[:, var]), np.max(LiN[:, var])], '-k')
 
 plt.subplot(342)
-plt.scatter(Lpp[:, var], LppN[:, var])
-plt.plot([np.min(Lpp[:, var]), np.max(Lpp[:, var])],
-          [np.min(LppN[:, var]), np.max(LppN[:, var])], '-k')
+plt.scatter(Ld[:, var], LdN[:, var])
+plt.plot([np.min(Ld[:, var]), np.max(Ld[:, var])],
+          [np.min(LdN[:, var]), np.max(LdN[:, var])], '-k')
 
 plt.subplot(343)
-plt.scatter(Lp[:, var], LpN[:, var])
-plt.plot([np.min(Lp[:, var]), np.max(Lp[:, var])],
-          [np.min(LpN[:, var]), np.max(LpN[:, var])], '-k')
+plt.scatter(Lh[:, var], LhN[:, var])
+plt.plot([np.min(Lh[:, var]), np.max(Lh[:, var])],
+          [np.min(LhN[:, var]), np.max(LhN[:, var])], '-k')
 
 plt.subplot(344)
 plt.scatter(Lm[:, var], LmN[:, var])
@@ -367,14 +519,14 @@ plt.plot([np.min(Li[:, var]), np.max(Li[:, var])],
           [np.min(LiN[:, var]), np.max(LiN[:, var])], '-k')
 
 plt.subplot(346)
-plt.scatter(Lpp[:, var], LppN[:, var])
-plt.plot([np.min(Lpp[:, var]), np.max(Lpp[:, var])],
-          [np.min(LppN[:, var]), np.max(LppN[:, var])], '-k')
+plt.scatter(Ld[:, var], LdN[:, var])
+plt.plot([np.min(Ld[:, var]), np.max(Ld[:, var])],
+          [np.min(LdN[:, var]), np.max(LdN[:, var])], '-k')
 
 plt.subplot(347)
-plt.scatter(Lp[:, var], LpN[:, var])
-plt.plot([np.min(Lp[:, var]), np.max(Lp[:, var])],
-          [np.min(LpN[:, var]), np.max(LpN[:, var])], '-k')
+plt.scatter(Lh[:, var], LhN[:, var])
+plt.plot([np.min(Lh[:, var]), np.max(Lh[:, var])],
+          [np.min(LhN[:, var]), np.max(LhN[:, var])], '-k')
 
 plt.subplot(348)
 plt.scatter(Lm[:, var], LmN[:, var])
@@ -388,14 +540,14 @@ plt.plot([np.min(Li[:, var]), np.max(Li[:, var])],
           [np.min(LiN[:, var]), np.max(LiN[:, var])], '-k')
 
 plt.subplot(3,4,10)
-plt.scatter(Lpp[:, var], LppN[:, var])
-plt.plot([np.min(Lpp[:, var]), np.max(Lpp[:, var])],
-          [np.min(LppN[:, var]), np.max(LppN[:, var])], '-k')
+plt.scatter(Ld[:, var], LdN[:, var])
+plt.plot([np.min(Ld[:, var]), np.max(Ld[:, var])],
+          [np.min(LdN[:, var]), np.max(LdN[:, var])], '-k')
 
 plt.subplot(3,4,11)
-plt.scatter(Lp[:, var], LpN[:, var])
-plt.plot([np.min(Lp[:, var]), np.max(Lp[:, var])],
-          [np.min(LpN[:, var]), np.max(LpN[:, var])], '-k')
+plt.scatter(Lh[:, var], LhN[:, var])
+plt.plot([np.min(Lh[:, var]), np.max(Lh[:, var])],
+          [np.min(LhN[:, var]), np.max(LhN[:, var])], '-k')
 
 plt.subplot(3,4,12)
 plt.scatter(Lm[:, var], LmN[:, var])
@@ -477,32 +629,70 @@ ptosAdentro(xM[:, i], yM[:, i], xm[i], ym[i], Cm[i], 0.7)
 
 
 
-# %% este ejemplo anda. algo falta con la diagonalizacion
-from scipy.special import chdtri
-import numpy as np
+# %% saco la norma de frobenius de todas y comparo
+N = 1000  # cantidad de realizaciones
+imSel = 30  # ELIJO UNA DE LAS IMAGENES
+
+covSuperList = list()
+
+for imSel in range(0,33,4):
+    print(imSel)
+    rtV = intrCalib['exMean'][imSel]
+    imgPts = imagePoints[imSel,0]
+
+    covLim0 = 6 * imSel
+    covLim1 = covLim0 + 6
+    Crt = intrCalib['exCov'][covLim0:covLim1,covLim0:covLim1]
+    Dextr = cl.unit2CovTransf(Crt)
+
+    npts = imgPts.shape[0]
+
+
+    retAll = analyticVsMC(imgPts, Ci, cameraMatrix, Cf, distCoeffs, Ck, Cfk,
+                          rtV, Crt, retPts=False)
+#    covTeo, covNum = retAll
+#    Ci, Cd, Ch, Cm = covTeo
+#    CiNum, CdNum, ChNum, CmNum = covNum
+
+    covSuperList.append(retAll)
+
+'''
+los indices de la supermatriz:
+(a,b,c,d,e)
+a: imagen seleccionada
+b: 0 para teorico, 1 par anumerico
+c: imagen, disotrted, homogeneus, world
+d: los puntos en una imagen
+e, f: son los 2 indices de la covarianza
+'''
+
+covsTeo, covsNum = np.array(covSuperList).transpose((1, 2, 0, 3, 4, 5)).reshape((2, 4, -1, 2, 2))
+
+scaleNum = np.linalg.inv(covsNum)
+
+
+# saco la norma de frobenius de cada matriz
+covSuperFrob = np.linalg.norm(covSuperList, axis=(4, 5))
 
 # %%
-rho = -0.6
-N = 100000
-D = 2
-S = np.diag(np.arange(D)+1)
-S[[0, 1], [1, 0]] = np.sqrt(S[0, 0] + S[1, 1]) * rho
+p = 2
+matt = np.eye(p)
 
-p = 0.74
+np.exp(-p/2) / spe.gamma(N/2) / 2**(N*p/2) / np.linalg.det(matt)**(p/2+0.5)
 
-x = np.random.randn(N, D)
 
-r2 = chdtri(D, 1 - p)
-pNum = np.sum(np.sum(x**2, axis=1) <= r2) / N
-
-# print(r)
-print(p)
-print(pNum)
+sts.wishart.pdf(matt, df=N-1, scale=matt)
 
 
 
+# %%
+rv = sts.wishart()
+rv.pdf()
 
 
+frobQuotList = (covSuperFrob[:, 0] / covSuperFrob[:,1]).transpose((1, 0, 2)).reshape((4, -1))
 
 
-
+plt.plot(frobQuotList)
+plt.hist(frobQuotList[3])
+plt.violinplot(frobQuotList.T, showmeans=True, showextrema=False)

@@ -12,10 +12,10 @@ from cv2 import Rodrigues  # , homogr2pose
 from numpy import max, zeros, array, sqrt, roots, diag
 from numpy import sin, cos, cross, ones, concatenate, flipud, dot, isreal
 from numpy import linspace, polyval, eye, linalg, mean, prod, vstack
-from numpy import empty_like, ones_like, zeros_like, pi, empty
+from numpy import ones_like, zeros_like, pi, float64
 from numpy import any as anny
 from numpy.linalg import svd
-from scipy.linalg import norm, inv, eig
+from scipy.linalg import norm, inv
 from scipy.special import chdtri
 from matplotlib.patches import FancyArrowPatch
 from mpl_toolkits.mplot3d import proj3d
@@ -34,6 +34,7 @@ reload(rational)
 reload(fisheye)
 reload(poly)
 
+f64 = lambda x: array(x, dtype=float64)
 
 # %% Z=0 PROJECTION
 
@@ -42,6 +43,10 @@ def euler(al, be, ga):
     '''
     devuelve matriz de rotacion según angulos de euler.
     Craigh, pag 42
+    las rotaciones son en este orden:
+    ga: alrededor de X
+    be: alrededor de Y
+    al: alrededor de Z
     '''
     ca, cb, cg = cos([al, be, ga])
     sa, sb, sg = sin([al, be, ga])
@@ -52,6 +57,23 @@ def euler(al, be, ga):
 
     return rot
 
+
+def unit2CovTransf(C):
+    '''
+    returns the matrix that transforms points from unit normal pdf to a normal
+    pdf of covariance C. so that
+    Xnorm = np.random.randn(2,n)  # generate random points in 2D scale=1
+    T = unit2CovTransf(C)  # calculate transform matriz
+    X = np.dot(T, Xnorm)  # points that follow normal pdf of cov C
+    '''
+    # l, v = eig(C)
+    # # matrix such that T.dot(T.T)==C
+    # T =  sqrt(l.real) * v
+    # return T.real
+
+    u, s, v = svd(C)
+    # u.dot(diag(sqrt(s))).dot(v.T)
+    return u.dot(diag(sqrt(s))).dot(v.T)
 
 
 # %% BASIC ROTOTRASLATION
@@ -128,9 +150,9 @@ def retrieveParameters(params, model):
 
 
 # %% DIRECT PROJECTION
-def hom2ccd(xpp, ypp, cameraMatrix):
-    xccd = cameraMatrix[0, 0] * xpp + cameraMatrix[0, 2]
-    yccd = cameraMatrix[1, 1] * ypp + cameraMatrix[1, 2]
+def hom2ccd(xd, yd, cameraMatrix):
+    xccd = cameraMatrix[0, 0] * xd + cameraMatrix[0, 2]
+    yccd = cameraMatrix[1, 1] * yd + cameraMatrix[1, 2]
 
     return vstack((xccd, yccd)).T
 
@@ -153,14 +175,14 @@ def direct(objectPoints, rVec, tVec, cameraMatrix, distCoeffs, model,
     '''
     xHomog = rotoTrasHomog(objectPoints, rVec, tVec)
 
-    rp = norm(xHomog, axis=1)
+    rh = norm(xHomog, axis=1)
 
-    q = distort[model](rp, distCoeffs, quot=True)
+    q = distort[model](rh, distCoeffs, quot=True)
     # print(xHomog.shape, q.shape)
-    xpp, ypp = xHomog.T * q.reshape(1, -1)
+    xd, yd = xHomog.T * q.reshape(1, -1)
 
     # project to ccd
-    return hom2ccd(xpp, ypp, cameraMatrix)
+    return hom2ccd(xd, yd, cameraMatrix)
 
 
 def residualDirect(params, objectPoints, imagePoints, model):
@@ -189,64 +211,70 @@ def calibrateDirect(objectPoints, imagePoints, rVec, tVec, cameraMatrix,
 
 
 # %% INVERSE PROJECTION
-def ccd2homJacobian(imagePoints, cameraMatrix):
+def ccd2disJacobian(xi, yi, cameraMatrix):
     '''
     returns jacobian to propagate uncertainties in ccd2homogemous mapping
+    Jd_i: jacobian wrt image coordiantes
+    Jd_f: jacobian wrt linear CCD parameters
     '''
+    xi, yi, cameraMatrix = [f64(xi), f64(yi), f64(cameraMatrix)]
     Jd_i = diag(1 / cameraMatrix[[0, 1], [0, 1]])  # doesn't depend on position
 
-    unos = ones_like(imagePoints[:, 0])
-    ceros = zeros_like(unos)
+    unos = ones_like(xi, dtype=float64)
+    ceros = zeros_like(unos, dtype=float64)
 
     a = - unos / cameraMatrix[0, 0]
-    b = (cameraMatrix[0, 2] - imagePoints[:, 0]) * a**2
+    b = (cameraMatrix[0, 2] - xi) * a**2
     c = - unos / cameraMatrix[1, 1]
-    d = (cameraMatrix[1, 2] - imagePoints[:, 1]) * c**2
+    d = (cameraMatrix[1, 2] - yi) * c**2
 
-    Jd_k = array([[b, ceros, a, ceros], [ceros, d, ceros, c]])
-    Jd_k = Jd_k.transpose((2, 0, 1))  # first index iterates points
+    Jd_f = array([[b, ceros, a, ceros], [ceros, d, ceros, c]])
+    Jd_f = Jd_f.transpose((2, 0, 1))  # first index iterates points
 
-    return Jd_i, Jd_k
+    return Jd_i, Jd_f
 
 
-def ccd2hom(imagePoints, cameraMatrix, Cccd=False, Cf=False):
+def ccd2dis(xi, yi, cameraMatrix, Cccd=False, Cf=False):
     '''
+    maps from CCd, image to homogenous distorted coordiantes.
+
     must provide covariances for every point if cov is not None
 
-    Cf is the covariance matrix of intrinsic linear parameters fx, fy, u, v
+    Cf: is the covariance matrix of intrinsic linear parameters fx, fy, u, v
     (in that order).
     '''
+    xi, yi, cameraMatrix = [f64(xi), f64(yi), f64(cameraMatrix)]
+
     # undo CCD projection, asume diagonal ccd rescale
-    xpp = (imagePoints[:, 0] - cameraMatrix[0, 2]) / cameraMatrix[0, 0]
-    ypp = (imagePoints[:, 1] - cameraMatrix[1, 2]) / cameraMatrix[1, 1]
+    xd = (xi - cameraMatrix[0, 2]) / cameraMatrix[0, 0]
+    yd = (yi - cameraMatrix[1, 2]) / cameraMatrix[1, 1]
 
     Cccdbool = anny(Cccd)
     Cfbool = anny(Cf)
 
     if Cccdbool or Cfbool:
-        Cpp = zeros((xpp.shape[0], 2, 2))  # create covariance matrix
-        Jd_i, Jd_k = ccd2homJacobian(imagePoints, cameraMatrix)
+        Cd = zeros((xd.shape[0], 2, 2), dtype=float64)  # create covariance matrix
+        Jd_i, Jd_f = ccd2disJacobian(xi, yi, cameraMatrix)
 
         if Cccdbool:
             Jd_iResh = Jd_i.reshape((-1, 2, 2, 1, 1))
-            Cpp += (Jd_iResh *
-                    Cccd.reshape((-1, 1, 2, 2, 1)) *
-                    Jd_iResh.transpose((0, 4, 3, 2, 1))
-                    ).sum((2, 3))
+            Cd += (Jd_iResh *
+                   Cccd.reshape((-1, 1, 2, 2, 1)) *
+                   Jd_iResh.transpose((0, 4, 3, 2, 1))
+                   ).sum((2, 3))
 
         if Cfbool:
             # propagate uncertainty via Jacobians
-            Jd_kResh = Jd_k.reshape((-1, 2, 4, 1, 1))
-            Cpp += (Jd_kResh *
-                    Cf.reshape((-1, 1, 4, 4, 1)) *
-                    Jd_kResh.transpose((0, 4, 3, 2, 1))
-                    ).sum((2, 3))
+            Jd_fResh = Jd_f.reshape((-1, 2, 4, 1, 1))
+            Cd += (Jd_fResh *
+                   Cf.reshape((-1, 1, 4, 4, 1)) *
+                   Jd_fResh.transpose((0, 4, 3, 2, 1))
+                   ).sum((2, 3))
     else:
-        Cpp = False  # return without covariance matrix
-        Jd_k = False
+        Cd = False  # return without covariance matrix
+        Jd_f = False
 
-    return xpp, ypp, Cpp, Jd_k
-
+    return xd, yd, Cd, Jd_f
 
 
 # switcher for radial un-distortion
@@ -258,111 +286,115 @@ undistort = {
     'fisheye': fisheye.radialUndistort
 }
 
-def homDist2homUndist_ratioJacobians(xpp, ypp, distCoeffs, model):
+
+def dis2hom_ratioJacobians(xd, yd, distCoeffs, model):
     '''
     returns the distortion ratio and the jacobians with respect to undistorted
     coords and distortion params.
     '''
+    xd, yd, distCoeffs = [f64(xd), f64(yd), f64(distCoeffs)]
+
     # calculate ratio of undistortion
-    rpp = norm([xpp, ypp], axis=0)
-    q, ret, dQdP, dQdK = undistort[model](rpp, distCoeffs, quot=True,
-                                           der=True)
+    rd = norm([xd, yd], axis=0)
+    q, ret, dQdH, dQdK = undistort[model](rd, distCoeffs, quot=True,
+                                          der=True)
 
-    xp = xpp / q
-    yp = ypp / q
-    rp = rpp / q
+    xh = xd / q
+    yh = yd / q
+    rh = rd / q
 
-    # jacobiano PP (distort) respecto a coord distorsioandas
-    xyp = xp * yp
-    Jpp_p = array([[xp**2, xyp], [xyp, yp**2]]) / rp
-    Jpp_p *= dQdP.reshape(1, 1, -1)
-    Jpp_p[[0,1], [0,1], :] += q
+    # jacobiano D (distort) respecto a coord homogeneas
+    xyh = xh * yh
+    Jd_h = array([[xh**2, xyh], [xyh, yh**2]]) / rh
+    Jd_h *= dQdH.reshape(1, 1, -1)
+    Jd_h[[0, 1], [0, 1], :] += q
 
-    # jacobiano PP (distort) respecto a parametros
-    Jpp_f = array([xp * dQdK, yp * dQdK]).transpose((1, 0, 2))
+    # jacobiano D (distort) respecto a parametros de distorsion optica
+    Jd_k = array([xh * dQdK, yh * dQdK]).transpose((1, 0, 2))
 
     # los invierto
-    Jp_pp = linalg.inv(Jpp_p.T)  # jacobiano respecto a xpp, ypp
+    Jh_d = linalg.inv(Jd_h.T)  # jacobiano respecto a xd, yd
 
     # multiply each jacobian
-    Jp_f = -(Jpp_f.T.reshape((-1, 2, 1, dQdK.shape[0])) *
-             Jp_pp.reshape((-1, 2, 2, 1))).sum(1)
+    Jh_k = -(Jh_d.reshape((-1, 2, 2, 1)) *
+            Jd_k.T.reshape((-1, 2, 1, dQdK.shape[0]))
+            ).sum(1)
 
-    return q, ret, Jp_pp, Jp_f
+    return q, ret, Jh_d, Jh_k
 
 
-
-def homDist2homUndist(xpp, ypp, distCoeffs, model,
-                      Cpp=False, Cf=False, Cfk=False, Jd_k=False):
+def dis2hom(xd, yd, distCoeffs, model, Cd=False, Ck=False, Cfk=False,
+            Jd_f=False):
     '''
     takes ccd cordinates and projects to homogenpus coords and undistorts
     '''
-    # Hay notacion confusa a veces a xpp se la refiere como d o pp
-    # a xp se la refiere como p; a ccd matrix como k y a distors como f o k
+    xd, yd, distCoeffs = [f64(xd), f64(yd), f64(distCoeffs)]
 
-    Cppbool = anny(Cpp)
-    Cfbool = anny(Cf)
+    # Hay notacion confusa a veces a xd se la refiere como d o pp
+    # a xh se la refiere como p; a ccd matrix como k y a distors como f o k
 
-    if Cppbool or Cfbool :  # no hay incertezas Ck ni Cpp
-        q, _, Jp_pp, Jp_f = homDist2homUndist_ratioJacobians(xpp, ypp,
-                                                            distCoeffs,
-                                                            model)
-        xp = xpp / q  # undistort in homogenous coords
-        yp = ypp / q
+    Cdbool = anny(Cd)
+    Ckbool = anny(Ck)
 
-        Cp = zeros((len(xp),2,2))
+    if Cdbool or Ckbool:  # no hay incertezas Ck ni Cd
+        q, _, Jh_d, Jh_k = dis2hom_ratioJacobians(xd, yd,
+                                                  distCoeffs,
+                                                  model)
+        xh = xd / q  # undistort in homogenous coords
+        yh = yd / q
 
-        if Cppbool:  # incerteza Cpp
-            Jp_ppResh = Jp_pp.reshape((-1, 2, 1, 2, 1))
-            Cp = (Jp_ppResh *
-                  Cpp.reshape((-1,1,2,2,1)) *
-                  Jp_ppResh.transpose((0,4,3,2,1))
-                  ).sum((2,3))
+        Ch = zeros((len(xh), 2, 2))
 
-        if Cfbool:  # incerteza Ck
-            nf = Jp_f.shape[-1] # nro de param distorsion
-            Jp_fResh = Jp_f.reshape((-1, 2, 1, nf, 1))
-            Cp += (Jp_fResh *
-                   Cf.reshape((1, 1, nf, nf, 1)) *
+        if Cdbool:  # incerteza Cd
+            Jh_dResh = Jh_d.reshape((-1, 2, 1, 2, 1))
+            Ch = (Jh_dResh *
+                  Cd.reshape((-1, 1, 2, 2, 1)) *
+                  Jh_dResh.transpose((0, 4, 3, 2, 1))
+                  ).sum((2, 3))
+
+        if Ckbool:  # incerteza Ck
+            nf = Jh_k.shape[-1]  # nro de param distorsion
+            Jp_fResh = Jh_k.reshape((-1, 2, 1, nf, 1))
+            Ch += (Jp_fResh *
+                   Ck.reshape((1, 1, nf, nf, 1)) *
                    Jp_fResh.transpose((0, 4, 3, 2, 1))
                    ).sum((2, 3))
 
-        if anny(Cfk) and anny(Jd_k):  # si hay covarianza cruzada
-            # jacobiano de xp respecto a ccd matrix
-            Jp_k = (Jd_k.reshape((-1,1,2,4)) *
-                    Jp_pp.reshape((-1,2,2,1))
+        if anny(Cfk) and anny(Jd_f):  # si hay covarianza cruzada
+            # jacobiano de xh respecto a ccd matrix
+            Jh_f = (Jd_f.reshape((-1, 1, 2, 4)) *
+                    Jh_d.reshape((-1, 2, 2, 1))
                     ).sum(2)
             # ahora agrego termino cruzado
-            Jp_fResh = Jp_f.reshape((-1, 2, nf, 1, 1))
-            Jp_kResh = Jp_k.reshape((-1,1,1,2,4)).transpose((0,1,2,4,3))
-            Cp += (Jp_fResh *
-                   Cfk.reshape((1,1,nf,4,1)) *
-                   Jp_kResh).sum((2,3))
+            Jh_fResh = Jh_f.reshape((-1, 2, nf, 1, 1))
+            Jh_kResh = Jh_k.reshape((-1, 1, 1, 2, 4)).transpose((0, 1, 2, 4, 3))
+            Ch += 2 * (Jh_fResh *
+                       Cfk.reshape((1, 1, nf, 4, 1)) *
+                       Jh_kResh).sum((2, 3))
 
     else:
         # calculate ratio of distortion
-        rpp = norm([xpp, ypp], axis=0)
-        q, _ = undistort[model](rpp, distCoeffs, quot=True, der=False)
+        rd = norm([xd, yd], axis=0)
+        q, _ = undistort[model](rd, distCoeffs, quot=True, der=False)
 
-        xp = xpp / q  # undistort in homogenous coords
-        yp = ypp / q
-        Cp = False
+        xh = xd / q  # undistort in homogenous coords
+        yh = yd / q
+        Ch = False
 
-    return xp, yp, Cp
+    return xh, yh, Ch
 
 
-
-#def rototrasCovariance(xp, yp, rV, tV, Cp):
+# def rototrasCovariance(xh, yh, rV, tV, Ch):
 #    '''
 #    DEPRECATED, it is not an aproximation it's non linear, so the projected
 #    ellipse will not be the projected gaussian via linear aproximation. the
 #    error this encompases is hard to deal with
 #
 #    propaga la elipse proyectada por el conoide soble el plano del mapa
-#    solo toma en cuenta la incerteza en xp, yp
+#    solo toma en cuenta la incerteza en xh, yh
 #    '''
-#    a, b, _, c = Cp.flatten()
-#    mx, my = (xp, yp)
+#    a, b, _, c = Ch.flatten()
+#    mx, my = (xh, yh)
 #
 #    r11, r12, r21, r22, r31, r32 = Rodrigues(rV)[0][:, :2].flatten()
 #    tx, ty, tz = tV.flatten()
@@ -395,16 +427,16 @@ def homDist2homUndist(xpp, ypp, distCoeffs, model,
 #
 #    return Cm
 
-
-def jacobianosHom2Map(xp, yp, rV, tV):
+def jacobianosHom2Map(xh, yh, rV, tV):
     '''
     returns the jacobians needed to calculate the propagation of uncertainty
     todavia no me tome el trabajo de calcularlos pro separado según sea
     necesario
     '''
+    xh, yh, rV, tV = [f64(xh), f64(yh), f64(rV), f64(tV)]
     rx, ry, rz = rV
     tx, ty, tz = tV
-    x0 = ty - tz*yp
+    x0 = ty - tz*yh
     x1 = rx**2
     x2 = ry**2
     x3 = rz**2
@@ -424,7 +456,7 @@ def jacobianosHom2Map(xp, yp, rV, tV):
     x17 = -x16 + x9
     x18 = x15*x2
     x19 = x16 + x8
-    x20 = x19*yp
+    x20 = x19*yh
     x21 = x12 + x18 - x20
     x22 = x1*x15
     x23 = ry*x7
@@ -432,19 +464,19 @@ def jacobianosHom2Map(xp, yp, rV, tV):
     x25 = rx*rz
     x26 = x15*x25
     x27 = x24 + x26
-    x28 = x27*xp
+    x28 = x27*xh
     x29 = x12 + x22 - x28
     x30 = rz*x7
     x31 = -x30
     x32 = rx*ry
     x33 = x15*x32
-    x34 = -x19*xp + x31 + x33
-    x35 = -x27*yp + x30 + x33
+    x34 = -x19*xh + x31 + x33
+    x35 = -x27*yh + x30 + x33
     x36 = x21*x29 - x34*x35
     x37 = 1/x36
     x38 = x23 - x26
     x39 = x17*x35 - x21*x38
-    x40 = tx - tz*xp
+    x40 = tx - tz*xh
     x41 = x36**(-2)
     x42 = x41*(x0*x34 - x21*x40)
     x43 = -x17*x29 + x34*x38
@@ -462,13 +494,13 @@ def jacobianosHom2Map(xp, yp, rV, tV):
     x55 = -x32*x54
     x56 = x53 + x55 + x7
     x57 = x1*x50 - x51 + x56
-    x58 = x49 - x57*yp + x9
+    x58 = x49 - x57*yh + x9
     x59 = 2*ry*x14*x47
     x60 = ry*x51 - x1*x59
     x61 = x25*x45
     x62 = x25*x50
     x63 = ry*x15
-    x64 = -x57*xp + x60 + x61 - x62 + x63
+    x64 = -x57*xh + x60 + x61 - x62 + x63
     x65 = rx**3
     x66 = rx*x15
     x67 = 2*x14*x47
@@ -476,31 +508,31 @@ def jacobianosHom2Map(xp, yp, rV, tV):
     x69 = x32*x50
     x70 = rz*x15
     x71 = x52 + x68 - x69 + x70
-    x72 = x45*x65 - x65*x67 + 2*x66 - x71*xp + x9
+    x72 = x45*x65 - x65*x67 + 2*x66 - x71*xh + x9
     x73 = -x61
-    x74 = x60 + x62 + x63 - x71*yp + x73
+    x74 = x60 + x62 + x63 - x71*yh + x73
     x75 = -x21*x72 - x29*x58 + x34*x74 + x35*x64
     x76 = ry**3
     x77 = rz*x46 - x2*x54
     x78 = -x52 + x69 + x70 + x77
-    x79 = x24 + x45*x76 + 2*x63 - x67*x76 - x78*yp
+    x79 = x24 + x45*x76 + 2*x63 - x67*x76 - x78*yh
     x80 = x10*x45
     x81 = x10*x50
     x82 = -x81
-    x83 = x49 + x66 - x78*xp + x80 + x82
+    x83 = x49 + x66 - x78*xh + x80 + x82
     x84 = x53 + x55 - x7
     x85 = -x2*x50 + x46 + x84
-    x86 = x24 + x60 - x85*xp
-    x87 = x49 + x66 - x80 + x81 - x85*yp
+    x86 = x24 + x60 - x85*xh
+    x87 = x49 + x66 - x80 + x81 - x85*yh
     x88 = -x21*x86 - x29*x79 + x34*x87 + x35*x83
     x89 = x3*x45
     x90 = ry*x89 - x3*x59 + x62 + x63 + x73
-    x91 = x31 + x77 - x90*yp
+    x91 = x31 + x77 - x90*yh
     x92 = x3*x50
-    x93 = x84 + x89 - x90*xp - x92
+    x93 = x84 + x89 - x90*xh - x92
     x94 = rx*x89 - x3*x48 + x66 + x80 + x82
-    x95 = x31 + x68 - x94*xp
-    x96 = x56 - x89 + x92 - x94*yp
+    x95 = x31 + x68 - x94*xh
+    x96 = x56 - x89 + x92 - x94*yh
     x97 = -x21*x95 - x29*x91 + x34*x96 + x35*x93
 
     # jacobiano de la pos en el mapa con respecto a las posiciones homogeneas
@@ -515,57 +547,73 @@ def jacobianosHom2Map(xp, yp, rV, tV):
                       x37*(x0*x83 - x40*x79) + x42*x88,     # x wrt r2
                       x37*(x0*x93 - x40*x91) + x42*x97,     # x wrt r3
                       x37*(x13 - x18 + x20),                # x wrt t1
-                      x34*x37, x37*(x21*xp - x34*yp)],      # x wrt t2
+                      x34*x37, x37*(x21*xh - x34*yh)],      # x wrt t2
                      [x37*(-x0*x72 + x40*x74) + x44*x75,    # x wrt t3
                       x37*(-x0*x86 + x40*x87) + x44*x88,    # y wrt r1
                       x37*(-x0*x95 + x40*x96) + x44*x97,    # y wrt r2
                       x35*x37,                              # y wrt t1
                       x37*(x13 - x22 + x28),                # y wrt t2
-                      x37*(x29*yp - x35*xp)]])              # y wrt t3
+                      x37*(x29*yh - x35*xh)]])              # y wrt t3
 
     return JXm_Xp, JXm_rtV
 
 
-def xypToZplane(xp, yp, rV, tV, Cp=False, Crt=False):
+def xyhToZplane(xh, yh, rV, tV, Ch=False, Crt=False):
     '''
     projects a point from homogenous undistorted to 3D asuming z=0
     '''
+    xh, yh, rV, tV = [f64(xh), f64(yh), f64(rV), f64(tV)]
+
     if prod(rV.shape) == 3:
         R = Rodrigues(rV)[0]
 
     # auxiliar calculations
-    a = R[0, 0] - R[2, 0] * xp
-    b = R[0, 1] - R[2, 1] * xp
-    c = tV[0] - tV[2] * xp
-    d = R[1, 0] - R[2, 0] * yp
-    e = R[1, 1] - R[2, 1] * yp
-    f = tV[1] - tV[2] * yp
+    a = R[0, 0] - R[2, 0] * xh
+    b = R[0, 1] - R[2, 1] * xh
+    c = tV[0] - tV[2] * xh
+    d = R[1, 0] - R[2, 0] * yh
+    e = R[1, 1] - R[2, 1] * yh
+    f = tV[1] - tV[2] * yh
     q = a*e - d*b
 
     xm = (f*b - c*e) / q
     ym = (c*d - f*a) / q
 
-    Cpbool = anny(Cp)
+    Chbool = anny(Ch)
     Crtbool = anny(Crt)
-    if Cpbool or Crtbool:  # no hay incertezas
-        Cm = zeros((xm.shape[0],2,2))
+    if Chbool or Crtbool:  # no hay incertezas
+        Cm = zeros((xm.shape[0], 2, 2), dtype=float64)
         # calculo jacobianos
-        JXm_Xp, JXm_rtV = jacobianosHom2Map(xp, yp, rV, tV)
+        JXm_Xp, JXm_rtV = jacobianosHom2Map(xh, yh, rV, tV)
 
         if Crtbool:  # contribucion incerteza Crt
-            JXm_rtVResh = JXm_rtV.reshape((2,6,1,1,-1))
+            JXm_rtVResh = JXm_rtV.reshape((2, 6, 1, 1, -1))
             Cm += (JXm_rtVResh *
-                   Crt.reshape((1,6,6,1,1)) *
-                   JXm_rtVResh.transpose((3,2,1,0,4))
-                   ).sum((1,2)).transpose((2,0,1))
+                   Crt.reshape((1, 6, 6, 1, 1)) *
+                   JXm_rtVResh.transpose((3, 2, 1, 0, 4))
+                   ).sum((1, 2)).transpose((2, 0, 1))
 
-        if Cpbool:  # incerteza Cp
-            Cp = Cp.transpose((1,2,0))
-            JXm_XpResh = JXm_Xp.reshape((2,2,1,1,-1))
+        if Chbool:  # incerteza Ch
+            Ch = Ch.transpose((1, 2, 0))
+            JXm_XpResh = JXm_Xp.reshape((2, 2, 1, 1, -1))
             Cm += (JXm_XpResh *
-                   Cp.reshape((1,2,2,1,-1)) *
-                   JXm_XpResh.transpose((3,2,1,0,4))
-                   ).sum((1,2)).transpose((2,0,1))
+                   Ch.reshape((1, 2, 2, 1, -1)) *
+                   JXm_XpResh.transpose((3, 2, 1, 0, 4))
+                   #JXm_XpResh.transpose((2, 3, 0, 1, 4))
+                   ).sum((1, 2)).transpose((2, 0, 1))
+
+#aux=(JXm_XpResh *
+#                   Ch.reshape((1, 2, 2, 1, -1)) *
+#                   JXm_XpResh.transpose((3, 2, 1, 0, 4))
+#                   #JXm_XpResh.transpose((2, 3, 0, 1, 4))
+#                   ).sum((1, 2))
+#
+#aux2=np.zeros_like(aux)
+#for i in range(54):
+#    aux2[:,:,i] = JXm_Xp[:,:,i].dot(Ch[:,:,i]).dot(JXm_Xp[:,:,i].T)
+#
+#np.allclose(aux,aux2)
+
 
     else:
         Cm = False  # return None covariance
@@ -573,9 +621,7 @@ def xypToZplane(xp, yp, rV, tV, Cp=False, Crt=False):
     return xm, ym, Cm
 
 
-
-
-def inverse(imagePoints, rV, tV, cameraMatrix, distCoeffs, model,
+def inverse(xi, yi, rV, tV, cameraMatrix, distCoeffs, model,
             Cccd=False, Cf=False, Ck=False, Crt=False, Cfk=False):
     '''
     inverseFisheye(objPoints, rVec/rotMatrix, tVec, cameraMatrix,
@@ -588,16 +634,16 @@ def inverse(imagePoints, rV, tV, cameraMatrix, distCoeffs, model,
     propagates covariance uncertainty
     '''
     # project to homogenous distorted
-    xpp, ypp, Cpp, Jd_k = ccd2hom(imagePoints, cameraMatrix, Cccd, Cf)
+    xd, yd, Cd, Jd_k = ccd2dis(xi, yi, cameraMatrix, Cccd, Cf)
 
     # undistort
-    xp, yp, Cp = homDist2homUndist(xpp, ypp, distCoeffs, model, Cpp, Ck,
-                                   Cfk, Jd_k)
+    xh, yh, Ch = dis2hom(xd, yd, distCoeffs, model, Cd, Ck,
+                         Cfk, Jd_k)
 
     # add covariance dependence in intrinsic parameters
 
     # project to plane z=0 from homogenous
-    xm, ym, Cm = xypToZplane(xp, yp, rV, tV, Cp, Crt)
+    xm, ym, Cm = xyhToZplane(xh, yh, rV, tV, Ch, Crt)
     return xm, ym, Cm
 
 
@@ -704,7 +750,7 @@ def fiducialComparison(rVec, tVec, fiducial1, fiducial2=None,
 
 class Arrow3D(FancyArrowPatch):
     def __init__(self, xs, ys, zs, *args, **kwargs):
-        FancyArrowPatch.__init__(self, (0, 0), (0, 0), *args, **kwargs)
+        FancyArrowPatch.__init__(self, posA=(0, 0), posB=(0, 0), *args, **kwargs)
         self._verts3d = xs, ys, zs
 
     def draw(self, renderer):
@@ -712,6 +758,38 @@ class Arrow3D(FancyArrowPatch):
         xs, ys, zs = proj3d.proj_transform(xs3d, ys3d, zs3d, renderer.M)
         self.set_positions((xs[0], ys[0]), (xs[1], ys[1]))
         FancyArrowPatch.draw(self, renderer)
+
+
+def plotFrameRefBase(ax, rVec, tVec, s, *args, **kwargs):
+    '''
+    graficar la terna de vectores de un marco de referencia
+    mutation_scale=20, lw=1, arrowstyle="-|>", color="k"
+    '''
+
+    R = Rodrigues(rVec)[0]
+
+    # orig coords en world
+    tWorld = - inv(R).dot(tVec)
+    x, y, z = tWorld
+    XYZ = R * s + tWorld
+
+
+    for i in range(3):
+        # pongo un punto en cada lugar para que el plot me lo tome al escalear
+        ax.plot([x, XYZ[i, 0]], [y, XYZ[i, 1]], [z, XYZ[i, 2]],
+                '.', markersize=0)
+
+        eje = Arrow3D([x, XYZ[i, 0]], [y, XYZ[i, 1]], [z, XYZ[i, 2]],
+                      mutation_scale=10, lw=1, arrowstyle="-|>", color="k")
+
+        ax.add_artist(eje)
+
+    # ax.scatter(XYZ[2, 0], XYZ[2, 1], XYZ[2, 2])
+
+
+
+
+
 
 
 def fiducialComparison3D(rVec, tVec, fiducial1, fiducial2=None,
@@ -945,23 +1023,6 @@ r = sqrt(chdtri(2, 0.1))  # radio para que 90% caigan adentro
 # r = 1
 Xcirc = array([cos(fi), sin(fi)]) * r
 
-
-def unit2CovTransf(C):
-    '''
-    returns the matrix that transforms points from unit normal pdf to a normal
-    pdf of covariance C. so that
-    Xnorm = np.random.randn(2,n)  # generate random points in 2D scale=1
-    T = unit2CovTransf(C)  # calculate transform matriz
-    X = np.dot(T, Xnorm)  # points that follow normal pdf of cov C
-    '''
-    # l, v = eig(C)
-    ## matrix such that T.dot(T.T)==C
-    # T =  sqrt(l.real) * v
-    # return T.real
-
-    u, s, v = svd(C)
-    # u.dot(diag(sqrt(s))).dot(v.T)
-    return u.dot(diag(sqrt(s))).dot(v.T)
 
 
 def plotEllipse(ax, C, mux, muy, col):
