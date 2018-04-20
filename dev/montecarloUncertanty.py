@@ -22,7 +22,7 @@ import dev.bayesLib as bl
 import scipy.stats as sts
 import scipy.special as spe
 
-def calculaCovarianza(xM, yM,):
+def calculaCovarianza(xM, yM):
     '''
     lso inputs son de tamaño (Nsamples, Mpuntos)
     con Nsamples por cada uno de los Mpuntos puntos
@@ -42,10 +42,46 @@ def calculaCovarianza(xM, yM,):
 
     return [muXm, muYm], CmNum
 
+# %%
+from scipy.stats import multivariate_normal
 
+N = 10000
+M = 23
+C = np.array([[[2,1],[1,3]]] * M)
+
+if np.all(np.linalg.eigvals(C) > 0):
+    T = cl.unit2CovTransf(C)  # calculate transform matriz
+    X = np.random.randn(N, M, 2)  # gen rndn points unitary normal
+    X = (X.reshape((N, M, 1, 2)) *  # transform
+         T.reshape((1, M, 2, 2))
+         ).sum(-1)
+else:
+    print('Error: la covarianza no es definida positiva')
+
+#X2 = multivariate_normal.rvs(mean=None, cov=C, size=n).T
+
+[muX, muY], CNum = calculaCovarianza(X[:,:,0], X[:,:,1])
+#[muX2, muY2], CNum2 = calculaCovarianza(X2[0].reshape((-1,1)), X2[1].reshape((-1,1)))
+
+print(C)
+print(CNum)
+
+plt.figure()
+plt.plot(C.flat, CNum.flat, '.')
+
+plt.figure()
+ax = plt.gca()
+xx = X[:,:,0].reshape(-1)
+yy = X[:,:,1].reshape(-1)
+ax.scatter(xx, yy, s=1, alpha=0.03)
+cl.plotPointsUncert(ax, [C[0]], [0], [0], col='k')
+
+
+#CNum2
+print(np.allclose(C, CNum, rtol=0.05))
 
 # %% funcion que hace todas las cuentas
-def analyticVsMC(imgPts, Ci, F, Cf, K, Ck, Cfk, rtV, Crt, retPts=True):
+def analyticVsMC(imgPts, Ci, F, K, Cintr, rtV, Crt, retPts=True):
     '''
     Parameters and shapes
     -------
@@ -60,10 +96,15 @@ def analyticVsMC(imgPts, Ci, F, Cf, K, Ck, Cfk, rtV, Crt, retPts=True):
     rtV: vector of 6 pose params (6,)
     Crt: covariance on pose (6,6)
     '''
-    rV, tV = rtV.reshape((2,-1))
+    Cf = np.zeros((4, 4))  # param de CCD, dist focal, centro
+    Cf[2:, 2:] += Cintr[:Ns[0], :Ns[0]]
+    Ck = Cintr[Ns[0]:, Ns[0]:]  # k de distorsion
+    Cfk = Cintr[:Ns[0], Ns[0]:]
+
+    rV, tV = rtV.reshape((2, -1))
 
     # propagate to homogemous
-    xd, yd, Cd, _ = cl.ccd2dis(imgPts[:,0], imgPts[:,1], F, Cccd=Ci, Cf=Cf)
+    xd, yd, Cd, _ = cl.ccd2dis(imgPts[:, 0], imgPts[:, 1], F, Cccd=Ci, Cf=Cf)
 
     # go to undistorted homogenous
     xh, yh, Ch = cl.dis2hom(xd, yd, K, model, Cd=Cd, Ck=Ck, Cfk=Cfk)
@@ -73,22 +114,28 @@ def analyticVsMC(imgPts, Ci, F, Cf, K, Ck, Cfk, rtV, Crt, retPts=True):
 
     # generar puntos y parametros
     # por suerte todas las pdfs son indep
-    xI = (np.random.randn(N, nPts, 2, 1) *
-          Di.reshape((1, -1, 2, 2))).sum(-1) + imgPts
+    Ti = cl.unit2CovTransf(Ci)
+    xI = (np.random.randn(N, nPts, 1, 2) *
+          Ti.reshape((1, -1, 2, 2))).sum(-1) + imgPts
 
-    rtVsamples = np.random.randn(N, 6).dot(Dextr) + rtV
-    rots = rtVsamples[:,:3] # np.random.randn(N, 3).dot(np.sqrt(Cr)) + rV
-    tras = rtVsamples[:,3:] # np.random.randn(N, 3).dot(np.sqrt(Ct)) + tV
+    Trt = cl.unit2CovTransf(Crt)
+    rtVsamples = (np.random.randn(N, 1, 6) *
+                  Trt.reshape((1, 6, 6))
+                  ).sum(-1) + rtV
+    rots = rtVsamples[:, :3]  # np.random.randn(N, 3).dot(np.sqrt(Cr)) + rV
+    tras = rtVsamples[:, 3:]  # np.random.randn(N, 3).dot(np.sqrt(Ct)) + tV
 
 #    # para chequear que esta bien multiplicado esto
 #    ertest = (rtVsamples[0] - rtV).dot(Crt).dot((rtVsamples[0] - rtV).T)
 #    np.isclose(ertest, np.sum(((rtVsamples[0] - rtV).dot(Dextr))**2))
 #    np.isclose(ertest, np.sum(((rtVsamples[0] - rtV).dot(Dextr.T))**2))
 
-
-    fkVsamples = np.random.randn(N, fkV.shape[0]).dot(Dintr) + fkV
-    kL = fkVsamples[:,:Ns[0]]
-    kD = fkVsamples[:,Ns[0]:]
+    Tintr = cl.unit2CovTransf(Cintr)
+    fkVsamples = (np.random.randn(N, 1, Ns[1]) *
+                  Tintr.reshape((1, Ns[1], Ns[1]))
+                  ).sum(-1) + fkV
+    kL = fkVsamples[:, :Ns[0]]
+    kD = fkVsamples[:, Ns[0]:]
 #    kD = np.random.randn(N, Cf.shape[0]).dot(np.sqrt(Cf)) + K  # distorsion
 #    kL = np.zeros((N, 3, 3), dtype=float)  # lineal
 #    kL[:, 2, 2] = 1
@@ -96,15 +143,14 @@ def analyticVsMC(imgPts, Ci, F, Cf, K, Ck, Cfk, rtV, Crt, retPts=True):
 #    kL[:, [0, 1], [0, 1]] = np.random.randn(N, 2).dot(np.sqrt(Ck[:2, :2]))
 #    kL[:, [0, 1], [0, 1]] += F[[0, 1], [0, 1]]
 
-
     # estos son los puntos sampleados por montecarlo, despues de
     xD, yD, xH, yH, xM, yM = np.empty((6, N, npts), dtype=float)
 
     for i in range(N):
-#        F, K = flat2int(fkVsamples[i], Ns, model)
+        # F, K = flat2int(fkVsamples[i], Ns, model)
         # % propagate to homogemous
-
-        xD[i], yD[i], _, _ = cl.ccd2dis(xI[i,:,0], xI[i,:,1], bl.flat2CamMatrix(kL[i], model))
+        camMat = bl.flat2CamMatrix(kL[i], model)
+        xD[i], yD[i], _, _ = cl.ccd2dis(xI[i, :, 0], xI[i, :, 1], camMat)
 
         # % go to undistorted homogenous
         xH[i], yH[i], _ = cl.dis2hom(xD[i], yD[i], kD[i], model)
@@ -131,6 +177,7 @@ def analyticVsMC(imgPts, Ci, F, Cf, K, Ck, Cfk, rtV, Crt, retPts=True):
 
 
 # %% LOAD DATA
+np.random.seed(0)
 # input
 plotCorners = False
 # cam puede ser ['vca', 'vcaWide', 'ptz'] son los datos que se tienen
@@ -168,32 +215,32 @@ objpoints = np.array([chessboardModel]*nIm)
 #rVecsFile =        imagesFolder + camera + model + "Rvecs.npy"
 
 # load model specific data
-imSel = 30  # ELIJO UNA DE LAS IMAGENES
+imSel = 10 # ELIJO UNA DE LAS IMAGENES
 
 fkV = intrCalib['inMean']
 cameraMatrix, distCoeffs = flat2int(fkV, Ns, model)
 rtV = intrCalib['exMean'][imSel]
 imgPts = imagePoints[imSel,0]
 
-Cintr = intrCalib['inCov'] / 100
-Cf = np.zeros((4,4))  # param de CCD, dist focal, centro
-Cf[2:,2:] += Cintr[:Ns[0], :Ns[0]]
-Ck = Cintr[Ns[0]:, Ns[0]:]  # k de distorsion
-Cfk = Cintr[:Ns[0], Ns[0]:]
-Dintr = cl.unit2CovTransf(Cintr)
+Cintr = intrCalib['inCov'] / 10000
+#Cf = np.zeros((4,4))  # param de CCD, dist focal, centro
+#Cf[2:,2:] += Cintr[:Ns[0], :Ns[0]]
+#Ck = Cintr[Ns[0]:, Ns[0]:]  # k de distorsion
+#Cfk = Cintr[:Ns[0], Ns[0]:]
+#Dintr = cl.unit2CovTransf(Cintr)
 
 covLim0 = 6 * imSel
 covLim1 = covLim0 + 6
-Crt = intrCalib['exCov'][covLim0:covLim1,covLim0:covLim1] / 100
-Dextr = cl.unit2CovTransf(Crt)
+Crt = intrCalib['exCov'][covLim0:covLim1,covLim0:covLim1] / 10000
+#Dextr = cl.unit2CovTransf(Crt)
 
-rtSigmas = np.sqrt(np.diag(Crt))
-CorrRT = Crt / rtSigmas.reshape((-1,1)) / rtSigmas.reshape((1,-1))
+#rtSigmas = np.sqrt(np.diag(Crt))
+#CorrRT = Crt / rtSigmas.reshape((-1,1)) / rtSigmas.reshape((1,-1))
 #plt.matshow(CorrRT, cmap='coolwarm', vmax=1, vmin=-1)
 
 ## %% invento unas covarianzas
-Ci = (1.0**2) * np.array([np.eye(2)]*nPts) / 100
-Di = np.sqrt(Ci) # a estas las supongo diagonales y listo
+Ci = (1.0**2) * np.array([np.eye(2)]*nPts) / 10000
+#Di = np.sqrt(Ci) # a estas las supongo diagonales y listo
 #Cr = np.eye(3) * (np.pi / 180)**2
 #Ct = np.eye(3) * 0.1**2
 #Crt = [Cr, Ct]
@@ -206,7 +253,7 @@ Di = np.sqrt(Ci) # a estas las supongo diagonales y listo
 #if model is 'fisheye':
 #    Ck = np.diag((distCoeffs*0.001)**2)  # 0.1% error distorsion
 #
-N = 3000  # cantidad de realizaciones
+N = 50000  # cantidad de realizaciones
 #
 
 
@@ -230,7 +277,10 @@ npts = imgPts.shape[0]
 
 
 # %%
-retAll = analyticVsMC(imgPts, Ci, cameraMatrix, Cf, distCoeffs, Ck, Cfk, rtV, Crt)
+reload(cl)
+np.random.seed(0)
+
+retAll = analyticVsMC(imgPts, Ci, cameraMatrix, distCoeffs, Cintr, rtV, Crt)
 ptsTeo, ptsNum, covTeo, covNum, ptsMC = retAll
 
 [xd, yd], [xh, yh], [xm, ym] = ptsTeo

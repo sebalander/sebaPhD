@@ -62,18 +62,26 @@ def unit2CovTransf(C):
     '''
     returns the matrix that transforms points from unit normal pdf to a normal
     pdf of covariance C. so that
-    Xnorm = np.random.randn(2,n)  # generate random points in 2D scale=1
-    T = unit2CovTransf(C)  # calculate transform matriz
-    X = np.dot(T, Xnorm)  # points that follow normal pdf of cov C
+    T = cl.unit2CovTransf(C)  # calculate transform matriz
+    X = np.random.randn(N, M, 2)  # gen random points unitary normal
+    X = (X.reshape((N, M, 1, 2)) *  # transform
+         T.reshape((1, M, 2, 2))
+         ).sum(-1)
     '''
-    # l, v = eig(C)
-    # # matrix such that T.dot(T.T)==C
-    # T =  sqrt(l.real) * v
-    # return T.real
-
     u, s, v = svd(C)
-    # u.dot(diag(sqrt(s))).dot(v.T)
-    return u.dot(diag(sqrt(s))).dot(v.T)
+    if C.ndim is 2:
+        return u.dot(diag(sqrt(s))).dot(v.T)
+
+    elif C.ndim is 3:
+        n = s.shape[0]
+        d = s.shape[1]
+        s = sqrt(s)
+        v = v.transpose((0,2,1))
+        T = u.reshape((-1,d,d,1)) * s.reshape((n,1,d,1)) * v.reshape((n,1,d,d))
+        return T.sum(2)
+    else:
+        print('las dimensiones no se que onda')
+        return -1
 
 
 # %% BASIC ROTOTRASLATION
@@ -317,8 +325,8 @@ def dis2hom_ratioJacobians(xd, yd, distCoeffs, model):
 
     # multiply each jacobian
     Jh_k = -(Jh_d.reshape((-1, 2, 2, 1)) *
-            Jd_k.T.reshape((-1, 2, 1, dQdK.shape[0]))
-            ).sum(1)
+             Jd_k.T.reshape((-1, 2, 1, dQdK.shape[0]))
+             ).sum(1)
 
     return q, ret, Jh_d, Jh_k
 
@@ -594,12 +602,10 @@ def xyhToZplane(xh, yh, rV, tV, Ch=False, Crt=False):
                    ).sum((1, 2)).transpose((2, 0, 1))
 
         if Chbool:  # incerteza Ch
-            Ch = Ch.transpose((1, 2, 0))
             JXm_XpResh = JXm_Xp.reshape((2, 2, 1, 1, -1))
             Cm += (JXm_XpResh *
                    Ch.reshape((1, 2, 2, 1, -1)) *
                    JXm_XpResh.transpose((3, 2, 1, 0, 4))
-                   #JXm_XpResh.transpose((2, 3, 0, 1, 4))
                    ).sum((1, 2)).transpose((2, 0, 1))
 
 #aux=(JXm_XpResh *
