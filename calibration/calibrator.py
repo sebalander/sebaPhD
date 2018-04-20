@@ -355,7 +355,7 @@ def dis2hom(xd, yd, distCoeffs, model, Cd=False, Ck=False, Cfk=False,
 
         if Cdbool:  # incerteza Cd
             Jh_dResh = Jh_d.reshape((-1, 2, 1, 2, 1))
-            Ch = (Jh_dResh *
+            Ch += (Jh_dResh *
                   Cd.reshape((-1, 1, 2, 2, 1)) *
                   Jh_dResh.transpose((0, 4, 3, 2, 1))
                   ).sum((2, 3))
@@ -604,7 +604,7 @@ def xyhToZplane(xh, yh, rV, tV, Ch=False, Crt=False):
         if Chbool:  # incerteza Ch
             JXm_XpResh = JXm_Xp.reshape((2, 2, 1, 1, -1))
             Cm += (JXm_XpResh *
-                   Ch.reshape((1, 2, 2, 1, -1)) *
+                   Ch.T.reshape((1, 2, 2, 1, -1)) *
                    JXm_XpResh.transpose((3, 2, 1, 0, 4))
                    ).sum((1, 2)).transpose((2, 0, 1))
 

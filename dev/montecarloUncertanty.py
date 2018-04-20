@@ -215,14 +215,14 @@ objpoints = np.array([chessboardModel]*nIm)
 #rVecsFile =        imagesFolder + camera + model + "Rvecs.npy"
 
 # load model specific data
-imSel = 10 # ELIJO UNA DE LAS IMAGENES
+imSel = 4 # ELIJO UNA DE LAS IMAGENES
 
 fkV = intrCalib['inMean']
 cameraMatrix, distCoeffs = flat2int(fkV, Ns, model)
 rtV = intrCalib['exMean'][imSel]
 imgPts = imagePoints[imSel,0]
 
-Cintr = intrCalib['inCov'] / 10000
+Cintr = intrCalib['inCov'] / 1
 #Cf = np.zeros((4,4))  # param de CCD, dist focal, centro
 #Cf[2:,2:] += Cintr[:Ns[0], :Ns[0]]
 #Ck = Cintr[Ns[0]:, Ns[0]:]  # k de distorsion
@@ -231,7 +231,7 @@ Cintr = intrCalib['inCov'] / 10000
 
 covLim0 = 6 * imSel
 covLim1 = covLim0 + 6
-Crt = intrCalib['exCov'][covLim0:covLim1,covLim0:covLim1] / 10000
+Crt = intrCalib['exCov'][covLim0:covLim1,covLim0:covLim1] / 1
 #Dextr = cl.unit2CovTransf(Crt)
 
 #rtSigmas = np.sqrt(np.diag(Crt))
@@ -239,7 +239,7 @@ Crt = intrCalib['exCov'][covLim0:covLim1,covLim0:covLim1] / 10000
 #plt.matshow(CorrRT, cmap='coolwarm', vmax=1, vmin=-1)
 
 ## %% invento unas covarianzas
-Ci = (1.0**2) * np.array([np.eye(2)]*nPts) / 10000
+Ci = (1.0**2) * np.array([np.eye(2)]*nPts) / 1
 #Di = np.sqrt(Ci) # a estas las supongo diagonales y listo
 #Cr = np.eye(3) * (np.pi / 180)**2
 #Ct = np.eye(3) * 0.1**2
@@ -253,7 +253,7 @@ Ci = (1.0**2) * np.array([np.eye(2)]*nPts) / 10000
 #if model is 'fisheye':
 #    Ck = np.diag((distCoeffs*0.001)**2)  # 0.1% error distorsion
 #
-N = 50000  # cantidad de realizaciones
+N = 5000  # cantidad de realizaciones
 #
 
 
