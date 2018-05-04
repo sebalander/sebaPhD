@@ -63,25 +63,25 @@ else:
 [muX, muY], CNum = calculaCovarianza(X[:,:,0], X[:,:,1])
 #[muX2, muY2], CNum2 = calculaCovarianza(X2[0].reshape((-1,1)), X2[1].reshape((-1,1)))
 
-print(C)
-print(CNum)
-
-plt.figure()
-plt.plot(C.flat, CNum.flat, '.')
-
-plt.figure()
-ax = plt.gca()
-xx = X[:,:,0].reshape(-1)
-yy = X[:,:,1].reshape(-1)
-ax.scatter(xx, yy, s=1, alpha=0.03)
-cl.plotPointsUncert(ax, [C[0]], [0], [0], col='k')
-
-
-#CNum2
-print(np.allclose(C, CNum, rtol=0.05))
+#print(C)
+#print(CNum)
+#
+#plt.figure()
+#plt.plot(C.flat, CNum.flat, '.')
+#
+#plt.figure()
+#ax = plt.gca()
+#xx = X[:,:,0].reshape(-1)
+#yy = X[:,:,1].reshape(-1)
+#ax.scatter(xx, yy, s=1, alpha=0.03)
+#cl.plotPointsUncert(ax, [C[0]], [0], [0], col='k')
+#
+#
+##CNum2
+#print(np.allclose(C, CNum, rtol=0.05))
 
 # %% funcion que hace todas las cuentas
-def analyticVsMC(imgPts, Ci, F, K, Cintr, rtV, Crt, retPts=True):
+def analyticVsMC(imgPts, Ci, F, K, Cintr, rtV, Crt, nPts, N, retPts=True):
     '''
     Parameters and shapes
     -------
@@ -144,7 +144,7 @@ def analyticVsMC(imgPts, Ci, F, K, Cintr, rtV, Crt, retPts=True):
 #    kL[:, [0, 1], [0, 1]] += F[[0, 1], [0, 1]]
 
     # estos son los puntos sampleados por montecarlo, despues de
-    xD, yD, xH, yH, xM, yM = np.empty((6, N, npts), dtype=float)
+    xD, yD, xH, yH, xM, yM = np.empty((6, N, nPts), dtype=float)
 
     for i in range(N):
         # F, K = flat2int(fkVsamples[i], Ns, model)
@@ -188,99 +188,65 @@ model = modelos[3]
 Ns = [2,3]
 model
 
-intrCalibFile = "/home/sebalander/Code/VisionUNQextra/Videos y Mediciones/"
-intrCalibFile +="extraDataSebaPhD/traces15IntrCalibResults.npy"
+#intrCalibFile = "/home/sebalander/Code/VisionUNQextra/Videos y Mediciones/"
+#intrCalibFile +="extraDataSebaPhD/traces15IntrCalibResults.npy"
 
 imagesFolder = "./resources/intrinsicCalib/" + camera + "/"
-cornersFile =      imagesFolder + camera + "Corners.npy"
+#cornersFile =      imagesFolder + camera + "Corners.npy"
 patternFile =      imagesFolder + camera + "ChessPattern.npy"
 imgShapeFile =     imagesFolder + camera + "Shape.npy"
+rVecsFile = imagesFolder + camera + model + "Rvecs.npy"
+tVecsFile = imagesFolder + camera + model + "Tvecs.npy"
 
 # load data
-imagePoints = np.load(cornersFile)
-chessboardModel = np.load(patternFile)
+#imagePoints = np.load(cornersFile)
+chessboardModel = np.load(patternFile)[0]
 imgSize = tuple(np.load(imgShapeFile))
 images = glob.glob(imagesFolder+'*.png')
-imagePointsAll = np.load(cornersFile)
+#imagePointsAll = np.load(cornersFile)
 
-intrCalib = np.load(intrCalibFile).all()
+#intrCalib = np.load(intrCalibFile).all()
 
-nIm, _, nPts, _ = imagePoints.shape  # cantidad de imagenes
-# Parametros de entrada/salida de la calibracion
-objpoints = np.array([chessboardModel]*nIm)
-
-#distCoeffsFile =   imagesFolder + camera + model + "DistCoeffs.npy"
-#linearCoeffsFile = imagesFolder + camera + model + "LinearCoeffs.npy"
-#tVecsFile =        imagesFolder + camera + model + "Tvecs.npy"
-#rVecsFile =        imagesFolder + camera + model + "Rvecs.npy"
 
 # load model specific data
-imSel = 4 # ELIJO UNA DE LAS IMAGENES
-
-fkV = intrCalib['inMean']
+fkV = np.array([800, 465, 800]) # intrCalib['inMean']
 cameraMatrix, distCoeffs = flat2int(fkV, Ns, model)
-rtV = intrCalib['exMean'][imSel]
-imgPts = imagePoints[imSel,0]
+#rtVall = intrCalib['exMean']
+rVall = np.load(rVecsFile).reshape((-1,3))  # cargo de OpenCV
+tVall = np.load(tVecsFile).reshape((-1,3))
+rtVall = np.concatenate([rVall, tVall], axis=1)
 
-Cintr = intrCalib['inCov'] / 1
-#Cf = np.zeros((4,4))  # param de CCD, dist focal, centro
-#Cf[2:,2:] += Cintr[:Ns[0], :Ns[0]]
-#Ck = Cintr[Ns[0]:, Ns[0]:]  # k de distorsion
-#Cfk = Cintr[:Ns[0], Ns[0]:]
-#Dintr = cl.unit2CovTransf(Cintr)
+nIm = rtVall.shape[0]  # cantidad de imagenes
+nPts = chessboardModel.shape[0]   # puntos por imagen
 
-covLim0 = 6 * imSel
-covLim1 = covLim0 + 6
-Crt = intrCalib['exCov'][covLim0:covLim1,covLim0:covLim1] / 1
-#Dextr = cl.unit2CovTransf(Crt)
+imagePointsAll = [cl.direct(chessboardModel, rtVall[i,:3], rtVall[i,3:],
+                            cameraMatrix, distCoeffs, model)
+                  for i in range(nIm)]
+imagePointsAll = np.array(imagePointsAll)
 
-#rtSigmas = np.sqrt(np.diag(Crt))
-#CorrRT = Crt / rtSigmas.reshape((-1,1)) / rtSigmas.reshape((1,-1))
-#plt.matshow(CorrRT, cmap='coolwarm', vmax=1, vmin=-1)
+objpoints = np.array([chessboardModel]*nIm)
 
-## %% invento unas covarianzas
-Ci = (1.0**2) * np.array([np.eye(2)]*nPts) / 1
-#Di = np.sqrt(Ci) # a estas las supongo diagonales y listo
-#Cr = np.eye(3) * (np.pi / 180)**2
-#Ct = np.eye(3) * 0.1**2
-#Crt = [Cr, Ct]
-## covarianza de los parametros intrinsecos de la camara
-#Cf = np.eye(4) * 0.1**2
-#if model is 'poly':
-#    Ck = np.diag((distCoeffs[[0, 1, 4]]*0.001)**2)  # 0.1% error distorsion
-#if model is 'rational':
-#    Ck = np.diag((distCoeffs[[0, 1, 4, 5, 6, 7]]*0.001)**2)  # 0.1% dist er
-#if model is 'fisheye':
-#    Ck = np.diag((distCoeffs*0.001)**2)  # 0.1% error distorsion
-#
+# %%ELIJO UNA DE LAS IMAGENES
+imSel = 10
+imgPts = imagePointsAll[imSel]
+rtV = rtVall[imSel]
+
+# covarianzas de 1% de desvest
+Cintr = np.diag((fkV / 1000)**2)
+#covLim0 = 6 * imSel
+#covLim1 = covLim0 + 6
+#Crt = intrCalib['exCov'][covLim0:covLim1,covLim0:covLim1] / 1
+Crt = np.diag((rtV / 1000)**2)
+Ci = (1.0**2) * np.array([np.eye(2)]*nPts) / 1 # 1pixel std
+
 N = 5000  # cantidad de realizaciones
-#
-
-
-
-
-## %% choose an image
-#imSearch = '22h22m11s'
-#for i in range(len(images)):
-#    if images[i].find(imSearch) is not -1:
-#        j = i
-#
-#print('\t imagen', j)
-#imagePoints = imagePointsAll[j, 0]
-npts = imgPts.shape[0]
-#
-#img = plt.imread(images[j])
-#
-## cargo la rototraslacion
-#rV = rVecs[j].reshape(-1)
-#tV = tVecs[j].reshape(-1)
-
 
 # %%
-reload(cl)
+#reload(cl)
 np.random.seed(0)
 
-retAll = analyticVsMC(imgPts, Ci, cameraMatrix, distCoeffs, Cintr, rtV, Crt)
+retAll = analyticVsMC(imgPts, Ci, cameraMatrix, distCoeffs, Cintr, rtV, Crt,
+                      nPts, N)
 ptsTeo, ptsNum, covTeo, covNum, ptsMC = retAll
 
 [xd, yd], [xh, yh], [xm, ym] = ptsTeo
@@ -310,6 +276,8 @@ cl.plotPointsUncert(axI, Ci, imgPts[:,0], imgPts[:,1], 'b')
 cl.plotPointsUncert(axI, CiNum, muI[0], muI[1], 'k')
 axI.plot(xI[:, :, 0].flat, xI[:, :, 1].flat, '.k', markersize=0.5)
 axI.axis('equal')
+axI.set_xlabel('xI')
+axI.set_ylabel('yI')
 
 # propagate to homogemous
 axD = plt.subplot(242)  # figD.gca()
@@ -318,6 +286,8 @@ cl.plotPointsUncert(axD, CdNum, muD[0], muD[1], 'k')
 axD.plot(xD.flat, yD.flat, '.k', markersize=0.5)
 #axD.plot(xd[0], yd[0], 'xr', markersize=5)
 axD.axis('equal')
+axD.set_xlabel('xD')
+axD.set_ylabel('yD')
 
 # go to undistorted homogenous
 #figH = plt.figure(3)
@@ -327,6 +297,8 @@ cl.plotPointsUncert(axH, ChNum, muH[0], muH[1], 'k')
 axH.plot(xH.flat, yH.flat, '.k', markersize=0.5)
 #axH.plot(xh[0], yh[0], 'xr', markersize=5)
 axH.axis('equal')
+axH.set_xlabel('xH')
+axH.set_ylabel('yH')
 
 # project to map
 #figM = plt.figure(4)
@@ -337,6 +309,8 @@ cl.plotPointsUncert(axM, CmNum, muM[0], muM[1], 'k')
 axM.plot(xM.flat, yM.flat, '.k', markersize=0.5)
 #axM.plot(xm[0], ym[0], 'xr', markersize=5)
 axM.axis('equal')
+axM.set_xlabel('xM')
+axM.set_ylabel('yM')
 
 
 # inset image
@@ -371,7 +345,7 @@ axHins.plot(xH[:, ptSelected], yH[:, ptSelected], '.k', markersize=0.5)
 axHins.axis('equal')
 
 
-#inset homogenous
+#inset world
 axMins = plt.subplot(248)
 #axDins = zoomed_inset_axes(axD, 30.0, loc=2) # zoom-factor: 2.5, location: upper-left
 #mark_inset(axD, axDins, loc1=1, loc2=4, fc="none", ec="0.5")
@@ -415,8 +389,185 @@ axM.add_patch( patches.Rectangle(boxMxy, boxMwh[0], boxMwh[1], fill=False))
 plt.tight_layout()
 
 
-# %% comparo numericamente
+# %% corro para todas la imagenes
+N = 5000  # cantidad de realizaciones
+np.random.seed(0)
+Ci = (1.0**2) * np.array([np.eye(2)]*nPts) / 1 # 1pixel std
 
+#lik = np.zeros((nIm, nPts, N))
+
+xTeo = np.zeros((nIm, 2, nPts))
+xMC = np.zeros((nIm, 2, nPts))
+Cteo = np.zeros((nIm, nPts, 2, 2))
+Cmc = np.zeros((nIm, nPts, 2, 2))
+
+for imSel in range(nIm):
+    print(imSel)
+    imgPts = imagePointsAll[imSel]
+    rtV = rtVall[imSel]
+
+    # covarianzas de 1% de desvest
+    Cintr = np.diag((fkV / 1000)**2)
+    Crt = np.diag((rtV / 1000)**2)
+
+    retAll = analyticVsMC(imgPts, Ci, cameraMatrix, distCoeffs, Cintr, rtV, Crt,
+                          nPts, N)
+    ptsTeo, ptsNum, covTeo, covNum, ptsMC = retAll
+
+    [xd, yd], [xh, yh], [xm, ym] = ptsTeo
+    Ci, Cd, Ch, Cm = covTeo
+    xI, xD, yD, xH, yH, xM, yM = ptsMC
+
+    muI, muD, muH, muM = ptsNum
+    CiNum, CdNum, ChNum, CmNum = covNum
+
+    xTeo[imSel] = [xm, ym]
+    xMC[imSel] = muM
+
+    Cteo[imSel] = Cm
+    Cmc[imSel] = CmNum
+
+#    # mahalanobis distance
+#    xDif = np.array([xM - xm, yM - ym]).transpose((2,1,0))
+#    Sm = np.linalg.inv(Cm)  # precision matrix
+#    SmNum  = np.linalg.inv(CmNum)
+##    mahDist = (xDif.reshape((nPts,N,2,1)) *
+##               Sm.reshape((nPts,1,2,2)) *
+##               xDif.reshape((nPts,N,1,2))
+##               ).sum(axis=(2,3))
+#    # matrix determiants square root
+#    Cm = Cm.T
+#    detTeo = Cm[0, 0] * Cm[1, 1] - Cm[0, 1] * Cm[1, 0]
+#    CmNum = CmNum.T
+#    detMC = CmNum[0, 0] * CmNum[1, 1] - CmNum[0, 1] * CmNum[1, 0]
+#
+#    # likelihood (no 2pi yet)
+##    lik[imSel] = np.exp(- mahDist / 2) / detsSqrt.reshape((-1,1))
+#    np.log()
+
+
+
+#lik /= 2 * np.pi # remaining normalising factor
+
+#likelihood = np.exp(np.sum(np.log(lik), axis=2))
+
+difX = np.transpose(xMC - xTeo, (0,2,1))
+
+Steo = np.linalg.inv(Cteo)  # las inversas
+Smc = np.linalg.inv(Cmc)
+
+
+CteoT = np.transpose(Cteo, (2, 3, 0, 1))
+CmcT = np.transpose(Cmc, (2, 3, 0, 1))
+detTeo = CteoT[0, 0] * CteoT[1, 1] - CteoT[0, 1] * CteoT[1, 0]
+detMC = CmcT[0, 0] * CmcT[1, 1] - CmcT[0, 1] * CmcT[1, 0]
+
+# logaritmo de determinantes
+logDets = np.log(detTeo / detMC)
+# aprovechoq ue son simetricas
+traceC1C2 = np.sum(Steo * Cmc, axis=(2,3))
+# mahalanobis
+mah = (difX.reshape((nIm,nPts,2,1)) *
+       Smc *
+       difX.reshape((nIm,nPts,1,2))).sum(axis=(2,3))
+
+#mah2 = np.zeros_like(mah)
+#for i in range(nIm):
+#    for j in range(nPts):
+#        mah2[i,j] = difX[i,j].dot(Smc[i,j]).dot(difX[i,j])
+#np.allclose(mah,mah2)
+
+'''
+formula de la divergencia KL para dos gaussianas. fuente:
+https://stats.stackexchange.com/questions/60680/kl-divergence-between-two-multivariate-gaussians#60699
+https://www.math.uwaterloo.ca/~hwolkowi//matrixcookbook.pdf
+'''
+KL = (logDets - 2 + traceC1C2 + mah) / 2
+KLmean = np.mean(KL)
+KLmedian = np.median(KL)
+
+plt.hist(KL.reshape(-1),30)
+plt.title('histograma de divergencias KL')
+plt.xlabel('divergencia KL')
+plt.text(0.0015, 150, 'media: %1.2e\nmoda: %1.2e'%(KLmean, KLmedian))
+
+
+# %% pruebo de poner todo sobre una elipse normalizada a circulo
+
+# las elipses de montecarlo:
+TallMC = cl.unit2CovTransf(Cmc.reshape((-1,2,2)))
+ellMC = np.dot(TallMC, cl.Xcirc) + difX.reshape((-1,2,1))
+
+# para llevar las elipses teoricas al circulo unitario:
+CteoUnit2Cov = np.linalg.inv(cl.unit2CovTransf(Cteo.reshape((-1,2,2))))
+
+ellMCunitario = (CteoUnit2Cov.reshape((-1,2,2,1)) *
+                 ellMC.reshape((-1,1,2,cl.Xcirc.shape[1]))
+                 ).sum(axis=2)
+
+
+# %%
+
+for ell in ellMCunitario:
+    plt.plot(ell[0], ell[1], '-b', alpha=0.1, lw=1.0)
+
+plt.plot(cl.Xcirc[0], cl.Xcirc[1], '-r')
+
+plt.axis('equal')
+plt.xlabel('transformed Xm')
+plt.ylabel('transformed Ym')
+
+plt.savefig("/home/sebalander/Dropbox/Vision/2018internationalPaper/" +
+            "figs/ellipsesNormalised.png")
+
+
+# %%
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+# %%
 # calculo las normas de frobenius de cada matriz y de la diferencia
 CiF, CdF, ChF, CmF = [ln.norm(C, axis=(1,2)) for C in [Ci, Cd, Ch, Cm]]
 CiNF, CdNF, ChNF, CmNF = [ln.norm(C, axis=(1,2)) for C in [CiNum, CdNum, ChNum, CmNum]]
@@ -611,19 +762,34 @@ L = list()
 LN = list()
 Rads = list()
 
-for i in range(len(images)):
-    print('\t imagen', i)
-    imagePoints = imagePointsAll[i, 0]
-    npts = imagePoints.shape[0]
+N = 5000  # cantidad de puntos MC
+Ci = (1.0**2) * np.array([np.eye(2)]*nPts) / 1
 
-    # cargo la rototraslacion
-    rV = rVecs[i].reshape(-1)
-    tV = tVecs[i].reshape(-1)
+for imSel in range(nIm):
+    print('\t imagen', imSel)
 
-    rtV = [rV, tV]
-    ptsTeo, ptsNum, covTeo, covNum = analyticVsMC(imagePoints, Ci,
-                                                  cameraMatrix, Cf, distCoeffs,
-                                                  Ck, rtV, Crt)
+    fkV = intrCalib['inMean']
+    cameraMatrix, distCoeffs = flat2int(fkV, Ns, model)
+    rtV = intrCalib['exMean'][imSel]
+    imgPts = imagePoints[imSel, 0]
+
+    Cintr = intrCalib['inCov'] / 1
+
+    covLim0 = 6 * imSel
+    covLim1 = covLim0 + 6
+    Crt = intrCalib['exCov'][covLim0:covLim1,covLim0:covLim1] / 1
+
+    retAll = analyticVsMC(imgPts, Ci, cameraMatrix, distCoeffs, Cintr, rtV, Crt)
+    ptsTeo, ptsNum, covTeo, covNum, ptsMC = retAll
+
+    [xd, yd], [xh, yh], [xm, ym] = ptsTeo
+    Ci, Cd, Ch, Cm = covTeo
+
+    xI, xD, yD, xH, yH, xM, yM = ptsMC
+
+    muI, muD, muH, muM = ptsNum
+    CiNum, CdNum, ChNum, CmNum = covNum
+
 
     L.append(sacoValsAng(covTeo[3]))
     LN.append(sacoValsAng(covNum[3]))
@@ -685,7 +851,7 @@ imSel = 30  # ELIJO UNA DE LAS IMAGENES
 
 covSuperList = list()
 
-for imSel in range(0,33,4):
+for imSel in range(0, 33, 4):
     print(imSel)
     rtV = intrCalib['exMean'][imSel]
     imgPts = imagePoints[imSel,0]

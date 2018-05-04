@@ -130,7 +130,14 @@ def rotoTrasHomog(x, r, t):
     '''
     x2 = rotoTrasRodri(x, r, t)
 
-    return x2[:, :2] / x2[:, 2].reshape((-1, 1))
+    xh, yh = x2[:, :2].T / x2[:, 2]
+    '''
+    import matplotlib.pyplot as plt
+    plt.figure()
+    plt.plot(xh, yh,'.')
+    plt.plot()
+    '''
+    return xh, yh
 
 # %% PARAMETER HANDLING
 
@@ -181,13 +188,14 @@ def direct(objectPoints, rVec, tVec, cameraMatrix, distCoeffs, model,
     performs projection form 3D world into image, is the "direct" distortion
     optionally it uses opencv's function if available
     '''
-    xHomog = rotoTrasHomog(objectPoints, rVec, tVec)
+    xh, yh = rotoTrasHomog(objectPoints, rVec, tVec)
 
-    rh = norm(xHomog, axis=1)
+    rh = norm([xh, yh], axis=0)
 
     q = distort[model](rh, distCoeffs, quot=True)
     # print(xHomog.shape, q.shape)
-    xd, yd = xHomog.T * q.reshape(1, -1)
+    xd = q * xh
+    yd = q * yh
 
     # project to ccd
     return hom2ccd(xd, yd, cameraMatrix)

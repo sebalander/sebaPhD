@@ -65,11 +65,10 @@ def radialDistort(rh, k, quot=False, der=False):
     k.shape = 1
 
     th = arctan(rh)
-    tanth = tan(th/2)
+    tanth = tan(th / 2)
     rd = k * tanth
 
     if der:
-        # derivative of quot of polynomials, "Direct" mapping
         # rpp wrt rp
         dDdH = k / cos(th / 2)**2 / 2 / (1 + rh**2)
         # calculate quotient

@@ -41,16 +41,16 @@ def int2flat(cameraMatrix, distCoeffs, model):
     '''
     parametros intrinsecos concatenados como un solo vector
     '''
-    
+
     if model==modelos[3]:
         # stereographic case is special
         kFlat = cameraMatrix[[0,1],2]
         dFlat = np.reshape(distCoeffs, -1)
-        
+
     else:
         kFlat = cameraMatrix[[0,1,0,1],[0,1,2,2]]
         dFlat = np.reshape(distCoeffs, -1)
-    
+
     X = np.concatenate((kFlat, dFlat))
     Ns = np.array([len(kFlat), len(dFlat)])
     Ns = np.cumsum(Ns)
@@ -60,11 +60,11 @@ def int2flat(cameraMatrix, distCoeffs, model):
 
 def flat2CamMatrix(kFlat, model):
     cameraMatrix = np.eye(3, dtype=float)
-    
+
     if model==modelos[3]:
-        cameraMatrix[[0,1],2] = kFlat
+        cameraMatrix[[0, 1], 2] = kFlat
     else:
-        cameraMatrix[[0,1,0,1],[0,1,2,2]] = kFlat
+        cameraMatrix[[0, 1, 0, 1], [0, 1, 2, 2]] = kFlat
     return cameraMatrix
 
 
@@ -74,7 +74,7 @@ def flat2int(X, Ns, model):
     '''
     kFlat = X[0:Ns[0]]
     dFlat = X[Ns[0]:Ns[1]]
-    
+
     cameraMatrix = flat2CamMatrix(kFlat, model)
     distCoeffs = dFlat
 
@@ -129,19 +129,20 @@ def errorCuadraticoImagen(Xext, Xint, Ns, params, j, mahDist=False):
     Ck = params["Ck"]
     Crt = params["Crt"]
     Cfk = params["Cfk"]
-    
+
     try: # check if there is covariance for this image
         Cov = Cccd[j]
     except:
         Cov = None
 
     # hago la proyeccion
-    xm, ym, Cm = cl.inverse(imagePoints[j,0], rvec, tvec, cameraMatrix,
+    xi, yi = imagePoints[j,0].T
+    xm, ym, Cm = cl.inverse(xi, yi, rvec, tvec, cameraMatrix,
                             distCoeffs, model, Cov, Cf, Ck, Crt[j], Cfk)
 
     # error
     er = ([xm, ym] - chessboardModel[0,:,:2].T).T
-    
+
     Cmbool = anny(Cm)
     if Cmbool:
         # devuelvo error cuadratico pesado por las covarianzas
@@ -167,7 +168,7 @@ def etotalExt(Xext, Xint, Ns, params, j):
     calcula el error total como la suma de los errore de cada punto en cada
     imagen
     '''
-    
+
     return errorCuadraticoImagen(Xext, Xint, Ns, params, j, mahDist=False).sum()
 
 
@@ -202,28 +203,28 @@ def etotalInt(Xint, Ns, XextList, params):
 from numpy.random import rand as rn
 
 class metHas:
-    
+
     def __init__(self, Ns, XextList, params, sampleador):
         self.Ns = Ns
         self.XextList = XextList
         self.params = params
-        
+
         self.generados = 0
         self.gradPos = 0
         self.gradNeg = 0
         self.mismo = 0
-        
+
         self.sampleador = sampleador
-    
+
     def nuevo(self, old, oldE):
         # genero nuevo
         new = self.sampleador.rvs() # rn(8) * intervalo + cotas[:,0]
         self.generados += 1
-    
+
         # cambio de error
         newE = etotalInt(new, self.Ns, self.XextList, self.params)
         deltaE = newE - oldE
-    
+
         if deltaE < 0:
             self.gradPos += 1
             print("Gradiente Positivo")
@@ -232,7 +233,7 @@ class metHas:
         else:
             # nueva opoertunidad, sampleo contra rand
             pb = np.exp(- deltaE / 2)
-    
+
             if pb > rn():
                 self.gradNeg += 1
                 print("Gradiente Negativo, pb=", pb)
@@ -246,7 +247,7 @@ class metHas:
                 print("Mismo punto,        pb=", pb)
                 print(self.generados, self.gradPos, self.gradNeg, self.mismo)
                 return old, oldE
-    
+
         return new, newE
 
 
@@ -255,30 +256,30 @@ class metHas:
 
 class metHasExt:
     '''
-    clase para ahcer las iteraciones de metropolis para la calibracion 
+    clase para ahcer las iteraciones de metropolis para la calibracion
     extrinseca
     '''
     def __init__(self, Xint, Ns, params, sampleador, priorExt, W):
         self.Ns = Ns
         self.Xint = Xint
         self.params = params
-        
+
         self.generados = 0
         self.gradPos = 0
         self.gradNeg = 0
         self.mismo = 0
-        
+
         self.sampleador = sampleador
         self.priorExt = priorExt
         self.W = W
-    
+
     def ePrior(self, Xext):
         '''
         el error de prior solo va para la posicion y no para los angulos porque no
         hay info facil de los angulos a priori
         '''
         return self.W.dot((Xext - self.priorExt)**2)
-    
+
     # error total
     def etotalExt(self, Xext):
         '''
@@ -288,16 +289,16 @@ class metHasExt:
         ep = self.ePrior(Xext)
         ep += errorCuadraticoImagen(Xext, self.Xint, self.Ns, self.params, 0).sum()
         return ep
-    
+
     def nuevo(self, old, oldE):
         # genero nuevo
         new = self.sampleador.rvs() # rn(8) * intervalo + cotas[:,0]
         self.generados += 1
-    
+
         # cambio de error
         newE = self.etotalExt(new)
         deltaE = newE - oldE
-    
+
         if deltaE < 0:
             self.gradPos += 1
             print("Gradiente Positivo")
@@ -306,7 +307,7 @@ class metHasExt:
         else:
             # nueva opoertunidad, sampleo contra rand
             pb = np.exp(- deltaE / 2)
-    
+
             if pb > rn():
                 self.gradNeg += 1
                 print("Gradiente Negativo, pb=", pb)
@@ -320,7 +321,7 @@ class metHasExt:
                 print("Mismo punto,        pb=", pb)
                 print(self.generados, self.gradPos, self.gradNeg, self.mismo)
                 return old, oldE
-    
+
         return new, newE
 
 
@@ -480,30 +481,30 @@ def trasPerMAt(k,l):
     returns the trasposition permutation matrix of matrix A of size (k, l)
     https://www.statlect.com/probability-distributions/wishart-distribution#refMuirhead
     '''
-    n = k*l 
-    
+    n = k*l
+
     vecA = np.arange(n, dtype=int)
     A = vecA.reshape((k,l))
     vecAT = A.T.reshape(-1)
-    
+
     mat = np.zeros((n,n), dtype=int)
-    
+
     mat[[vecA],[vecAT]] = 1
-    
+
     return mat
 
 
 
 def varVarN(c, Nsamples):
     '''
-    returns the variance of a covariance matriz of size NxN calculated with 
+    returns the variance of a covariance matriz of size NxN calculated with
     Nsamples samples
     '''
     cKron = np.kron(c,c)
     n = c.shape[0]
-    
+
     const = np.eye(n**2) + trasPerMAt(n, n)
-    
+
     return const.dot(cKron) / Nsamples
 
 
