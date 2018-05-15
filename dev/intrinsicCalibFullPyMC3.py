@@ -28,12 +28,65 @@ import pymc3 as pm
 import scipy as sc
 import seaborn as sns
 
+import scipy.optimize as opt
+
 import sys
 sys.path.append("/home/sebalander/Code/sebaPhD")
 from calibration import calibrator as cl
 from dev import bayesLib as bl
 
 print('libraries imported')
+
+# %%
+
+def stereoFromFisheye(distcoeffs):
+    '''
+    takes 4 distcoeffs of the opencv fisheye model and returns the
+    corresponding k stereografic parameter suche on average they are equal
+    (integrating over the angle 0 to pi/2)
+    from wolfram site:
+    https://www.wolframalpha.com/input/?i=integral+of+K*tan(x%2F2)+-+(x%2Bk1*x%5E3%2Bk2*x%5E5%2Bk3*x%5E7%2Bk4*x%5E9)+from+0+to+pi%2F2
+    '''
+    piPow = np.pi**(np.arange(1,6)*2)
+    numAux = np.array([3840, 480, 80, 15, 3])
+    fisheyeIntegral = np.sum(piPow * numAux) / 30720
+    return fisheyeIntegral / np.log(2)
+
+
+'''
+para ver que tan disperso es el paso de cada propuesta. como las propuestas se
+sacan de una pdf gaussiana n-dimendional pasa que empieza a haber mucho volumen
+de muestras que se acumulan mucho a un cierto radio. hay un compromiso entre
+que el volumen aumenta
+'''
+
+
+def radiusStepsNdim(n):
+    '''
+    retorna moda, la media y la desv est del radio  de pasos al samplear
+    de gaussianas hiperdimensionales de norma 1
+    '''
+    # https://www.wolframalpha.com/input/?i=integrate+x%5E(n-1)+exp(-x%5E2%2F2)+from+0+to+infinity
+    # integral_0^∞ x^(n - 1) exp(-x^2/2) dx = 2^(n/2 - 1) Γ(n/2) for Re(n)>0
+    Inorm = 2**(n/2 - 1) * sc.special.gamma(n/2)
+
+    # https://www.wolframalpha.com/input/?i=integrate+x%5En+exp(-x%5E2%2F2)+from+0+to+infinity
+    # integral_0^∞ x^n exp(-x^2/2) dx = 2^((n - 1)/2) Γ((n + 1)/2) for Re(n)>-1
+    ExpectedR = 2**((n-1)/2) * sc.special.gamma((n+1)/2)
+
+    # https://www.wolframalpha.com/input/?i=integrate+x%5E(n%2B1)+exp(-x%5E2%2F2)+from+0+to+infinity
+    # integral_0^∞ x^(n + 1) exp(-x^2/2) dx = 2^(n/2) Γ(n/2 + 1) for Re(n)>-2
+    ExpectedR2 = 2**(n/2) * sc.special.gamma(n/2 + 1)
+
+    ModeR = np.sqrt(n - 1)
+
+    # normalizo las integrales:
+    ExpectedR /= Inorm
+    ExpectedR2 /= Inorm
+
+    DesvEstR = np.sqrt(ExpectedR2 - ExpectedR**2)
+
+    return np.array([ModeR, ExpectedR, DesvEstR])
 
 # %% LOAD DATA
 # input
@@ -56,50 +109,59 @@ tVecsFile = imagesFolder + camera + model + "Tvecs.npy"
 rVecsFile = imagesFolder + camera + model + "Rvecs.npy"
 
 imageSelection = np.arange(0, 33)  # selecciono con que imagenes trabajar
-n = len(imageSelection)  # cantidad de imagenes
+nIm = len(imageSelection)  # cantidad de imagenes
 
 # ## load data
 imagePoints = np.load(cornersFile)[imageSelection]
 
 chessboardModel = np.load(patternFile)
-m = chessboardModel.shape[1]  # cantidad de puntos por imagen
+nPt = chessboardModel.shape[1]  # cantidad de puntos por imagen
 imgSize = tuple(np.load(imgShapeFile))
 # images = glob.glob(imagesFolder+'*.png')
 
 # Parametros de entrada/salida de la calibracion
-objpoints2D = np.array([chessboardModel[0, :, :2]]*n).reshape((n, m, 2))
+objpoints2D = np.array([chessboardModel[0, :, :2]]*nIm).reshape((nIm, nPt, 2))
 
 # load model specific data from opencv Calibration
 distCoeffs = np.load(distCoeffsFile)
 cameraMatrix = np.load(linearCoeffsFile)
-rVecs = np.load(rVecsFile)[imageSelection]
-tVecs = np.load(tVecsFile)[imageSelection]
+rVecsOCV = np.load(rVecsFile)[imageSelection]
+tVecsOCV = np.load(tVecsFile)[imageSelection]
+
+# comparo con opencv
+distCoeffsFileOCV = imagesFolder + camera + modelos[2] + "DistCoeffs.npy"
+linearCoeffsFileOCV = imagesFolder + camera + modelos[2] + "LinearCoeffs.npy"
+distCoeffsOCV = np.load(distCoeffsFileOCV)
+cameraMatrixOCV = np.load(linearCoeffsFileOCV)
+
+stereoFromFisheye(distCoeffsOCV) * np.mean(cameraMatrixOCV[[0, 1], [0, 1]])
+#esto da muy mal, habría que pesar mejor en diferentes regiones de la imagen
 
 print('raw data loaded')
 
 # pongo en forma flat los valores iniciales
-Xint, Ns = bl.int2flat(cameraMatrix, distCoeffs, model)
-XextList = np.array([bl.ext2flat(rVecs[i], tVecs[i])for i in range(n)])
+XintOCV, Ns = bl.int2flat(cameraMatrix, distCoeffs, model)
+XextListOCV = np.array([bl.ext2flat(rVecsOCV[i], tVecsOCV[i])for i in range(nIm)])
 
-NintrParams = Xint.shape[0]
-NextrParams = n * 6
+NintrParams = XintOCV.shape[0]
+NextrParams = nIm * 6
 NfreeParams = NextrParams + NintrParams
-NdataPoints = n*m
+NdataPoints = nIm * nPt
 
 # 0.1pix as image std
 # https://stackoverflow.com/questions/12102318/opencv-findcornersubpix-precision
 # increase to 1pix porque la posterior da demasiado rara
 stdPix = 1.0
-Ci = np.repeat([stdPix**2 * np.eye(2)], n*m, axis=0).reshape(n, m, 2, 2)
+Ci = np.repeat([stdPix**2 * np.eye(2)], NdataPoints, axis=0).reshape(nIm, nPt, 2, 2)
 
-Crt = np.repeat([False], n)  # no RT error
+Crt = np.repeat([False], nIm)  # no RT error
 
 # output file
 intrinsicParamsOutFile = imagesFolder + camera + model + "intrinsicParamsML"
 intrinsicParamsOutFile = intrinsicParamsOutFile + str(stdPix) + ".npy"
 
 ## pruebo con un par de imagenes
-#for j in range(0, n, 3):
+#for j in range(0, nIm, 3):
 #    xm, ym, Cm = cl.inverse(imagePoints[j, 0], rVecs[j], tVecs[j],
 #                            cameraMatrix,
 #                            distCoeffs, model, Cccd=Ci[j], Cf=False, Ck=False,
@@ -113,7 +175,7 @@ yObs = objpoints2D.reshape(-1)
 print('data formated')
 
 # %% testeo el error calculado como antes
-params= dict()
+params = dict()
 
 params["imagePoints"] = imagePoints
 params["model"] = model
@@ -121,122 +183,30 @@ params["chessboardModel"] = chessboardModel
 params["Cccd"] = Ci
 params["Cf"] = False
 params["Ck"] = False
-params["Crt"] = [False] * n
+params["Crt"] = [False] * nIm
 params["Cfk"] = False
 
 reload(bl)
-Eint = bl.errorCuadraticoInt(Xint, Ns, XextList, params)
+Eint = bl.errorCuadraticoInt(XintOCV, Ns, XextListOCV, params)
 
 # %% defino la funcion a minimizar
 
 
 def objective(xAll):
     Xint = xAll[:Ns[1]]
-    XextList = xAll[Ns[1]:].reshape((-1,6))
+    XextList = xAll[Ns[1]:].reshape((-1, 6))
 
     Eint = bl.errorCuadraticoInt(Xint, Ns, XextList, params)
     return np.sum(Eint)
 
 
-xAll0 = np.concatenate([Xint, XextList.reshape(-1)])
-
-import scipy.optimize as opt
-
-#ret = opt.minimize(objective, xAll0, method='Powell', tol=1e-1)
-#ret2 = opt.minimize(objective, ret.x, method='Powell', tol=1e-3)
-#ret3 = opt.minimize(objective, ret2.x, method='Powell', tol=1e-6)
-#ret4 = opt.minimize(objective, ret3.x, method='Powell', tol=1e-6)
-#ret5 = opt.minimize(objective, ret4.x, tol=1e-4)
-
-ret = opt.minimize(objective, xAll0, tol=1e-4)
-ret = opt.minimize(objective, ret.x, tol=1e-4)
-
-plt.plot(np.abs(ret.x), np.abs(ret.x - xAll0), '.')
+xAllOCV = np.concatenate([XintOCV, XextListOCV.reshape(-1)])
 
 
+# %% result of optimisation:
 
-C = np.linalg.inv(ret.hess_inv)
-sig = np.sqrt(np.diag(C))
-Corr = C / (sig.reshape((-1, 1)) * sig.reshape((1, -1)))
-
-plt.matshow(Corr, vmin=-1, vmax=1, cmap='coolwarm')
-
-
-'''
-ret
-Out[79]:
-      fun: 6731.089109507354
- hess_inv: array([[ 2.59154972e-04, -7.79848797e-04,  4.79230181e-04, ...,
-         1.16305847e-04,  6.19073522e-05,  9.24800580e-05],
-       [-7.79848797e-04,  2.54523784e-03, -1.60642249e-03, ...,
-        -2.54717077e-04, -1.62099488e-04, -2.14835142e-04],
-       [ 4.79230181e-04, -1.60642249e-03,  1.10219128e-03, ...,
-         1.72053216e-04,  1.04989054e-04,  1.43865551e-04],
-       ...,
-       [ 1.16305847e-04, -2.54717077e-04,  1.72053216e-04, ...,
-         2.33955032e-03,  6.69361760e-04,  1.32699700e-03],
-       [ 6.19073522e-05, -1.62099488e-04,  1.04989054e-04, ...,
-         6.69361760e-04,  2.25686727e-04,  4.01826693e-04],
-       [ 9.24800580e-05, -2.14835142e-04,  1.43865551e-04, ...,
-         1.32699700e-03,  4.01826693e-04,  8.06162541e-04]])
-      jac: array([-4.27246094e-04, -8.54492188e-04,  1.83105469e-04, -6.89697266e-03,
-       -7.01904297e-03, -7.75146484e-03,  5.67626953e-03, -8.54492188e-04,
-       -6.10351562e-05, -5.67626953e-03,  1.46484375e-02, -1.44653320e-02,
-        6.77490234e-03, -8.54492188e-04, -3.84521484e-03, -7.56835938e-03,
-        6.28662109e-03, -9.09423828e-03,  2.38037109e-03,  2.07519531e-03,
-       -2.25830078e-03,  1.81884766e-02, -1.64794922e-03, -8.48388672e-03,
-        9.15527344e-04, -3.60107422e-03,  2.25830078e-03, -7.62939453e-03,
-       -4.88281250e-03, -4.57763672e-03,  9.09423828e-03,  3.47900391e-03,
-       -7.14111328e-03, -1.86157227e-02,  2.31323242e-02, -3.35693359e-02,
-        6.04248047e-03,  9.15527344e-04, -9.94873047e-03, -2.10571289e-02,
-        2.62451172e-03, -3.27758789e-02, -4.27246094e-04,  5.55419922e-03,
-       -4.33349609e-03,  1.64794922e-03, -1.28784180e-02, -2.47192383e-02,
-        2.62451172e-03,  1.77001953e-03, -1.77001953e-03,  3.17993164e-02,
-        4.19921875e-02, -1.58081055e-02, -3.23486328e-03,  5.49316406e-04,
-       -1.13525391e-02,  1.15966797e-03, -4.57763672e-03,  1.15966797e-03,
-       -1.30004883e-02, -5.18798828e-03,  4.45556641e-03, -2.61840820e-02,
-        3.96118164e-02, -4.21142578e-03,  8.91113281e-03,  5.37109375e-03,
-       -7.99560547e-03, -1.64794922e-03, -8.48388672e-03,  1.53198242e-02,
-       -2.74658203e-03, -1.03759766e-03, -5.49316406e-04,  2.13623047e-03,
-        1.15966797e-03,  2.33764648e-02, -4.82177734e-03,  4.69970703e-03,
-       -3.05175781e-04, -2.58178711e-02,  1.28784180e-02,  4.42504883e-02,
-        4.45556641e-03, -8.97216797e-03,  3.78417969e-03, -2.99682617e-02,
-       -1.04370117e-02,  3.22265625e-02, -4.69970703e-03, -1.77001953e-03,
-       -9.21630859e-03, -1.83105469e-04, -1.83105469e-04,  9.09423828e-03,
-       -2.07519531e-03, -1.52587891e-03, -1.15966797e-03,  1.77001953e-03,
-       -8.23974609e-03, -1.04370117e-02,  6.22558594e-03,  1.83105469e-04,
-        3.66210938e-04, -3.96728516e-03, -5.18798828e-03, -1.50756836e-02,
-        2.44140625e-03,  1.03759766e-03, -3.96728516e-03, -2.13623047e-03,
-        8.72802734e-03, -1.86157227e-02,  1.83105469e-04, -3.78417969e-03,
-       -2.25830078e-03, -1.66625977e-02, -3.99169922e-02, -1.89819336e-02,
-        1.64184570e-02,  8.11767578e-03,  9.88769531e-03,  3.47900391e-03,
-        4.27246094e-04,  9.94873047e-03,  1.28173828e-03, -2.25830078e-03,
-       -5.49316406e-04, -6.53076172e-03, -4.82177734e-03,  4.69970703e-03,
-       -8.23974609e-03, -5.43212891e-03, -3.05175781e-04, -2.37426758e-02,
-        1.38549805e-02,  2.14233398e-02, -1.40380859e-03,  7.50732422e-03,
-       -3.72314453e-03, -4.27246094e-04, -1.40991211e-02,  3.41796875e-02,
-       -1.03149414e-02,  3.47900391e-03, -1.00097656e-02, -2.25830078e-03,
-        1.17797852e-02,  1.59301758e-02,  2.01416016e-03,  1.83105469e-04,
-        3.11279297e-03,  3.47900391e-03, -1.39770508e-02, -1.12915039e-02,
-       -3.96728516e-03,  2.50244141e-03, -6.40869141e-03,  2.62451172e-03,
-       -1.40380859e-03, -5.79833984e-03, -1.15966797e-03,  3.05175781e-04,
-       -3.05175781e-04, -4.69970703e-03,  5.06591797e-03, -1.27563477e-02,
-        1.83105469e-04,  1.03759766e-03, -1.15966797e-03,  4.33349609e-03,
-        2.50244141e-03,  1.82495117e-02,  1.83105469e-04, -2.56347656e-03,
-        4.27246094e-04, -2.00805664e-02,  1.66625977e-02,  2.62451172e-03,
-        4.08935547e-03,  4.08935547e-03, -4.94384766e-03,  3.11279297e-03,
-       -9.33837891e-03, -1.28784180e-02, -1.77001953e-03, -4.51660156e-03,
-        6.10351562e-05,  1.45263672e-02, -7.14111328e-03,  1.97143555e-02,
-       -1.52587891e-03,  2.74658203e-03,  5.18798828e-03,  1.72729492e-02,
-       -4.21142578e-03,  2.39868164e-02, -1.77001953e-03,  5.49316406e-04,
-        5.43212891e-03])
-  message: 'Desired error not necessarily achieved due to precision loss.'
-     nfev: 81830
-      nit: 240
-     njev: 403
-   status: 2
-  success: False
-        x: array([ 8.16472244e+02,  4.72646126e+02,  7.96435717e+02, -1.77272668e-01,
+xAllOpt = np.array([
+        8.16472244e+02,  4.72646126e+02,  7.96435717e+02, -1.77272668e-01,
         7.67281179e-02, -9.03548594e-02, -3.33339378e+00, -5.54790259e+00,
         5.99651705e+00,  9.30295123e-01,  6.21785570e-02, -6.96743493e-02,
        -3.13558219e+00, -4.25053069e+00,  3.87610434e+00,  9.19901975e-01,
@@ -287,14 +257,53 @@ Out[79]:
         1.62603380e+01, -3.00052137e+00,  1.05005924e+01, -7.00610553e-02,
         9.00948402e-01,  5.66637445e-01,  1.72115713e+01,  1.75486781e+00,
         1.02325778e+01])
-'''
 
 
+XintOpt = xAllOpt[:Ns[1]]
+XextListOpt = xAllOpt[Ns[1]:].reshape((-1,6))
 
-# %% tratod e hacerle una derivada
-import numdifftools as ndf
+# %%
+#ret = opt.minimize(objective, xAll0, method='Powell', tol=1e-1)
+#ret2 = opt.minimize(objective, ret.x, method='Powell', tol=1e-3)
+#ret3 = opt.minimize(objective, ret2.x, method='Powell', tol=1e-6)
+#ret4 = opt.minimize(objective, ret3.x, method='Powell', tol=1e-6)
+#ret5 = opt.minimize(objective, ret4.x, tol=1e-4)
 
-J = ndf.Jacobian(objective)
+#ret = opt.minimize(objective, xAllOCV, tol=1e-4)
+if False:
+    ret = opt.minimize(objective, xAllOpt, tol=1e-4)
+    errAbs = np.abs(ret.x - xAllOpt)
+    valAbs = np.abs(ret.x)
+    plt.plot(valAbs, errAbs, '.')
+
+    epAbs = np.sort(errAbs)
+    epRel = np.sort(errAbs / valAbs)
+
+    A, R = np.meshgrid(epAbs, epRel)
+
+    validity = R.reshape((NfreeParams, NfreeParams,1)) * valAbs.reshape((1, 1, -1))
+    validity += A.reshape((NfreeParams, NfreeParams, 1))
+    validity = errAbs < validity
+    validPoints = np.sum(validity, axis=2) / errAbs.shape[0]
+
+
+    plt.pcolormesh(A, R, validPoints, cmap='gray')
+    plt.loglog()
+    plt.xlabel('Abs Error')
+    plt.ylabel('Rel Error')
+
+
+    C = np.linalg.inv(ret.hess_inv)
+    sig = np.sqrt(np.diag(C))
+    Corr = C / (sig.reshape((-1, 1)) * sig.reshape((1, -1)))
+
+    plt.matshow(Corr, vmin=-1, vmax=1, cmap='coolwarm')
+
+
+# %% trato de hacerle una derivada
+#import numdifftools as ndf
+#
+#J = ndf.Jacobian(objective)
 
 
 
@@ -325,12 +334,12 @@ class ProjectionT(theano.Op):
         # print(Xint)
         cameraMatrix, distCoeffs = bl.flat2int(Xint, Ns, model)
         # print(cameraMatrix, distCoeffs)
-        xy = np.zeros((n, m, 2))
-        cm = np.zeros((n, m, 2, 2))
+        xy = np.zeros((nIm, nPt, 2))
+        cm = np.zeros((nIm, nPt, 2, 2))
 
-        for j in range(n):
+        for j in range(nIm):
             rVec, tVec = bl.flat2ext(Xext[j])
-            xi, yi = imagePoints.reshape((n, m, 2))[j].T
+            xi, yi = imagePoints.reshape((nIm, nPt, 2))[j].T
             xy[j, :, 0], xy[j, :, 1], cm[j] = cl.inverse(
                     xi, yi, rVec, tVec,
                     cameraMatrix, distCoeffs, model, Cccd=Ci[j])
@@ -344,12 +353,12 @@ class ProjectionT(theano.Op):
         sdiag = np.zeros_like(u)
         sdiag[:, :, [0, 1], [0, 1]] = np.sqrt(s)
 
-        A = (u.reshape((n, m, 2, 2, 1, 1)) *
-             sdiag.reshape((n, m, 1, 2, 2, 1)) *
-             v.transpose((0, 1, 3, 2)).reshape((n, m, 1, 1, 2, 2))
+        A = (u.reshape((nIm, nPt, 2, 2, 1, 1)) *
+             sdiag.reshape((nIm, nPt, 1, 2, 2, 1)) *
+             v.transpose((0, 1, 3, 2)).reshape((nIm, nPt, 1, 1, 2, 2))
              ).sum(axis=(3, 4))
 
-        xy = np.sum(xy.reshape((n, m, 2, 1)) * A, axis=3)
+        xy = np.sum(xy.reshape((nIm, nPt, 2, 1)) * A, axis=3)
 
         output_storage[0][0] = xy
 
@@ -368,23 +377,40 @@ print('projection defined for theano')
 #else:
 #    pass
 
-XintOP = T.dvector('XintOP')
-XextOP = T.dmatrix('XextOP')
+XintOper = T.dvector('XintOP')
+XextOper = T.dmatrix('XextOP')
 
 projTheanoWrap = ProjectionT()
 
-projTfunction = theano.function([XintOP, XextOP],
-                                projTheanoWrap(XintOP, XextOP))
+projTfunction = theano.function([XintOper, XextOper],
+                                projTheanoWrap(XintOper, XextOper))
 
 try:
-    out = projTfunction(Xint, XextList)
+    outOpt = projTfunction(XintOpt, XextListOpt)
 except:
     sys.exit("no anduvo el wrapper de la funciona  theano")
 else:
     pass
     # print(out)
 
-plt.scatter(out[:, :, 0], out[:, :, 1])
+
+
+# # no comparo con OCV para no meter un tema y despues tener que explicarlo
+#outOCV = np.zeros_like(outOpt)
+#for i in range(nIm):
+#    xi, yi = imagePoints[i,0].T
+#    outOCV[i,:,0], outOCV[i,:,1], _ = cl.inverse(xi, yi, rVecsOCV[i],
+#              tVecsOCV[i], cameraMatrixOCV, distCoeffsOCV, modelos[2])
+#
+#outOCV -= objpoints2D
+
+plotBool = False
+if plotBool:
+    plt.figure()
+    plt.plot(outOpt[:, :, 0].flatten(), outOpt[:, :, 1].flatten(), '.k',
+             markersize=0.7)
+
+#plt.plot(outOCV[:, :, 0].flatten(), outOCV[:, :, 1].flatten(), '+r')
 
 
 # %%
@@ -394,7 +420,7 @@ plt.scatter(out[:, :, 0], out[:, :, 1])
 
 
 # indexes to read diagona 2x2 blocks of a matrix
-# nTot = 2 * n * m
+# nTot = 2 * nIm * nPt
 # xInxs = [[[i, i], [i+1, i+1]] for i in range(0, nTot, 2)]
 # yInxs = [[[i, i+1], [i, i+1]] for i in range(0, nTot, 2)]
 
@@ -408,20 +434,20 @@ projTheanoWrap = ProjectionT()
 # intrDelta = np.abs([100, 100, 200, 100,
 #                    Xint[4] / 2, Xint[5] / 2, Xint[6] / 2, Xint[7] / 2])
 intrDelta = np.abs([100, 100, 100])
-intrLow = Xint - intrDelta  # intrinsic
-intrUpp = Xint + intrDelta
+intrLow = XintOpt - intrDelta  # intrinsic
+intrUpp = XintOpt + intrDelta
 
-extrDelta = np.array([[0.3, 0.3, 0.3, 3, 3, 3]]*n)
-extrLow = XextList - extrDelta
-extrUpp = XextList + extrDelta
+extrDelta = np.array([[0.3, 0.3, 0.3, 3, 3, 3]]*nIm)
+extrLow = XextListOpt - extrDelta
+extrUpp = XextListOpt + extrDelta
 
 
 allLow = np.concatenate([intrLow, extrLow.reshape(-1)])
 allUpp = np.concatenate([intrUpp, extrUpp.reshape(-1)])
 
-xAll0 = np.concatenate([Xint, XextList.reshape(-1)], 0)
+xAll0 = np.concatenate([XintOpt, XextListOpt.reshape(-1)], 0)
 
-observedNormed = np.zeros((n * m * 2))
+observedNormed = np.zeros((nIm * nPt * 2))
 
 
 with projectionModel:
@@ -429,7 +455,7 @@ with projectionModel:
     # Priors for unknown model parameters
     xIn = pm.Uniform('xIn', lower=intrLow, upper=intrUpp, shape=(NintrParams,),
                      transform=None)
-    xEx = pm.Uniform('xEx', lower=extrLow, upper=extrUpp, shape=(n, 6),
+    xEx = pm.Uniform('xEx', lower=extrLow, upper=extrUpp, shape=(nIm, 6),
                      transform=None)
 
     # apply numpy based function
@@ -453,6 +479,54 @@ print('model defined')
 
 
 # %% aca harcodeo buenas condiciones iniciales
+
+try:
+    covOPdiag = np.diag(ret.hess_inv)
+except:
+    covOPdiag = np.array(
+      [0.99666917, 1.01725545, 0.99230996, 0.92448788, 0.81269367,
+       0.46444881, 0.98598025, 0.98665314, 0.99619757, 0.97972878,
+       0.96732291, 0.48881261, 1.02317142, 0.99738691, 1.02176324,
+       0.98016844, 0.99053176, 0.98051997, 1.0045555 , 0.99957425,
+       1.02122366, 0.87471028, 0.97719328, 0.55544213, 0.99778134,
+       0.99827303, 1.00659944, 0.85216935, 0.98208789, 0.13934568,
+       0.96463168, 1.01624222, 0.97889943, 0.97044974, 1.01869262,
+       0.74040321, 1.01927562, 1.04108516, 1.14922666, 0.93030665,
+       1.03253671, 0.97825876, 1.00254591, 1.0122422 , 1.00003419,
+       1.01133444, 0.95523071, 0.84140185, 1.01104793, 1.04161458,
+       1.13881759, 0.85826757, 0.60880472, 0.02773636, 0.99311584,
+       1.02451849, 1.06699635, 0.99782994, 0.99631883, 0.8033285 ,
+       0.94975035, 1.01521908, 1.01211061, 0.92451836, 0.81870015,
+       0.82183431, 1.00520635, 0.99902623, 0.99371426, 1.09465475,
+       1.06197124, 0.95492071, 0.99968204, 1.02553992, 1.02736384,
+       1.11058998, 1.00785108, 0.91943086, 1.06795506, 1.03985036,
+       0.99997106, 1.06452488, 0.99176444, 0.86202203, 1.01531346,
+       1.03781383, 1.01318191, 0.90510674, 1.26167704, 0.87964094,
+       1.02313256, 1.09463896, 1.0245659 , 1.0194543 , 1.00324881,
+       0.99926508, 1.00268766, 1.01389343, 1.00373701, 1.01620944,
+       1.0904048 , 1.05922911, 1.20156496, 1.00189132, 1.00447545,
+       1.04580116, 1.01109723, 0.96776504, 1.00422124, 1.01554554,
+       1.04860152, 1.00164859, 1.00463207, 0.90290399, 1.00116518,
+       1.01461016, 1.01009007, 0.7869471 , 0.77256265, 0.13678561,
+       0.93776702, 1.04072775, 1.1266469 , 0.99732331, 1.00230652,
+       0.98210756, 1.02949382, 1.00271666, 1.02334042, 1.10331503,
+       1.02724226, 0.99579062, 1.23285126, 1.06129086, 1.00075568,
+       0.87217687, 0.94557873, 0.80048822, 1.05378651, 1.06405655,
+       1.00725197, 0.81407575, 0.94466406, 0.58668429, 1.03874161,
+       1.15654318, 1.00558437, 1.00568688, 1.22975702, 0.974743  ,
+       1.03104617, 1.0591857 , 1.00597734, 1.05657699, 1.45644042,
+       0.99690871, 1.20990415, 1.00970418, 1.30362057, 0.99993822,
+       1.00001622, 0.99922863, 1.0002478 , 1.00094582, 1.00347633,
+       0.96679911, 0.98195348, 0.8624708 , 1.00320789, 0.99922754,
+       0.99894586, 0.99635016, 0.99876612, 0.94421186, 0.99904539,
+       1.00533761, 1.00080393, 0.97327825, 0.9260509 , 0.05477286,
+       0.98552962, 0.98541202, 1.00898964, 1.07033115, 0.98371253,
+       0.99367689, 1.01665865, 1.0236957 , 1.05833444, 1.01003038,
+       1.01508945, 0.955479  , 1.00029497, 1.00148514, 1.02546372,
+       1.00120396, 0.99943828, 0.99830778, 1.01370469, 1.0046385 ,
+       0.99987442])
+
+
 ## esto es para el modelo wide fisheye
 #inMean = np.array(
 #      [ 3.98204193e+02,  4.11166644e+02,  8.08151855e+02,  4.67128941e+02,
@@ -487,198 +561,169 @@ print('model defined')
 #       [ 3.80320535e-07,  3.51041632e-07,  4.07269304e-08,
 #         1.01157804e-07,  2.34150723e-09, -2.78472504e-10,
 #        -6.80709826e-10,  1.22395226e-10]])
-inMean = np.array([810.36355832, 470.00982051, 798.4825905 ])
+#
+inMean = np.array([816.52306533, 472.6509038 , 795.35757785])
 
 
-inCov = np.array(
-      [[ 0.1336706 ,  0.04361427, -0.17582661],
-       [ 0.04361427,  0.33718186, -0.22929851],
-       [-0.17582661, -0.22929851,  1.36442735]])
+#inCov = np.array(
+#      [[ 0.1336706 ,  0.04361427, -0.17582661],
+#       [ 0.04361427,  0.33718186, -0.22929851],
+#       [-0.17582661, -0.22929851,  1.36442735]])
 
 
-Sin = np.array([0.3656099 , 0.58067362, 1.16808705])
+inCov = Sin = np.array(
+      [[ 0.22201776,  0.02473017, -0.07705355],
+       [ 0.02473017,  0.02946335, -0.02757416],
+       [-0.07705355, -0.02757416,  0.90622708]])
 
 
-exMean = np.array(
-      [[-1.87655907e-01,  8.68920468e-02, -8.75026635e-02,
-        -3.23239768e+00, -5.50789861e+00,  6.08491932e+00],
-       [ 9.24989200e-01,  7.30526552e-02, -7.33215817e-02,
-        -3.05891314e+00, -4.22428798e+00,  3.94351921e+00],
-       [ 9.18611356e-01, -3.44844751e-01,  9.74298118e-01,
-         9.61129019e+00, -5.98895198e+00,  3.96471691e+00],
-       [ 1.37578846e-01, -5.28738609e-01,  6.42504512e-01,
-        -6.47816476e+00, -4.09608043e+00,  3.74021899e+00],
-       [-2.83139008e-02,  8.62871422e-01, -6.66602428e-04,
-        -1.98225060e-01, -2.48329497e+00,  7.61484145e+00],
-       [ 8.51179121e-01,  5.20407517e-01,  8.95260047e-01,
-         7.81925472e+00, -6.90796750e+00,  5.21594297e+00],
-       [ 6.33803482e-01,  9.20642809e-01,  1.83533206e+00,
-         1.87385098e+01,  6.18614167e+00,  7.56164478e+00],
-       [-7.75052454e-01,  8.29911229e-02,  1.10970260e+00,
-        -4.89649577e+00, -3.67205125e+00,  1.12440016e+01],
-       [ 1.67071964e-02,  7.90824852e-03, -1.58290397e+00,
-        -2.40141020e+00,  4.87432605e+00,  5.22993152e+00],
-       [-6.15599826e-02, -7.25710543e-02, -3.09841916e+00,
-         3.99057505e+00,  4.88009783e+00,  5.46007247e+00],
-       [ 1.66943147e-01,  6.64381516e-02,  2.38464407e-02,
-        -3.82834616e+00,  2.05737042e+00,  5.19274240e+00],
-       [ 6.59321371e-01,  2.00840142e-01,  2.26504389e-01,
-        -6.19048807e-01, -2.02913290e+01,  1.43624968e+01],
-       [-7.22857554e-02, -2.35668796e-02, -3.60178148e-02,
-        -4.70131493e+00, -6.79413603e-01,  1.96555426e+01],
-       [-1.31518458e+00, -9.54254989e-02,  2.89742448e+00,
-        -1.75277481e+01, -3.15729132e+00,  1.22604394e+01],
-       [-1.49070028e-01, -1.04481417e+00,  1.68433846e+00,
-        -1.74785456e+00, -5.26113707e+00,  7.86813963e+00],
-       [-4.36530432e-01, -5.44654019e-01,  1.37413918e+00,
-        -4.96522891e+00, -5.53284989e+00,  1.24435652e+01],
-       [-2.07652706e-01,  8.45708204e-01,  1.69280948e+00,
-         1.33145873e+00,  1.59175406e+01,  2.01936043e+01],
-       [-1.99477981e-01,  1.11044198e+00,  5.87726903e-01,
-         1.65018520e+01,  6.74021490e+00,  1.72115220e+01],
-       [ 4.83712332e-02,  8.69832245e-02, -1.47586712e-01,
-        -2.33155227e+00, -1.04947273e+01,  1.84239433e+01],
-       [-8.35713961e-03, -2.37365325e-01, -1.66612621e-01,
-        -9.54090572e+00, -7.92107516e-01,  2.47446520e+00],
-       [ 3.78599511e-01,  1.01083238e+00,  1.41162660e+00,
-         1.19174033e+01, -4.25437323e+00,  7.40109141e+00],
-       [ 6.73658295e-01, -3.79832272e-03, -2.98824504e+00,
-         3.57734053e+00,  4.03361243e-01,  1.44633186e+01],
-       [-6.99784934e-02, -5.53692806e-01,  2.84772171e-01,
-        -1.14057600e+01,  1.76575403e+00,  3.42620469e+00],
-       [ 2.09150790e-02, -1.25886507e+00,  2.12822462e-03,
-        -5.16681821e+00, -2.42976511e+00,  1.38399100e+00],
-       [-1.04750258e+00,  2.20986272e-01,  2.60457473e+00,
-        -1.66057168e+01,  7.00084660e+00,  1.17682223e+01],
-       [-8.85598159e-01,  6.25207666e-01,  2.07847136e+00,
-        -1.05897920e+01,  1.39703242e+01,  1.48073678e+01],
-       [-1.76341463e-01, -9.15797290e-01, -2.93856729e+00,
-         1.41019424e+00,  1.61347948e+01,  1.19022451e+01],
-       [ 6.87842965e-01,  4.03261010e-01,  1.34855826e+00,
-         9.24237394e+00, -6.65169744e+00,  4.35754630e+00],
-       [-6.74867559e-01, -1.40488895e-01, -3.01353575e+00,
-         1.83247947e+00,  6.91446116e+00,  9.76887846e+00],
-       [ 2.72652665e-02, -3.42597717e-02, -6.62741952e-02,
-        -3.92400685e+00, -2.73140195e+00,  4.23019720e+00],
-       [ 3.37172270e-01,  5.16833509e-01, -3.09618941e-01,
-         1.32221369e+01, -9.17145550e+00,  1.50017446e+01],
-       [ 3.98065561e-02,  7.45372380e-01,  9.74924806e-04,
-         1.65011729e+01, -2.89626159e+00,  1.04386689e+01],
-       [-7.28669134e-02,  9.14371258e-01,  5.66606399e-01,
-         1.74782269e+01,  1.86578543e+00,  1.01670645e+01]])
+exMean = np.array([[-1.80167178e-01,  7.70878291e-02, -9.11332085e-02,
+        -3.33767486e+00, -5.53933063e+00,  5.99338849e+00],
+       [ 9.30252815e-01,  6.29244768e-02, -7.00228922e-02,
+        -3.13657634e+00, -4.25220832e+00,  3.87072930e+00],
+       [ 9.18770862e-01, -3.59104432e-01,  9.72840572e-01,
+         9.46331750e+00, -6.02505143e+00,  3.95175051e+00],
+       [ 1.38368094e-01, -5.40701641e-01,  6.43722864e-01,
+        -6.55540744e+00, -4.13410627e+00,  3.63578192e+00],
+       [-2.38996202e-02,  8.51708791e-01,  1.10038464e-03,
+        -3.13671548e-01, -2.53169888e+00,  7.56497691e+00],
+       [ 8.54461633e-01,  5.12248498e-01,  8.97735395e-01,
+         7.67730295e+00, -6.95649265e+00,  5.19809539e+00],
+       [ 6.24022772e-01,  9.11974627e-01,  1.84133535e+00,
+         1.85380532e+01,  6.10095731e+00,  7.65631705e+00],
+       [-7.77273102e-01,  6.73312499e-02,  1.10478194e+00,
+        -5.07150815e+00, -3.75016477e+00,  1.11403444e+01],
+       [ 2.66400052e-02,  3.85463199e-03, -1.58203501e+00,
+        -2.49082973e+00,  4.83656452e+00,  5.20168570e+00],
+       [-4.49425065e-02, -6.68025381e-02, -3.09784857e+00,
+         3.89631162e+00,  4.84452886e+00,  5.49198735e+00],
+       [ 1.69530683e-01,  5.42945198e-02,  2.92943607e-02,
+        -3.90946819e+00,  2.00034637e+00,  5.12276745e+00],
+       [ 6.60246221e-01,  1.92566621e-01,  2.29654105e-01,
+        -9.12700556e-01, -2.04042003e+01,  1.41847163e+01],
+       [-6.00258060e-02, -2.68463338e-02, -3.60838138e-02,
+        -5.00649319e+00, -8.11922768e-01,  1.95246215e+01],
+       [-1.33185030e+00, -1.00501354e-01,  2.88778409e+00,
+        -1.77998534e+01, -3.27404467e+00,  1.20315003e+01],
+       [-1.56715071e-01, -1.05864768e+00,  1.68304519e+00,
+        -1.88651720e+00, -5.31981199e+00,  7.81543480e+00],
+       [-4.39015924e-01, -5.54065974e-01,  1.37152066e+00,
+        -5.16910099e+00, -5.62044311e+00,  1.23354915e+01],
+       [-2.12725179e-01,  8.36348015e-01,  1.69324731e+00,
+         9.71432308e-01,  1.57485182e+01,  2.01341204e+01],
+       [-2.00938217e-01,  1.10426149e+00,  5.88735787e-01,
+         1.61808550e+01,  6.60226030e+00,  1.72631491e+01],
+       [ 5.12075282e-02,  7.65048634e-02, -1.49076892e-01,
+        -2.63534470e+00, -1.06133112e+01,  1.82756012e+01],
+       [-8.07593457e-03, -2.48448650e-01, -1.65477009e-01,
+        -9.59574683e+00, -8.35501930e-01,  2.36221967e+00],
+       [ 3.79958987e-01,  9.99906946e-01,  1.41113308e+00,
+         1.17419291e+01, -4.32946182e+00,  7.41637272e+00],
+       [ 6.93547538e-01,  4.27537532e-02, -2.98380624e+00,
+         3.33789720e+00,  2.84884758e-01,  1.45640980e+01],
+       [-6.77337244e-02, -5.66907521e-01,  2.88282057e-01,
+        -1.14902588e+01,  1.70107787e+00,  3.28529706e+00],
+       [ 2.71373754e-02, -1.27192954e+00,  1.49621469e-03,
+        -5.21038889e+00, -2.45187911e+00,  1.30818072e+00],
+       [-1.06429943e+00,  2.12329072e-01,  2.59992594e+00,
+        -1.68895300e+01,  6.89918253e+00,  1.15891882e+01],
+       [-9.01672732e-01,  6.10882974e-01,  2.07802477e+00,
+        -1.08991531e+01,  1.38690599e+01,  1.47006073e+01],
+       [-1.61219868e-01, -9.08374670e-01, -2.94221168e+00,
+         1.16533329e+00,  1.60280144e+01,  1.18848337e+01],
+       [ 6.89585013e-01,  3.94733743e-01,  1.34967818e+00,
+         9.10776785e+00, -6.69747467e+00,  4.34937548e+00],
+       [-6.52008590e-01, -1.34253326e-01, -3.01545982e+00,
+         1.66521547e+00,  6.85216957e+00,  9.77746025e+00],
+       [ 3.18205199e-02, -4.38767512e-02, -6.64824468e-02,
+        -3.99451213e+00, -2.76141393e+00,  4.15847115e+00],
+       [ 3.47395592e-01,  5.07440498e-01, -3.11362863e-01,
+         1.29073933e+01, -9.27749780e+00,  1.49588435e+01],
+       [ 4.11161529e-02,  7.38634608e-01,  2.96523788e-03,
+         1.62627796e+01, -3.00193706e+00,  1.04785773e+01],
+       [-6.95117072e-02,  9.03717658e-01,  5.66261359e-01,
+         1.72162297e+01,  1.75659780e+00,  1.02105909e+01]])
 
 
-Sex = np.array(
-      [[2.01622735e-03, 1.51799439e-03, 8.71692153e-04, 6.69387996e-03,
-        1.12358272e-02, 1.48248371e-02],
-       [2.09190241e-03, 1.76806446e-03, 8.61060229e-04, 6.87035203e-03,
-        1.26383395e-02, 1.30862217e-02],
-       [2.73188134e-03, 2.33926314e-03, 2.16153263e-03, 2.30205653e-02,
-        1.80691856e-02, 2.63338888e-02],
-       [3.00492951e-03, 2.60962283e-03, 1.16930878e-03, 9.53907263e-03,
-        9.36040080e-03, 1.81638840e-02],
-       [1.78922438e-03, 1.34003636e-03, 1.88929691e-05, 8.79349881e-03,
-        9.43112366e-03, 1.20093728e-02],
-       [6.09865239e-03, 5.58607301e-03, 2.40224408e-03, 1.94666116e-02,
-        1.59712736e-02, 2.26515869e-02],
-       [1.51299085e-02, 1.73762427e-02, 9.96884625e-03, 5.99043060e-02,
-        3.58021976e-02, 3.83587346e-02],
-       [3.37564790e-03, 2.98857620e-03, 1.26389022e-03, 1.31575389e-02,
-        1.83175305e-02, 2.25340628e-02],
-       [2.22098239e-03, 2.49718346e-03, 5.87040432e-04, 5.18851282e-03,
-        7.82261131e-03, 1.49216424e-02],
-       [2.73086755e-03, 3.45411445e-03, 8.19080662e-04, 6.53206320e-03,
-        1.06979110e-02, 1.25970914e-02],
-       [1.92847694e-03, 1.41758012e-03, 1.09818876e-03, 6.10437650e-03,
-        1.16608773e-02, 1.36638530e-02],
-       [1.63788430e-02, 1.30197847e-02, 7.05469679e-03, 2.46193264e-02,
-        4.98141424e-02, 5.44780699e-02],
-       [2.08970564e-02, 7.02409774e-03, 1.76151708e-03, 2.06861096e-02,
-        3.15448631e-02, 8.17667007e-02],
-       [1.07457202e-02, 1.38046555e-02, 7.52839036e-03, 6.13058555e-02,
-        2.62365250e-02, 6.13300882e-02],
-       [3.58525705e-03, 3.87923149e-03, 1.61893400e-03, 1.28780774e-02,
-        1.41745364e-02, 2.20180180e-02],
-       [1.28146234e-02, 1.01971171e-02, 4.10749350e-03, 3.13639416e-02,
-        2.02339540e-02, 5.04092927e-02],
-       [1.40093783e-02, 1.55289648e-02, 7.72237491e-03, 2.51592558e-02,
-        8.40493286e-02, 9.32630673e-02],
-       [1.52124069e-02, 2.06413406e-02, 1.08592784e-02, 4.98144307e-02,
-        4.56297311e-02, 4.74906592e-02],
-       [9.59424454e-03, 8.37777525e-03, 2.89881237e-03, 1.93904975e-02,
-        3.99214924e-02, 6.82252648e-02],
-       [8.72435061e-04, 1.68156750e-03, 7.56408366e-04, 4.33410106e-03,
-        9.22202663e-03, 1.77212155e-02],
-       [5.67844696e-03, 6.15528306e-03, 2.87445958e-03, 1.67568970e-02,
-        1.63174254e-02, 2.43371687e-02],
-       [7.30380062e-03, 1.73041899e-04, 1.60555998e-03, 1.43879496e-02,
-        2.17426763e-02, 2.50415055e-02],
-       [2.29167427e-03, 2.29110364e-03, 1.82475220e-03, 1.31318332e-02,
-        1.42240745e-02, 2.45435653e-02],
-       [2.03955682e-03, 1.81980747e-03, 1.19456907e-03, 9.36305588e-03,
-        6.23218747e-03, 1.15164725e-02],
-       [1.02605683e-02, 1.06412509e-02, 6.20083558e-03, 6.57853983e-02,
-        2.84223133e-02, 6.19105522e-02],
-       [1.61128793e-02, 1.25333786e-02, 8.55634849e-03, 5.97927633e-02,
-        6.99316807e-02, 6.85914428e-02],
-       [1.65682103e-02, 1.62941974e-02, 6.80746406e-03, 1.63031509e-02,
-        5.55983154e-02, 5.86464621e-02],
-       [6.13010086e-03, 4.57919294e-03, 2.34832968e-03, 1.80635937e-02,
-        1.30840601e-02, 2.74213734e-02],
-       [5.84576657e-03, 6.24866180e-03, 1.39727111e-03, 1.13106557e-02,
-        2.07973926e-02, 3.13759074e-02],
-       [1.80958546e-03, 1.34689098e-03, 6.28822121e-04, 5.28920086e-03,
-        7.83934464e-03, 1.21832086e-02],
-       [8.49275397e-03, 1.47709054e-02, 4.61308762e-03, 1.12845628e-01,
-        7.94452318e-02, 1.19291243e-01],
-       [3.39868590e-03, 6.72615462e-03, 4.60190698e-05, 6.34898549e-02,
-        2.34450303e-02, 4.22995863e-02],
-       [7.70492266e-03, 1.02269515e-02, 4.43320407e-03, 7.34887931e-02,
-        2.68215026e-02, 3.40593443e-02]]).reshape(-1)
+Sex = np.array([[1.52479303e-03, 1.68167445e-03, 8.98754252e-04, 8.72151718e-03,
+        5.15530424e-03, 1.28739102e-02],
+       [2.19472514e-03, 1.97445265e-03, 8.25030686e-04, 6.34301814e-03,
+        7.98991959e-03, 1.25097042e-02],
+       [2.51606013e-03, 2.08482813e-03, 1.94829836e-03, 1.87353192e-02,
+        1.09968352e-02, 2.06112199e-02],
+       [2.57611391e-03, 2.48998555e-03, 1.18997992e-03, 1.20328431e-02,
+        4.14362996e-03, 1.58189060e-02],
+       [1.26963587e-03, 1.35893135e-03, 7.06690137e-05, 9.22476480e-03,
+        3.45503719e-03, 9.21037232e-03],
+       [7.47604475e-03, 6.03579932e-03, 2.90351842e-03, 2.68711520e-02,
+        1.65873650e-02, 2.55882018e-02],
+       [1.69496695e-02, 1.81995874e-02, 1.11309217e-02, 6.44843305e-02,
+        3.14112593e-02, 5.07653062e-02],
+       [3.13279083e-03, 3.01720583e-03, 1.36930239e-03, 1.70649961e-02,
+        8.55825145e-03, 1.72046343e-02],
+       [2.20576561e-03, 1.19789546e-03, 6.52279865e-04, 7.83241475e-03,
+        3.61458349e-03, 9.72823174e-03],
+       [2.82787519e-03, 3.61501197e-03, 8.70681686e-04, 8.22622430e-03,
+        5.38497796e-03, 1.53320458e-02],
+       [1.58642973e-03, 1.79285300e-03, 1.20556659e-03, 6.80597694e-03,
+        6.46813167e-03, 1.42327812e-02],
+       [1.84009515e-02, 1.41779306e-02, 6.79883320e-03, 3.12334884e-02,
+        4.48088419e-02, 6.95537796e-02],
+       [7.98732941e-03, 5.79336575e-03, 2.07111388e-03, 2.51199486e-02,
+        1.44062150e-02, 6.01547813e-02],
+       [1.38209459e-02, 1.43769694e-02, 8.94933084e-03, 9.84376142e-02,
+        2.58117457e-02, 6.11061713e-02],
+       [4.18011113e-03, 4.62053996e-03, 2.18349714e-03, 1.41098763e-02,
+        1.12261060e-02, 2.15771037e-02],
+       [1.04489156e-02, 1.19281751e-02, 3.12076298e-03, 1.93509174e-02,
+        7.66211865e-03, 3.51358863e-02],
+       [1.52623685e-02, 1.45045138e-02, 7.69081751e-03, 3.13981700e-02,
+        8.35139512e-02, 1.00461429e-01],
+       [1.69990048e-02, 1.78319288e-02, 1.11578108e-02, 5.95182716e-02,
+        3.45686089e-02, 5.34271482e-02],
+       [5.80086828e-03, 8.31709423e-03, 3.13288245e-03, 2.40468109e-02,
+        2.49542601e-02, 5.48008967e-02],
+       [1.33222368e-03, 1.70249875e-03, 6.94106616e-04, 6.44673519e-03,
+        4.07957995e-03, 1.55058279e-02],
+       [5.36821821e-03, 5.70037415e-03, 3.06505616e-03, 2.38766239e-02,
+        8.12687807e-03, 1.84587611e-02],
+       [8.07127230e-03, 7.12536903e-03, 1.98864206e-03, 1.93546834e-02,
+        1.15530610e-02, 2.81182943e-02],
+       [2.28407405e-03, 2.61409513e-03, 1.90622518e-03, 1.34921667e-02,
+        7.23600715e-03, 1.87651943e-02],
+       [1.57477733e-03, 1.56273289e-03, 3.54651310e-04, 8.70370344e-03,
+        3.68166414e-03, 9.08649200e-03],
+       [1.01786601e-02, 9.81502545e-03, 5.21805738e-03, 7.38352975e-02,
+        2.77284642e-02, 5.23798554e-02],
+       [1.74118881e-02, 1.41258355e-02, 8.98176608e-03, 6.52864189e-02,
+        6.99362974e-02, 7.41618321e-02],
+       [1.45806489e-02, 1.85215233e-02, 6.75793917e-03, 2.12389346e-02,
+        5.36688843e-02, 5.87534234e-02],
+       [5.77746496e-03, 5.66282304e-03, 2.20897842e-03, 1.50999702e-02,
+        8.42518896e-03, 2.07843349e-02],
+       [6.02643031e-03, 6.72757792e-03, 1.42294416e-03, 1.36019522e-02,
+        1.45002870e-02, 3.14657651e-02],
+       [1.79992842e-03, 1.16831095e-03, 6.03507314e-04, 6.17583094e-03,
+        3.81726175e-03, 9.42681515e-03],
+       [8.13872308e-03, 7.98843619e-03, 3.53079514e-03, 6.31883706e-02,
+        3.33131466e-02, 7.42287605e-02],
+       [3.17841141e-03, 6.56346679e-03, 3.88077619e-04, 6.64711504e-02,
+        9.47797196e-03, 4.63800137e-02],
+       [8.60052456e-03, 1.01189668e-02, 5.30223279e-03, 7.01465438e-02,
+        2.25246945e-02, 4.98055332e-02]]).reshape(-1)
 
-
+exCov = np.diag(Sex**2)
+#inMean = xAllOpt[:Ns[-1]]
+#exMean = xAllOpt[Ns[-1]:].reshape((-1,6))
+#Sin = np.abs(inMean) * 1e-4 # np.sqrt(covOPdiag[:Ns[-1]])
+#inCov = np.diag(Sin**2)
+#Sex = np.abs(exMean).reshape(-1) * 1e-3 # np.sqrt(covOPdiag[Ns[-1]:])
 print('defined harcoded initial conditions')
 
 
 # %% calculate estimated radius step
-'''
-para ver que tan disperso es el paso de cada propuesta. como las propuestas se
-sacan de una pdf gaussiana n-dimendional pasa que empieza a haber mucho volumen
-de muestras que se acumulan mucho a un cierto radio. hay un compromiso entre
-que el volumen aumenta
-'''
-
-
-def radiusStepsNdim(n):
-    '''
-    retorna moda, la media y la desv est del radio  de pasos al samplear
-    de gaussianas hiperdimensionales de norma 1
-    '''
-    # https://www.wolframalpha.com/input/?i=integrate+x%5E(n-1)+exp(-x%5E2%2F2)+from+0+to+infinity
-    # integral_0^∞ x^(n - 1) exp(-x^2/2) dx = 2^(n/2 - 1) Γ(n/2) for Re(n)>0
-    Inorm = 2**(n/2 - 1) * sc.special.gamma(n/2)
-
-    # https://www.wolframalpha.com/input/?i=integrate+x%5En+exp(-x%5E2%2F2)+from+0+to+infinity
-    # integral_0^∞ x^n exp(-x^2/2) dx = 2^((n - 1)/2) Γ((n + 1)/2) for Re(n)>-1
-    ExpectedR = 2**((n-1)/2) * sc.special.gamma((n+1)/2)
-
-    # https://www.wolframalpha.com/input/?i=integrate+x%5E(n%2B1)+exp(-x%5E2%2F2)+from+0+to+infinity
-    # integral_0^∞ x^(n + 1) exp(-x^2/2) dx = 2^(n/2) Γ(n/2 + 1) for Re(n)>-2
-    ExpectedR2 = 2**(n/2) * sc.special.gamma(n/2 + 1)
-
-    ModeR = np.sqrt(n - 1)
-
-    # normalizo las integrales:
-    ExpectedR /= Inorm
-    ExpectedR2 /= Inorm
-
-    DesvEstR = np.sqrt(ExpectedR2 - ExpectedR**2)
-
-    return np.array([ModeR, ExpectedR, DesvEstR])
-
 
 ModeR, ExpectedR, DesvEstR = radiusStepsNdim(NfreeParams)
-
 
 print("moda, la media y la desv est del radio\n", ModeR, ExpectedR, DesvEstR)
 
@@ -687,51 +732,141 @@ print("moda, la media y la desv est del radio\n", ModeR, ExpectedR, DesvEstR)
 '''
 http://docs.pymc.io/api/inference.html
 '''
-nDraws = 200000
+
+nDraws = 100
 nTune = 0
+nTuneInter = 0
 tuneBool = nTune != 0
-nChains = 6
+tune_thr = True
+
+nChains = 2**6
+nCores = 8
+
+tallyBool = False
+convChecksBool = False
+rndSeedBool = True
 
 # %%
 # escalas características del tipical set
-scaIn = 1 / radiusStepsNdim(NintrParams)[1]
-scaEx = 1 / radiusStepsNdim(6)[1]
+scaIn = 1 / radiusStepsNdim(NintrParams)[1] / 5
+scaEx = 1 / radiusStepsNdim(NextrParams)[1] / 2
 
-InSeed = pm.MvNormal.dist(mu=inMean, cov=inCov).random(size=nChains)
-exSeed = np.random.randn(n, 6, nChains) * Sex.reshape((n, 6, 1))
-exSeed += exMean.reshape((n, 6, 1))
+#scaIn = scaEx = 1 / radiusStepsNdim(NfreeParams)[1]
 
-start = [dict({'xIn': InSeed[i], 'xEx': exSeed[:,:,i]}) for i in range(nChains)]
+if rndSeedBool:
+    InSeed = pm.MvNormal.dist(mu=inMean, cov=inCov).random(size=nChains)
+    exSeed = np.random.randn(nIm, 6, nChains) * Sex.reshape((nIm, 6, 1))
+    exSeed += exMean.reshape((nIm, 6, 1))
 
-scaIn /= 10 # achico la escala un orden de magnitud mas
-scaEx /= 20
+    if nChains is not 1:
+        start = [dict({'xIn': InSeed[i], 'xEx': exSeed[:,:,i]})
+        for i in range(nChains)]
+    else:
+        start = dict({'xIn': InSeed, 'xEx': exSeed[:,:,0]})
+else:
+    start = dict({'xIn': inMean, 'xEx': exMean})
+
+
+#zIn = np.zeros_like(inMean)
+#def propIn(S, n=1):
+#    return pm.MvNormal.dist(mu=zIn, cov=S).random(size=n)
+#
+#def propEx(S, n=1):
+#    return  np.random.randn(n, nIm, 6) * Sex.reshape((nIm, 6))
+
+propIn = pm.step_methods.MultivariateNormalProposal  # (Sin)
+propEx = pm.step_methods.MultivariateNormalProposal  # (np.diag(Sex**2))
+
 
 print("starting metropolis",
       "|nnDraws =", nDraws, " nChains = ", nChains,
       "|nscaIn = ", scaIn, "scaEx = ", scaEx)
 
+'''
+aca documentacion copada
+https://pymc-devs.github.io/pymc/modelfitting.html
+'''
+
+
 with projectionModel:
-    stepInt = pm.Metropolis(vars=[xIn], S=Sin, tune=tuneBool)
+    stepInt = pm.DEMetropolis(vars=[xIn], S=Sin, tune=tuneBool,
+                            tune_interval=nTuneInter, tune_throughout=tune_thr,
+                            tally=tallyBool, scaling=scaIn, proposal_dist=propIn)
     stepInt.scaling = scaIn
 
-    stepExt = pm.Metropolis(vars=[xEx], S=Sex, tune=tuneBool)
+    stepExt = pm.DEMetropolis(vars=[xEx], S=exCov, tune=tuneBool,
+                              tune_interval=nTuneInter, tune_throughout=tune_thr,
+                              tally=tallyBool, scaling=scaEx, proposal_dist=propEx)
     stepExt.scaling = scaEx
 
     step = [stepInt, stepExt]
 
     trace = pm.sample(draws=nDraws, step=step, njobs=nChains, start=start,
                       tune=nTune, chains=nChains, progressbar=True,
-                      discard_tuned_samples=False,
-                      compute_convergence_checks=False)
+                      discard_tuned_samples=False, cores=nCores,
+                      compute_convergence_checks=convChecksBool,
+                      parallelize=True)
 
-repsIn = np.diff(trace['xIn'], axis=0) == 0
-repsEx = np.diff(trace['xEx'], axis=0) == 0
+saveBool = True
+if saveBool:
+    pathFiles = "/home/sebalander/Code/VisionUNQextra/Videos y Mediciones/"
+    pathFiles += "extraDataSebaPhD/traces" + str(29)
 
-repsInRate = np.sum(repsIn) / np.prod(repsIn.shape)
-repsExRate = np.sum(repsEx) / np.prod(repsEx.shape)
+    np.save(pathFiles + "Int", trace['xIn'])
+    np.save(pathFiles + "Ext", trace['xEx'])
 
-print("las repeticiones: intrin=", repsInRate, " y extrin=", repsExRate)
+    print("saved data to")
+    print(pathFiles)
 
+
+corner.corner(trace['xIn'])
+corner.corner(trace['xEx'][:,2])
+
+
+concDat = np.concatenate([trace['xIn'], trace['xEx'].reshape((-1, nIm*6))], axis=1)
+
+difAll = np.diff(concDat, axis=0)
+
+
+repeats = np.zeros_like(concDat)
+repeats[1:] = difAll == 0
+
+print("tasa de repetidos", repeats.sum() / np.prod(repeats.shape))
+print("tasa de repetidos Intrinsico",
+      repeats[:,:NintrParams].sum() / (repeats.shape[0] * NintrParams))
+print("tasa de repetidos extrinseco",
+      repeats[:,NintrParams:].sum() / (repeats.shape[0] * nIm * 6))
+
+
+# % proyecto sobre los dos autovectores ppales
+concMean = np.mean(concDat, axis=0)
+concDif = concDat - concMean
+U, S, V = np.linalg.svd(concDif, full_matrices=False)
+
+ppalXY = concDif.dot(V[:2].T / S[:2])
+ppalX, ppalY = ppalXY.T
+#
+#nChains = 8
+#nDraws = 100000
+#nTune = 0
+
+plt.figure()
+plt.plot(ppalX.reshape((nChains, nDraws + nTune)).T,
+         ppalY.reshape((nChains, nDraws + nTune)).T)
+plt.axis('equal')
+
+plt.figure()
+plt.plot(ppalX.reshape((nChains, nDraws + nTune)).T)
+
+plt.figure()
+plt.plot(ppalY.reshape((nChains, nDraws + nTune)).T)
+
+plt.figure()
+plt.plot((trace['xIn'][:, 2] - trace['xIn'][-1, 2]).reshape((nChains,
+         nDraws + nTune)).T)
+
+
+# %%
 
 # las 5 y 6 posrian considerarse cuasi definitivas
 # la 7 le pongo un paso un poco mas grande a ver que onda pero sigue siendo
@@ -749,14 +884,22 @@ print("las repeticiones: intrin=", repsInRate, " y extrin=", repsExRate)
 # la 14 la largo con cond iniciales mas dispersas y parece que es casi
 # la definitiva si le saco el burnin!!!
 # la 15 ya tiene que se rla ultima. nop. todavia es transitoria
-# va la 16 con lo ultimo de los resultados de la 15
 
-pathFiles = "/home/sebalander/Code/VisionUNQextra/Videos y Mediciones/"
-pathFiles += "extraDataSebaPhD/traces" + str(16)
+# 16: datos con la corrección. todavia no converge. 50mil en 6 procesos
+# 17: usnado las desv est de 16, mil en 6 procesos
+# 18: tentaiva de definitivo, no adaptivo
+# 19: sets posteado a PyMC discourse
+# 20: sacando los factores 2 y 5. no da muy bonito
+# https://discourse.pymc.io/t/metropolis-ideal-balance-between-slow-mixing-and-high-rejection-rate/1205
+# 21: con lo que salio de la corrida 19 que parecia buena
+# 22: corrida con DEMetropolis
+# 24: DEMet pero dejando que tunee todo lo que quiera
+# 25: tune y 16 cadenas
+# 26: reduzco la escala de intrinseco (x10) para que no haya tantos repetidos
 
-np.save(pathFiles + "Int", trace['xIn'])
-np.save(pathFiles + "Ext", trace['xEx'])
+# 27: metropolis adaptativo
+# 28: DEmetropolis adaptativo
 
-print("saved data to")
-print(pathFiles)
-
+# 27: DEmet bien largo
+# 28: otro de igual longitud
+# 29: pruebas para ver si cambio la acntidad de cadenas

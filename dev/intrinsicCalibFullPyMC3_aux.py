@@ -13,25 +13,14 @@ aca tiro todo el codigo de intrinsicFullPyMC3.py que ya casi que ahi no sirve
 
 
 pathFiles = "/home/sebalander/Code/VisionUNQextra/Videos y Mediciones/"
-pathFiles += "extraDataSebaPhD/traces" + str(15)
+pathFiles += "extraDataSebaPhD/traces" + str(28)
 
 trace = dict()
 
 trace['xIn'] = np.load(pathFiles + "Int.npy")
 trace['xEx'] = np.load(pathFiles + "Ext.npy")
 
-# %% concateno y salculo la diferencia
-concDat = np.concatenate([trace['xIn'], trace['xEx'].reshape((-1,n*6))], axis=1)
-difAll = np.diff(concDat, axis=0)
-
-
-repeats = np.zeros_like(concDat)
-repeats[1:] = difAll == 0
-print("tasa de repetidos", repeats.sum() / np.prod(repeats.shape))
-print("tasa de repetidos Intrinsico",
-      repeats[:,:NintrParams].sum() / (repeats.shape[0] * NintrParams))
-print("tasa de repetidos extrinseco",
-      repeats[:,NintrParams:].sum() / (repeats.shape[0] * n * 6))
+# %% concateno y calculo la diferencia
 
 ## %% calculo los estadísticos para analizar ocnvergencia
 ## medias de cada cadena
@@ -56,11 +45,16 @@ print("tasa de repetidos extrinseco",
 
 
 
-
 # %%
 
 corner.corner(trace['xIn'])
 corner.corner(trace['xEx'][:,2])
+
+
+# %%
+plt.figure()
+plt.plot(trace['xIn'][:,2].reshape((nChains, nDraws)).T)
+plt.plot(concDat[:,2].reshape((nChains, nDraws)).T + 1)
 
 # %%
 
@@ -85,14 +79,10 @@ plt.fill_between(range(nDraws), trazaMean - trazaStd, trazaMean + trazaStd,
 plt.fill_between([0, nDraws - 1], [trazaStdMax, trazaStdMax],
                  [trazaStdMin, trazaStdMin], facecolor='green', alpha=0.2)
 
-# %%
-plt.figure()
-plt.plot(trace['xIn'][:,2].reshape((nChains, -1)).T)
-
 
 # %% select to prune burn in
 leChain = trace['xEx'].shape[0] / nChains
-indexCut = 150e3
+indexCut = 50000
 noBurnInIndexes = np.arange(indexCut, leChain, dtype=int)
 noBurnInIndexes = np.array(noBurnInIndexes.reshape((1,-1)) +
                            (np.arange(nChains) * leChain).reshape((-1,1)),
@@ -108,6 +98,46 @@ plt.plot(trace['xEx'][:,1,0].reshape((-1, int(leChain - indexCut))).T)
 corner.corner(trace['xIn'])
 corner.corner(trace['xEx'][:,4])
 
+
+inTraceMean = np.mean(trace['xIn'], axis=0)
+inTraceCov = np.cov(trace['xIn'].T)
+
+exTraceMean = np.mean(trace['xEx'], axis=0)
+exTraceDif = trace['xEx'] - exTraceMean
+exTraceCov = np.mean(exTraceDif.reshape((-1, nIm, 6, 1)) *
+                     exTraceDif.reshape((-1, nIm, 1, 6)),
+                     axis=0)
+
+# saco las desviaciones estandar
+SinTrace = np.sqrt(np.diag(inTraceCov))
+SexTrace = np.sqrt(exTraceCov[:, range(6), range(6)])
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 # %%
 plt.figure()
 Smin = np.min(trace['xIn'], axis=0)
@@ -120,7 +150,7 @@ plt.matshow(inCorr, cmap='coolwarm', vmin=-1, vmax=1)
 # %%
 plt.figure()
 #ax = fig.gca()
-ticksCovMatrix = np.arange(NintrParams,NfreeParams,6) - 0.5
+ticksCovMatrix = np.arange(NintrParams, NfreeParams, 6) - 0.5
 plt.grid('on')
 plt.xticks(ticksCovMatrix)
 plt.yticks(ticksCovMatrix)
