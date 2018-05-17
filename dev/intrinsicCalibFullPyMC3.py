@@ -318,8 +318,8 @@ class ProjectionT(theano.Op):
     # itypes and otypes attributes are
     # compulsory if make_node method is not defined.
     # They're the type of input and output respectively
-    # xInt, xExternal
-    itypes = [T.dvector, T.dmatrix]
+    # xAll # xInt, xExternal
+    itypes = [T.dvector] # , T.dmatrix]
     # xm, ym, cM
     otypes = [T.dtensor3]  # , T.dtensor4]
 
@@ -327,7 +327,8 @@ class ProjectionT(theano.Op):
     def perform(self, node, inputs_storage, output_storage):
         # print('IDX %d projection %d, global %d' %
         #       (self.idx, self.count, projCount))
-        Xint, Xext = inputs_storage
+        Xint = inputs_storage[0][:Ns[1]]
+        Xext = inputs_storage[0][Ns[1]:].reshape((-1,6))
 #        xyM, cM = output_storage
 
         # saco los parametros de flat para que los use la func de projection
@@ -377,18 +378,21 @@ print('projection defined for theano')
 #else:
 #    pass
 
-XintOper = T.dvector('XintOP')
-XextOper = T.dmatrix('XextOP')
+#XintOper = T.dvector('XintOP')
+#XextOper = T.dmatrix('XextOP')
+xAllOper = T.dvector('xAllOper')
 
 projTheanoWrap = ProjectionT()
 
-projTfunction = theano.function([XintOper, XextOper],
-                                projTheanoWrap(XintOper, XextOper))
+projTfunction = theano.function([xAllOper],# XextOper],
+                                projTheanoWrap(xAllOper))# , XextOper))
 
 try:
-    outOpt = projTfunction(XintOpt, XextListOpt)
+#    outOpt = projTfunction(XintOpt, XextListOpt)
+    outOpt = projTfunction(xAllOper)
 except:
-    sys.exit("no anduvo el wrapper de la funciona  theano")
+#    sys.exit("no anduvo el wrapper de la funciona  theano")
+    print("no anduvo el wrapper de la funciona  theano")
 else:
     pass
     # print(out)
@@ -453,13 +457,15 @@ observedNormed = np.zeros((nIm * nPt * 2))
 with projectionModel:
 
     # Priors for unknown model parameters
-    xIn = pm.Uniform('xIn', lower=intrLow, upper=intrUpp, shape=(NintrParams,),
-                     transform=None)
-    xEx = pm.Uniform('xEx', lower=extrLow, upper=extrUpp, shape=(nIm, 6),
+#    xIn = pm.Uniform('xIn', lower=intrLow, upper=intrUpp, shape=(NintrParams,),
+#                     transform=None)
+#    xEx = pm.Uniform('xEx', lower=extrLow, upper=extrUpp, shape=(nIm, 6),
+#                     transform=None)
+    xAl = pm.Uniform('xAl', lower=allLow, upper=allUpp, shape=allLow.shape,
                      transform=None)
 
     # apply numpy based function
-    xyMNor = projTheanoWrap(xIn, xEx)
+    xyMNor = projTheanoWrap(xAl) # xIn, xEx)
 
     mu = T.reshape(xyMNor, (-1, ))
     Y_obs = pm.Normal('Y_obs', mu=mu, sd=1, observed=observedNormed)
@@ -718,6 +724,106 @@ exCov = np.diag(Sex**2)
 #Sin = np.abs(inMean) * 1e-4 # np.sqrt(covOPdiag[:Ns[-1]])
 #inCov = np.diag(Sin**2)
 #Sex = np.abs(exMean).reshape(-1) * 1e-3 # np.sqrt(covOPdiag[Ns[-1]:])
+
+# del rejunte de todos en un solo vector
+#alMean = np.concatenate((inMean, exMean.reshape(-1)))
+#Sal = np.concatenate((np.sqrt(np.diag(inCov)), Sex.reshape(-1)))
+alMean = np.array([ 8.16506629e+02,  4.72673059e+02,  7.95248657e+02, -1.80478563e-01,
+        7.64854287e-02, -9.13167238e-02, -3.33719539e+00, -5.53946684e+00,
+        5.99255238e+00,  9.29933477e-01,  6.19355734e-02, -7.00424639e-02,
+       -3.13797135e+00, -4.25570589e+00,  3.86833239e+00,  9.17789946e-01,
+       -3.58883359e-01,  9.73287512e-01,  9.46048391e+00, -6.02816511e+00,
+        3.94251842e+00,  1.37838383e-01, -5.41364386e-01,  6.43248684e-01,
+       -6.55482426e+00, -4.13328724e+00,  3.63596850e+00, -2.38513022e-02,
+        8.51751654e-01,  1.10610313e-03, -3.14546183e-01, -2.53041905e+00,
+        7.56580076e+00,  8.56005898e-01,  5.14018197e-01,  8.97799747e-01,
+        7.69065670e+00, -6.95962313e+00,  5.20488180e+00,  6.23861542e-01,
+        9.07658868e-01,  1.84114876e+00,  1.85393052e+01,  6.10918872e+00,
+        7.65143246e+00, -7.77124379e-01,  6.73641024e-02,  1.10484213e+00,
+       -5.06958316e+00, -3.74651708e+00,  1.11385232e+01,  2.62123326e-02,
+        3.73425061e-03, -1.58203856e+00, -2.49044348e+00,  4.83634426e+00,
+        5.20088990e+00, -4.53474123e-02, -6.70142923e-02, -3.09737531e+00,
+        3.89492548e+00,  4.84259754e+00,  5.49126684e+00,  1.68757081e-01,
+        5.51274089e-02,  3.01891954e-02, -3.90800567e+00,  1.99927315e+00,
+        5.12494645e+00,  6.51909976e-01,  1.92633771e-01,  2.30285713e-01,
+       -9.08773459e-01, -2.04135586e+01,  1.41970471e+01, -6.09647229e-02,
+       -2.65710826e-02, -3.58392354e-02, -5.01073081e+00, -8.15060747e-01,
+        1.95226844e+01, -1.33030011e+00, -1.00740285e-01,  2.88939332e+00,
+       -1.78299160e+01, -3.28421749e+00,  1.20380072e+01, -1.57007396e-01,
+       -1.05776631e+00,  1.68235217e+00, -1.88811121e+00, -5.32016635e+00,
+        7.81677071e+00, -4.39487926e-01, -5.52374368e-01,  1.37220110e+00,
+       -5.17298218e+00, -5.61705099e+00,  1.23312359e+01, -2.12694378e-01,
+        8.32349680e-01,  1.69271964e+00,  9.70210098e-01,  1.57458590e+01,
+        2.01492648e+01, -2.03789791e-01,  1.10557197e+00,  5.91258391e-01,
+        1.61868046e+01,  6.59290887e+00,  1.72540554e+01,  4.96549370e-02,
+        7.67211759e-02, -1.47759496e-01, -2.63552624e+00, -1.06133907e+01,
+        1.82639239e+01, -7.96856171e-03, -2.48460077e-01, -1.65610423e-01,
+       -9.59497165e+00, -8.36512749e-01,  2.36010278e+00,  3.79257271e-01,
+        9.99197068e-01,  1.41127756e+00,  1.17297458e+01, -4.32981464e+00,
+        7.40401101e+00,  6.94625060e-01,  4.57226834e-02, -2.98443871e+00,
+        3.34134712e+00,  2.82935803e-01,  1.45668003e+01, -6.80804948e-02,
+       -5.67228819e-01,  2.88547968e-01, -1.14894620e+01,  1.69994102e+00,
+        3.28692344e+00,  2.67102999e-02, -1.27192764e+00,  1.46289441e-03,
+       -5.20922383e+00, -2.45358811e+00,  1.30578398e+00, -1.06493140e+00,
+        2.13265822e-01,  2.60029027e+00, -1.68824830e+01,  6.89455023e+00,
+        1.15901814e+01, -8.95878272e-01,  6.12391234e-01,  2.07658464e+00,
+       -1.09091479e+01,  1.38673819e+01,  1.46946244e+01, -1.60969752e-01,
+       -9.06123611e-01, -2.94298417e+00,  1.16075333e+00,  1.60273796e+01,
+        1.18827903e+01,  6.90335841e-01,  3.94638640e-01,  1.34933522e+00,
+        9.10414512e+00, -6.69531155e+00,  4.34699026e+00, -6.52507041e-01,
+       -1.34994918e-01, -3.01553671e+00,  1.66947579e+00,  6.85081848e+00,
+        9.78286214e+00,  3.21234004e-02, -4.41984517e-02, -6.60370727e-02,
+       -3.99407691e+00, -2.76264180e+00,  4.15719060e+00,  3.46736788e-01,
+        5.07381453e-01, -3.11723058e-01,  1.28913800e+01, -9.27486012e+00,
+        1.49524197e+01,  4.14732064e-02,  7.34576856e-01,  2.95779932e-03,
+        1.62799390e+01, -3.00104746e+00,  1.04736719e+01, -7.08114403e-02,
+        9.04428936e-01,  5.65636587e-01,  1.72047391e+01,  1.75827641e+00,
+        1.02059229e+01])
+
+Sal = np.array([0.73434837, 0.79484514, 1.94896611, 0.01064089, 0.007827  ,
+       0.00540884, 0.03623457, 0.04738548, 0.07399149, 0.01152841,
+       0.00817604, 0.00477024, 0.03336005, 0.04019474, 0.05191765,
+       0.01041313, 0.01205988, 0.00968695, 0.09017543, 0.06120177,
+       0.08552671, 0.01399467, 0.01140009, 0.00624284, 0.05411949,
+       0.0363931 , 0.06303563, 0.00997974, 0.00737276, 0.00304918,
+       0.04007265, 0.03372606, 0.03966415, 0.02800276, 0.0249353 ,
+       0.01340348, 0.10421091, 0.0638665 , 0.10075593, 0.0578897 ,
+       0.07776158, 0.03842367, 0.22659351, 0.16098488, 0.1522148 ,
+       0.01820332, 0.01714404, 0.00770563, 0.07033052, 0.06160929,
+       0.0906178 , 0.01096375, 0.0106074 , 0.00376827, 0.02925374,
+       0.0328036 , 0.0532061 , 0.01264768, 0.02106561, 0.00406399,
+       0.02964809, 0.03931641, 0.06214912, 0.00770163, 0.00691567,
+       0.00461308, 0.03449499, 0.04312548, 0.04434128, 0.08213891,
+       0.05449966, 0.02377892, 0.12394149, 0.22277477, 0.19684114,
+       0.08910111, 0.09032757, 0.01132697, 0.09741995, 0.10641567,
+       0.50621088, 0.04790375, 0.0651413 , 0.0292078 , 0.29515115,
+       0.12894486, 0.1484297 , 0.0195152 , 0.02363329, 0.00996783,
+       0.06149686, 0.04985875, 0.07990743, 0.04771264, 0.05066176,
+       0.01432414, 0.10210573, 0.06544174, 0.17441317, 0.06893023,
+       0.05240582, 0.03272606, 0.1217859 , 0.33839886, 0.34902672,
+       0.07013438, 0.0874054 , 0.037837  , 0.25673323, 0.18909744,
+       0.19009876, 0.04628884, 0.04072337, 0.01581049, 0.09900818,
+       0.15728465, 0.31381459, 0.00879968, 0.00874784, 0.00429785,
+       0.03016648, 0.03464576, 0.05176297, 0.02194274, 0.03070409,
+       0.01388094, 0.10591455, 0.0597149 , 0.08732278, 0.03963004,
+       0.04074681, 0.00884056, 0.06541606, 0.07777651, 0.13247497,
+       0.01274164, 0.01389309, 0.00867428, 0.06625915, 0.06332858,
+       0.05949822, 0.01046015, 0.0070262 , 0.00625293, 0.04065399,
+       0.02948325, 0.03944661, 0.06160629, 0.05840838, 0.02992609,
+       0.29674191, 0.11975091, 0.18906597, 0.07123335, 0.05896813,
+       0.03562417, 0.23699893, 0.25788698, 0.22948624, 0.05912923,
+       0.07876134, 0.0281562 , 0.09335165, 0.22654509, 0.21637966,
+       0.02753915, 0.02783914, 0.01160911, 0.10604998, 0.05368515,
+       0.07781311, 0.02616466, 0.04122096, 0.00716101, 0.05923833,
+       0.07215889, 0.14929459, 0.01045039, 0.00690386, 0.00258632,
+       0.0303048 , 0.02859566, 0.04636717, 0.04666154, 0.04400014,
+       0.02046472, 0.26745975, 0.15747167, 0.27465553, 0.02591351,
+       0.03357364, 0.01608692, 0.3493999 , 0.10970748, 0.14581197,
+       0.0325685 , 0.04981978, 0.02198706, 0.3115405 , 0.11843307,
+       0.16055191])
+
+#Sal *= 4
+
 print('defined harcoded initial conditions')
 
 
@@ -733,38 +839,49 @@ print("moda, la media y la desv est del radio\n", ModeR, ExpectedR, DesvEstR)
 http://docs.pymc.io/api/inference.html
 '''
 
-nDraws = 100
+nDraws = 6000
 nTune = 0
 nTuneInter = 0
 tuneBool = nTune != 0
-tune_thr = True
+tune_thr = False
 
-nChains = 2**6
-nCores = 8
+nChains = 500
+nCores = 1
 
 tallyBool = False
 convChecksBool = False
 rndSeedBool = True
 
-# %%
 # escalas características del tipical set
-scaIn = 1 / radiusStepsNdim(NintrParams)[1] / 5
-scaEx = 1 / radiusStepsNdim(NextrParams)[1] / 2
+#scaIn = 1 / radiusStepsNdim(NintrParams)[1] / 5
+#scaEx = 1 / radiusStepsNdim(NextrParams)[1] / 2
+# escala para compensar el radio del set tipico
+scaNdim = 1 / radiusStepsNdim(NfreeParams)[1]
 
-#scaIn = scaEx = 1 / radiusStepsNdim(NfreeParams)[1]
+# lamb = 2.38 / np.sqrt(2 * Sal.size)
+# scaIn = scaEx = 1 / radiusStepsNdim(NfreeParams)[1]
 
+# determino la escala y el lambda para las propuestas
+scaAl = scaNdim / np.sqrt(3)
+
+
+# %%
 if rndSeedBool:
-    InSeed = pm.MvNormal.dist(mu=inMean, cov=inCov).random(size=nChains)
-    exSeed = np.random.randn(nIm, 6, nChains) * Sex.reshape((nIm, 6, 1))
-    exSeed += exMean.reshape((nIm, 6, 1))
+#    InSeed = pm.MvNormal.dist(mu=inMean, cov=inCov).random(size=nChains)
+#    exSeed = np.random.randn(nIm, 6, nChains) * Sex.reshape((nIm, 6, 1))
+#    exSeed += exMean.reshape((nIm, 6, 1))
+    alSeed = np.random.randn(nChains, NfreeParams) * Sal# .reshape((-1, 1))
+    alSeed += alMean# .reshape((-1, 1))
 
     if nChains is not 1:
-        start = [dict({'xIn': InSeed[i], 'xEx': exSeed[:,:,i]})
-        for i in range(nChains)]
+#        start = [dict({'xIn': InSeed[i], 'xEx': exSeed[:,:,i]})
+#        for i in range(nChains)]
+        start = [dict({'xAl': alSeed[i]}) for i in range(nChains)]
+
     else:
-        start = dict({'xIn': InSeed, 'xEx': exSeed[:,:,0]})
+        start = dict({'xAl': alSeed})
 else:
-    start = dict({'xIn': inMean, 'xEx': exMean})
+    start = dict({'xAl': alMean})
 
 
 #zIn = np.zeros_like(inMean)
@@ -774,96 +891,170 @@ else:
 #def propEx(S, n=1):
 #    return  np.random.randn(n, nIm, 6) * Sex.reshape((nIm, 6))
 
-propIn = pm.step_methods.MultivariateNormalProposal  # (Sin)
-propEx = pm.step_methods.MultivariateNormalProposal  # (np.diag(Sex**2))
+#propIn = pm.step_methods.MultivariateNormalProposal  # (Sin)
+#propEx = pm.step_methods.MultivariateNormalProposal  # (np.diag(Sex**2))
+propAl = pm.step_methods.MultivariateNormalProposal # (np.diag(Sex**2))
+#propAl = sc.stats.norm(scale=Sal).rvs
 
-
-print("starting metropolis",
-      "|nnDraws =", nDraws, " nChains = ", nChains,
-      "|nscaIn = ", scaIn, "scaEx = ", scaEx)
+#print("starting metropolis",
+#      "|nnDraws =", nDraws, " nChains = ", nChains,
+#      "|nscaIn = ", scaIn, "scaEx = ", scaEx)
 
 '''
 aca documentacion copada
 https://pymc-devs.github.io/pymc/modelfitting.html
+
+https://github.com/pymc-devs/pymc3/blob/75f64e9517a059ce678c6b4d45b7c64d77242ab6/pymc3/step_methods/metropolis.py
+
 '''
 
+simulBool = False
+    if simulBool:
+    with projectionModel:
+    #    stepInt = pm.DEMetropolis(vars=[xIn], S=Sin, tune=tuneBool,
+    #                            tune_interval=nTuneInter, tune_throughout=tune_thr,
+    #                            tally=tallyBool, scaling=scaIn, proposal_dist=propIn)
+    #    stepInt.scaling = scaIn
+    #
+    #    stepExt = pm.DEMetropolis(vars=[xEx], S=exCov, tune=tuneBool,
+    #                              tune_interval=nTuneInter, tune_throughout=tune_thr,
+    #                              tally=tallyBool, scaling=scaEx, proposal_dist=propEx)
+    #    stepExt.scaling = scaEx
+    #
+    #    step = [stepInt, stepExt]
 
-with projectionModel:
-    stepInt = pm.DEMetropolis(vars=[xIn], S=Sin, tune=tuneBool,
-                            tune_interval=nTuneInter, tune_throughout=tune_thr,
-                            tally=tallyBool, scaling=scaIn, proposal_dist=propIn)
-    stepInt.scaling = scaIn
+        step = pm.DEMetropolis(vars=[xAl], S=np.diag(Sal**2), tune=tuneBool,
+                                  tune_interval=nTuneInter, tune_throughout=tune_thr,
+                                  tally=tallyBool, scaling=scaAl, proposal_dist=propAl)
+        step.tune = tuneBool
+        step.lamb = scaAl
+        step.scaling = scaAl
 
-    stepExt = pm.DEMetropolis(vars=[xEx], S=exCov, tune=tuneBool,
-                              tune_interval=nTuneInter, tune_throughout=tune_thr,
-                              tally=tallyBool, scaling=scaEx, proposal_dist=propEx)
-    stepExt.scaling = scaEx
+        trace = pm.sample(draws=nDraws, step=step, njobs=nChains, start=start,
+                          tune=nTune, chains=nChains, progressbar=True,
+                          discard_tuned_samples=False, cores=nCores,
+                          compute_convergence_checks=convChecksBool,
+                          parallelize=True)
 
-    step = [stepInt, stepExt]
-
-    trace = pm.sample(draws=nDraws, step=step, njobs=nChains, start=start,
-                      tune=nTune, chains=nChains, progressbar=True,
-                      discard_tuned_samples=False, cores=nCores,
-                      compute_convergence_checks=convChecksBool,
-                      parallelize=True)
 
 saveBool = True
 if saveBool:
     pathFiles = "/home/sebalander/Code/VisionUNQextra/Videos y Mediciones/"
-    pathFiles += "extraDataSebaPhD/traces" + str(29)
+    pathFiles += "extraDataSebaPhD/traces" + str(33)
 
-    np.save(pathFiles + "Int", trace['xIn'])
-    np.save(pathFiles + "Ext", trace['xEx'])
+#    np.save(pathFiles + "Int", trace['xIn'])
+#    np.save(pathFiles + "Ext", trace['xEx'])
+    np.save(pathFiles + "All", trace['xAl'])
 
     print("saved data to")
     print(pathFiles)
 
+loadBool = True
+if loadBool:
+    pathFiles = "/home/sebalander/Code/VisionUNQextra/Videos y Mediciones/"
+    pathFiles += "extraDataSebaPhD/traces" + str(33)
 
-corner.corner(trace['xIn'])
-corner.corner(trace['xEx'][:,2])
+    trace = dict()
+
+    trace['xAl'] = np.load(pathFiles + "All.npy")
 
 
-concDat = np.concatenate([trace['xIn'], trace['xEx'].reshape((-1, nIm*6))], axis=1)
+#corner.corner(trace['xIn'])
+##corner.corner(trace['xEx'][:,2])
+#corner.corner(trace['xAl'][:,:3])
 
-difAll = np.diff(concDat, axis=0)
+#concDat = np.concatenate([trace['xIn'], trace['xEx'].reshape((-1, nIm*6))], axis=1)
 
+traceArray = trace['xAl'].reshape((nChains, -1, NfreeParams)).transpose((2, 1, 0))
+# queda con los indices (parametro, iteracion, cadena)
 
-repeats = np.zeros_like(concDat)
-repeats[1:] = difAll == 0
+plt.figure()
+plt.plot(traceArray[3], alpha=0.2)
+plt.xlabel('iteración')
+plt.ylabel('parámetro k')
+plt.title('%d trazas de DEMetropolis'% traceArray.shape[2])
 
-print("tasa de repetidos", repeats.sum() / np.prod(repeats.shape))
-print("tasa de repetidos Intrinsico",
-      repeats[:,:NintrParams].sum() / (repeats.shape[0] * NintrParams))
-print("tasa de repetidos extrinseco",
-      repeats[:,NintrParams:].sum() / (repeats.shape[0] * nIm * 6))
+difAll = np.diff(traceArray, axis=1)
 
+repeats = np.zeros_like(traceArray)
+repeats[:, 1:] = difAll == 0
+repsRate = repeats.sum() / np.prod(repeats.shape)
+
+print("tasa de repetidos", repsRate)
+#print("tasa de repetidos Intrinsico",
+#      repeats[:,:NintrParams].sum() / (repeats.shape[0] * NintrParams))
+#print("tasa de repetidos extrinseco",
+#      repeats[:,NintrParams:].sum() / (repeats.shape[0] * nIm * 6))
+repTrace = repeats.sum(axis=(0, 1))
+
+# como veo que hay una traza que es constante, la elimino
+plt.hist(repTrace, 30)
+indRepsMax = np.argwhere(repTrace > np.prod(traceArray.shape[:2]) * 0.98).reshape(-1)[0]
+
+traceArray = np.delete(traceArray, indRepsMax, axis=2)
+
+indexCut = 2000
+traceCut = traceArray[:, indexCut:]
+del traceArray
+del repeats
+del difAll
+
+_, nDraws, nTrac = traceCut.shape
 
 # % proyecto sobre los dos autovectores ppales
-concMean = np.mean(concDat, axis=0)
-concDif = concDat - concMean
-U, S, V = np.linalg.svd(concDif, full_matrices=False)
+traceMean = np.mean(traceCut, axis=(1, 2))
+traceDif = traceCut - traceMean.reshape((-1, 1, 1))
 
-ppalXY = concDif.dot(V[:2].T / S[:2])
+#traceCov = np.sum(traceDif.reshape(NfreeParams, -1, 1) *
+#                  traceDif.T.reshape(1, -1, NfreeParams), axis=1)
+
+U, S, Vh = np.linalg.svd(traceDif.reshape((NfreeParams, -1)).T,
+                        full_matrices=False)
+
+traceCov = np.cov(traceDif.reshape((NfreeParams, -1)))
+traceSig = np.sqrt(np.diag(traceCov))
+traceCrr = traceCov / (traceSig.reshape((-1, 1)) * traceSig.reshape((1, -1)))
+
+plt.matshow(traceCrr, vmin=-1, vmax=1, cmap='coolwarm')
+
+plt.figure()
+plt.plot(np.abs(traceMean), traceSig, '+')
+
+print(traceMean[:3], traceCov[:3,:3])
+
+versors = Vh[:2].T / S[:2]
+ppalXY = traceDif.T.dot(versors)
 ppalX, ppalY = ppalXY.T
-#
+
+
 #nChains = 8
 #nDraws = 100000
 #nTune = 0
 
 plt.figure()
-plt.plot(ppalX.reshape((nChains, nDraws + nTune)).T,
-         ppalY.reshape((nChains, nDraws + nTune)).T)
+plt.plot(ppalX, ppalY, linewidth=0.5)
 plt.axis('equal')
 
 plt.figure()
-plt.plot(ppalX.reshape((nChains, nDraws + nTune)).T)
+plt.plot(ppalX, linewidth=0.5)
+plt.plot(ppalX[:,::50], linewidth=2)
+
 
 plt.figure()
-plt.plot(ppalY.reshape((nChains, nDraws + nTune)).T)
+plt.plot(ppalY, linewidth=0.5)
+plt.plot(ppalY[:,::50], linewidth=2)
 
-plt.figure()
-plt.plot((trace['xIn'][:, 2] - trace['xIn'][-1, 2]).reshape((nChains,
-         nDraws + nTune)).T)
+
+# corner de los intirnsecos
+corner.corner(traceCut[:3].T.reshape((-1,3)))
+
+# %%
+
+
+
+#plt.figure()
+#plt.plot((trace['xIn'][:, 2] - trace['xIn'][-1, 2]).reshape((nChains,
+#         nDraws + nTune)).T)
 
 
 # %%
@@ -902,4 +1093,9 @@ plt.plot((trace['xIn'][:, 2] - trace['xIn'][-1, 2]).reshape((nChains,
 
 # 27: DEmet bien largo
 # 28: otro de igual longitud
-# 29: pruebas para ver si cambio la acntidad de cadenas
+# 29: pruebas para ver si cambio la acntidad de cadenas. UNI LOS xIn Y xEx
+# PARA QUE SEA TODA UNA SOLA VARIABLE. MUCHO MEJOR!!
+# 30: un DEM largo ahora que las variables estan unificadas y parece que
+# converge a algo.
+# 31: ya con la Sal en su valor masomenos de convergencia! muchas cadenas.
+# 33: un DEM largo con mi invento del lambda y el escaleo de la propuesta

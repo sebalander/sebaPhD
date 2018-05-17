@@ -13,12 +13,13 @@ aca tiro todo el codigo de intrinsicFullPyMC3.py que ya casi que ahi no sirve
 
 
 pathFiles = "/home/sebalander/Code/VisionUNQextra/Videos y Mediciones/"
-pathFiles += "extraDataSebaPhD/traces" + str(28)
+pathFiles += "extraDataSebaPhD/traces" + str(30)
 
 trace = dict()
 
-trace['xIn'] = np.load(pathFiles + "Int.npy")
-trace['xEx'] = np.load(pathFiles + "Ext.npy")
+trace['xAl'] = np.load(pathFiles + "All.npy")
+#trace['xIn'] = np.load(pathFiles + "Int.npy")
+#trace['xEx'] = np.load(pathFiles + "Ext.npy")
 
 # %% concateno y calculo la diferencia
 
