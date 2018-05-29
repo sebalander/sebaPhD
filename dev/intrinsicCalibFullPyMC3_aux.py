@@ -13,7 +13,7 @@ aca tiro todo el codigo de intrinsicFullPyMC3.py que ya casi que ahi no sirve
 
 
 pathFiles = "/home/sebalander/Code/VisionUNQextra/Videos y Mediciones/"
-pathFiles += "extraDataSebaPhD/traces" + str(30)
+pathFiles += "extraDataSebaPhD/traces" + str(33)
 
 trace = dict()
 
