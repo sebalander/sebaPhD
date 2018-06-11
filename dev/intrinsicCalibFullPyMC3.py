@@ -116,7 +116,8 @@ nIm = fullData.Synt.Ches.nIm  # puntos por imagen
 
 
 # ## load data
-imagePoints = fullData.Synt.Ches.imgPt + fullData.Synt.Ches.imgNse
+stdPix = 1.0
+imagePoints = fullData.Synt.Ches.imgPt + stdPix * fullData.Synt.Ches.imgNse
 
 chessboardModel = fullData.Synt.Ches.objPt
 imgSize = fullData.Synt.Intr.s
@@ -148,7 +149,6 @@ nData = nIm * nPt
 # 0.1pix as image std
 # https://stackoverflow.com/questions/12102318/opencv-findcornersubpix-precision
 # increase to 1pix porque la posterior da demasiado rara
-stdPix = 1.0
 Ci = np.repeat([stdPix**2 * np.eye(2)], nData, axis=0).reshape(nIm, nPt, 2, 2)
 
 Crt = np.repeat([False], nIm)  # no RT error
@@ -1114,6 +1114,17 @@ U, S, Vh = np.linalg.svd(traceDif.reshape((nFree, -1)).T,
 traceCov = np.cov(traceDif.reshape((nFree, -1)))
 traceSig = np.sqrt(np.diag(traceCov))
 traceCrr = traceCov / (traceSig.reshape((-1, 1)) * traceSig.reshape((1, -1)))
+
+saveIntrBool = False
+if saveIntrBool:
+    np.save("/home/sebalander/Code/sebaPhD/resources/nov16/syntIntrCalib.npy",
+            {'mean': traceMean,
+             'cov': traceCov,
+             "camera": camera,
+             "model": model,
+             "trueVals": xAllT,
+             "datafile": fullDataFile})
+
 
 plt.matshow(traceCrr, vmin=-1, vmax=1, cmap='coolwarm')
 
@@ -2291,24 +2302,5 @@ corner.corner(sampleIntList)
 
 os.system("speak 'aadfafañfañieñiweh'")
 
-
-
-# %% usando PYMC3
-import pymc3 as pm
-
-projection_model = pm.Model()
-
-with projection_model:
-
-    # Priors for unknown model parameters
-    alpha = pm.Normal('alpha', mu=0, sd=10)
-    beta = pm.Normal('beta', mu=0, sd=10, shape=2)
-    sigma = pm.HalfNormal('sigma', sd=1)
-
-    # Expected value of outcome
-    mu = alpha + beta[0]*X1 + beta[1]*X2
-
-    # Likelihood (sampling distribution) of observations
-    Y_obs = pm.Normal('Y_obs', mu=mu, sd=sigma, observed=Y)
 
 
