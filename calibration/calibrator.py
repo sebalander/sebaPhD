@@ -36,6 +36,123 @@ reload(poly)
 
 f64 = lambda x: array(x, dtype=float64)
 
+# %% calss that holds all data
+
+class syntintr:
+    def __init__(self, k=None, uv=None, s=None, camera=None, model=None):
+        self.k = k
+        self.uv = uv
+        self.s = s
+        self.camera = camera
+        self.model = model
+
+class syntches:
+    def __init__(self, nIm=None, nPt=None, rVecs=None, tVecs=None, objPt=None,
+                 imgPt=None, imgNse=None):
+        self.nIm = nIm
+        self.nPt = nPt
+        self.rVecs = rVecs
+        self.tVecs = tVecs
+        self.objPt = objPt
+        self.imgPt = imgPt
+        self.imgNse = imgNse
+
+class syntextr:
+    def __init__(self, ang=None, h=None, rVecs=None, tVecs=None, objPt=None,
+                 imgPt=None, index10=None, imgNse=None):
+        self.ang = ang
+        self.h = h
+        self.rVecs = rVecs
+        self.tVecs = tVecs
+        self.objPt = objPt
+        self.imgPt = imgPt
+        self.index10 = index10
+        self.imgNse = imgNse
+
+class synt:
+    def __init__(self, Intr=None, Ches=None, Extr=None):
+        self.Intr = Intr
+        self.Ches = Ches
+        self.Extr = Extr
+
+class realches:
+     def __init__(self, nIm=None, nPt=None, objPt=None, imgPt=None,
+                  imgFls=None):
+         self.nIm = nIm
+         self.nPt = nPt
+         self.objPt = objPt
+         self.imgPt = imgPt
+         self.imgFls = imgFls
+
+class realbalk:
+     def __init__(self, objPt=None, imgPt=None, priorLLA=None, imgFl=None):
+         self.objPt = objPt
+         self.imgPt = imgPt
+         self.priorLLA = priorLLA
+         self.imgFl = imgFl
+
+class realdete:
+     def __init__(self, carGPS=None, carIm=None):
+         self.carGPS = carGPS
+         self.carIm = carIm
+
+class real:
+     def __init__(self, Ches=None, Balk=None, Dete=None):
+         self.Ches = Ches
+         self.Balk = Balk
+         self.Dete = Dete
+
+class datafull:
+    '''
+    Nested namedtuples that hold the data for the paper
+
+    Data
+        Synt
+            Intr         # listo: SyntIntr
+                camera  'vcaWide' string camera model
+                model   string indicating camera intrinsic model
+                        ['poly', 'rational', 'fisheye', 'stereographic']
+                s       is the image size
+                k       sintehtic stereographic parameter
+                uv      = s / 2 is the stereographic optical center
+            Ches         # listo: SyntChes
+                nIm     number of images
+                nPt     number of point in image
+                objPt   chessboard model grid
+                rVecs   synth rotation vectors
+                tVecs   synth tVecs
+                imgPt   synth corners projected from objPt with synth params
+                imgNse  noise of 1 sigma for the image
+            Extr         # listo: SyntExtr
+                ang     angles of synth pose tables
+                h       heights  of synth pose tables
+                rVecs   rotation vectors associated to angles
+                tVecs   tVecs associated to angles and h
+                objPt   distributed 3D points on the floor
+                imgPt   projected to image
+                imgNse  noise for image detection, sigma 1
+                index10 indexes to select 10 points well distributed
+        Real
+            Ches         # listo: RealChes
+                nIm     number of chess images
+                nPt     number of chess points per image
+                objPt   chessboard model, 3D
+                imgPt   detected corners in chessboard images
+                imgFls  list of paths to the chessboard images
+            Balk
+                objPt   calibration world points, lat lon
+                imgPt   image points for calibration
+                priLLA  prior lat-lon-altura
+                imgFl   camera snapshot file
+            Dete
+                carGps  car gps coordinates
+                carIm   car image detection traces
+    '''
+    def __init__(self, Synt=None, Real=None):
+        self.Synt = Synt
+        self.Real = Real
+
+
 # %% Z=0 PROJECTION
 
 
@@ -269,7 +386,7 @@ def ccd2dis(xi, yi, cameraMatrix, Cccd=False, Cf=False):
     Cfbool = anny(Cf)
 
     if Cccdbool or Cfbool:
-        Cd = zeros((xd.shape[0], 2, 2), dtype=float64)  # create covariance matrix
+        Cd = zeros((xd.shape[0], 2, 2), dtype=float64)  # create cov matrix
         Jd_i, Jd_f = ccd2disJacobian(xi, yi, cameraMatrix)
 
         if Cccdbool:

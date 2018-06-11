@@ -22,6 +22,11 @@ import dev.bayesLib as bl
 import scipy.stats as sts
 import scipy.special as spe
 
+import pickle
+from calibration.calibrator import datafull, real, realdete, realbalk, realches
+from calibration.calibrator import synt, syntextr, syntches, syntintr
+
+
 def calculaCovarianza(xM, yM):
     '''
     lso inputs son de tamaño (Nsamples, Mpuntos)
@@ -81,7 +86,7 @@ else:
 #print(np.allclose(C, CNum, rtol=0.05))
 
 # %% funcion que hace todas las cuentas
-def analyticVsMC(imgPts, Ci, F, K, Cintr, rtV, Crt, nPts, N, retPts=True):
+def analyticVsMC(imgPts, Ci, F, K, Cintr, rtV, Crt, nPt, N, retPts=True):
     '''
     Parameters and shapes
     -------
@@ -115,7 +120,7 @@ def analyticVsMC(imgPts, Ci, F, K, Cintr, rtV, Crt, nPts, N, retPts=True):
     # generar puntos y parametros
     # por suerte todas las pdfs son indep
     Ti = cl.unit2CovTransf(Ci)
-    xI = (np.random.randn(N, nPts, 1, 2) *
+    xI = (np.random.randn(N, nPt, 1, 2) *
           Ti.reshape((1, -1, 2, 2))).sum(-1) + imgPts
 
     Trt = cl.unit2CovTransf(Crt)
@@ -144,7 +149,7 @@ def analyticVsMC(imgPts, Ci, F, K, Cintr, rtV, Crt, nPts, N, retPts=True):
 #    kL[:, [0, 1], [0, 1]] += F[[0, 1], [0, 1]]
 
     # estos son los puntos sampleados por montecarlo, despues de
-    xD, yD, xH, yH, xM, yM = np.empty((6, N, nPts), dtype=float)
+    xD, yD, xH, yH, xM, yM = np.empty((6, N, nPt), dtype=float)
 
     for i in range(N):
         # F, K = flat2int(fkVsamples[i], Ns, model)
@@ -180,64 +185,52 @@ def analyticVsMC(imgPts, Ci, F, K, Cintr, rtV, Crt, nPts, N, retPts=True):
 np.random.seed(0)
 # input
 plotCorners = False
+
+#import collections as clt
+fullDataFile = "./resources/fullDataIntrExtr.npy"
+dataFile = open(fullDataFile, "rb")
+fullData = pickle.load(dataFile)
+dataFile.close()
+
 # cam puede ser ['vca', 'vcaWide', 'ptz'] son los datos que se tienen
-camera = 'vcaWide'
-# puede ser ['rational', 'fisheye', 'poly']
-modelos = ['poly', 'rational', 'fisheye', 'stereographic']
-model = modelos[3]
+camera = fullData.Synt.Intr.camera
+#modelos = ['poly', 'rational', 'fisheye', 'stereographic']
+model = fullData.Synt.Intr.model
 Ns = [2,3]
-model
-
-#intrCalibFile = "/home/sebalander/Code/VisionUNQextra/Videos y Mediciones/"
-#intrCalibFile +="extraDataSebaPhD/traces15IntrCalibResults.npy"
-
-imagesFolder = "./resources/intrinsicCalib/" + camera + "/"
-#cornersFile =      imagesFolder + camera + "Corners.npy"
-patternFile =      imagesFolder + camera + "ChessPattern.npy"
-imgShapeFile =     imagesFolder + camera + "Shape.npy"
-rVecsFile = imagesFolder + camera + model + "Rvecs.npy"
-tVecsFile = imagesFolder + camera + model + "Tvecs.npy"
-
-# load data
-#imagePoints = np.load(cornersFile)
-chessboardModel = np.load(patternFile)[0]
-imgSize = tuple(np.load(imgShapeFile))
-images = glob.glob(imagesFolder+'*.png')
-#imagePointsAll = np.load(cornersFile)
-
-#intrCalib = np.load(intrCalibFile).all()
-
+nH = fullData.Synt.Extr.h.shape[0]
+nAng = fullData.Synt.Extr.ang.shape[0]
+fkV = np.concatenate([fullData.Synt.Intr.uv, [fullData.Synt.Intr.k]]) #
 
 # load model specific data
-fkV = np.array([800, 465, 800]) # intrCalib['inMean']
 cameraMatrix, distCoeffs = flat2int(fkV, Ns, model)
-#rtVall = intrCalib['exMean']
-rVall = np.load(rVecsFile).reshape((-1,3))  # cargo de OpenCV
-tVall = np.load(tVecsFile).reshape((-1,3))
+
+# load data
+rVall = fullData.Synt.Extr.rVecs
+rVall = np.transpose([rVall] * nH, (1, 0, 2)).reshape((-1, 3))
+tVall = fullData.Synt.Extr.tVecs.reshape((-1, 3))
 rtVall = np.concatenate([rVall, tVall], axis=1)
 
-nIm = rtVall.shape[0]  # cantidad de imagenes
-nPts = chessboardModel.shape[0]   # puntos por imagen
+nPt = fullData.Synt.Extr.imgPt.shape[2]  # cantidad de imagenes
+nIm = np.prod(fullData.Synt.Extr.imgPt.shape[:2])  # puntos por imagen
 
-imagePointsAll = [cl.direct(chessboardModel, rtVall[i,:3], rtVall[i,3:],
-                            cameraMatrix, distCoeffs, model)
-                  for i in range(nIm)]
-imagePointsAll = np.array(imagePointsAll)
+# imagePoints = fullData.Synt.Extr.imgPt.reshape((nIm, nPt, 2))
+chessboardModel = fullData.Synt.Ches.objPt
+imgSize = fullData.Synt.Intr.s
+
+# tomo las detecciones sin ruido
+imagePointsAll = fullData.Synt.Extr.imgPt.reshape((nIm, nPt, 2))
 
 objpoints = np.array([chessboardModel]*nIm)
 
 # %%ELIJO UNA DE LAS IMAGENES
-imSel = 10
+imSel = 4
 imgPts = imagePointsAll[imSel]
 rtV = rtVall[imSel]
 
 # covarianzas de 1% de desvest
 Cintr = np.diag((fkV / 1000)**2)
-#covLim0 = 6 * imSel
-#covLim1 = covLim0 + 6
-#Crt = intrCalib['exCov'][covLim0:covLim1,covLim0:covLim1] / 1
 Crt = np.diag((rtV / 1000)**2)
-Ci = (1.0**2) * np.array([np.eye(2)]*nPts) / 1 # 1pixel std
+Ci = (1.0**2) * np.array([np.eye(2)] * nPt) / 1 # 1pixel std
 
 N = 5000  # cantidad de realizaciones
 
@@ -246,7 +239,7 @@ N = 5000  # cantidad de realizaciones
 np.random.seed(0)
 
 retAll = analyticVsMC(imgPts, Ci, cameraMatrix, distCoeffs, Cintr, rtV, Crt,
-                      nPts, N)
+                      nPt, N)
 ptsTeo, ptsNum, covTeo, covNum, ptsMC = retAll
 
 [xd, yd], [xh, yh], [xm, ym] = ptsTeo
@@ -258,8 +251,7 @@ muI, muD, muH, muM = ptsNum
 CiNum, CdNum, ChNum, CmNum = covNum
 
 # %% plot everything
-
-ptSelected = 0  # de lso 54 puntos este es el seleccionado para acercamiento
+ptSelected = 7  # de lso 54 puntos este es el seleccionado para acercamiento
 
 
 fig = plt.figure()
@@ -299,6 +291,8 @@ axH.plot(xH.flat, yH.flat, '.k', markersize=0.5)
 axH.axis('equal')
 axH.set_xlabel('xH')
 axH.set_ylabel('yH')
+for iPt in range(nPt):
+    axH.text(xh[iPt], yh[iPt], iPt)
 
 # project to map
 #figM = plt.figure(4)
@@ -311,6 +305,10 @@ axM.plot(xM.flat, yM.flat, '.k', markersize=0.5)
 axM.axis('equal')
 axM.set_xlabel('xM')
 axM.set_ylabel('yM')
+
+for iPt in range(nPt):
+    axM.text(xm[iPt], ym[iPt], iPt)
+
 
 
 # inset image
@@ -356,33 +354,42 @@ axMins.axis('equal')
 
 # dibujo los rectangulos
 import matplotlib.patches as patches
+boxFactor = 10.0
+#boxFactor_inv = 1 / boxFactor
 
 # caja en imagen
 boxIxy = np.array([axIins.get_xlim()[0], axIins.get_ylim()[0]]) # get caja
-boxIwh = np.array([axIins.get_xlim()[1] - boxIxy[0], axIins.get_ylim()[1] - boxIxy[1]])
-boxIxy -= 0.5 * boxIwh # agrando la caja
-boxIwh*= 2
-axI.add_patch( patches.Rectangle(boxIxy, boxIwh[0], boxIwh[1], fill=False))
+boxIwh = np.array([axIins.get_xlim()[1] - boxIxy[0],
+                   axIins.get_ylim()[1] - boxIxy[1]])
+boxIxy += boxIwh / 2  # centro de la caja
+boxIwh *= boxFactor  # agrando la caja
+boxIxy -= boxIwh / 2  # esquina
+axI.add_patch(patches.Rectangle(boxIxy, boxIwh[0], boxIwh[1], fill=False))
 
-# caja en distprsionado
+# caja en distorsionado
 boxDxy = np.array([axDins.get_xlim()[0], axDins.get_ylim()[0]]) # get caja
-boxDwh = np.array([axDins.get_xlim()[1] - boxDxy[0], axDins.get_ylim()[1] - boxDxy[1]])
-boxDxy -= 0.5 * boxDwh # agrando la caja
-boxDwh*= 2
-axD.add_patch( patches.Rectangle(boxDxy, boxDwh[0], boxDwh[1], fill=False))
+boxDwh = np.array([axDins.get_xlim()[1] - boxDxy[0],
+                   axDins.get_ylim()[1] - boxDxy[1]])
+boxDxy += boxDwh / 2  # centro de la caja
+boxDwh *= boxFactor  # agrando la caja
+boxDxy -= boxDwh / 2  # esquina
+axD.add_patch(patches.Rectangle(boxDxy, boxDwh[0], boxDwh[1], fill=False))
 
 # caja en homogeneas
 boxHxy = np.array([axHins.get_xlim()[0], axHins.get_ylim()[0]]) # get caja
-boxHwh = np.array([axHins.get_xlim()[1] - boxHxy[0], axHins.get_ylim()[1] - boxHxy[1]])
-boxHxy -= 0.5 * boxHwh # agrando la caja
-boxHwh*= 2
-axH.add_patch( patches.Rectangle(boxHxy, boxHwh[0], boxHwh[1], fill=False))
+boxHwh = np.array([axHins.get_xlim()[1] - boxHxy[0],
+                   axHins.get_ylim()[1] - boxHxy[1]])
+boxHxy += boxHwh / 2  # centro de la caja
+boxHwh *= boxFactor  # agrando la caja
+boxHxy -= boxHwh / 2  # esquina
+axH.add_patch(patches.Rectangle(boxHxy, boxHwh[0], boxHwh[1], fill=False))
 
 # caja en mapa
 boxMxy = np.array([axMins.get_xlim()[0], axMins.get_ylim()[0]]) # get caja
 boxMwh = np.array([axMins.get_xlim()[1] - boxMxy[0], axMins.get_ylim()[1] - boxMxy[1]])
-boxMxy -= 0.5 * boxMwh # agrando la caja
-boxMwh*= 2
+boxMxy += boxMwh / 2  # centro de la caja
+boxMwh *= boxFactor  # agrando la caja
+boxMxy -= boxMwh / 2  # esquina
 axM.add_patch( patches.Rectangle(boxMxy, boxMwh[0], boxMwh[1], fill=False))
 
 
@@ -392,14 +399,14 @@ plt.tight_layout()
 # %% corro para todas la imagenes
 N = 5000  # cantidad de realizaciones
 np.random.seed(0)
-Ci = (1.0**2) * np.array([np.eye(2)]*nPts) / 1 # 1pixel std
+Ci = (1.0**2) * np.array([np.eye(2)]*nPt) / 1 # 1pixel std
 
-#lik = np.zeros((nIm, nPts, N))
+#lik = np.zeros((nIm, nPt, N))
 
-xTeo = np.zeros((nIm, 2, nPts))
-xMC = np.zeros((nIm, 2, nPts))
-Cteo = np.zeros((nIm, nPts, 2, 2))
-Cmc = np.zeros((nIm, nPts, 2, 2))
+xTeo = np.zeros((nIm, 2, nPt))
+xMC = np.zeros((nIm, 2, nPt))
+Cteo = np.zeros((nIm, nPt, 2, 2))
+Cmc = np.zeros((nIm, nPt, 2, 2))
 
 for imSel in range(nIm):
     print(imSel)
@@ -411,7 +418,7 @@ for imSel in range(nIm):
     Crt = np.diag((rtV / 1000)**2)
 
     retAll = analyticVsMC(imgPts, Ci, cameraMatrix, distCoeffs, Cintr, rtV, Crt,
-                          nPts, N)
+                          nPt, N)
     ptsTeo, ptsNum, covTeo, covNum, ptsMC = retAll
 
     [xd, yd], [xh, yh], [xm, ym] = ptsTeo
@@ -431,9 +438,9 @@ for imSel in range(nIm):
 #    xDif = np.array([xM - xm, yM - ym]).transpose((2,1,0))
 #    Sm = np.linalg.inv(Cm)  # precision matrix
 #    SmNum  = np.linalg.inv(CmNum)
-##    mahDist = (xDif.reshape((nPts,N,2,1)) *
-##               Sm.reshape((nPts,1,2,2)) *
-##               xDif.reshape((nPts,N,1,2))
+##    mahDist = (xDif.reshape((nPt,N,2,1)) *
+##               Sm.reshape((nPt,1,2,2)) *
+##               xDif.reshape((nPt,N,1,2))
 ##               ).sum(axis=(2,3))
 #    # matrix determiants square root
 #    Cm = Cm.T
@@ -467,13 +474,13 @@ logDets = np.log(detTeo / detMC)
 # aprovechoq ue son simetricas
 traceC1C2 = np.sum(Steo * Cmc, axis=(2,3))
 # mahalanobis
-mah = (difX.reshape((nIm,nPts,2,1)) *
+mah = (difX.reshape((nIm,nPt,2,1)) *
        Smc *
-       difX.reshape((nIm,nPts,1,2))).sum(axis=(2,3))
+       difX.reshape((nIm,nPt,1,2))).sum(axis=(2,3))
 
 #mah2 = np.zeros_like(mah)
 #for i in range(nIm):
-#    for j in range(nPts):
+#    for j in range(nPt):
 #        mah2[i,j] = difX[i,j].dot(Smc[i,j]).dot(difX[i,j])
 #np.allclose(mah,mah2)
 
@@ -508,6 +515,7 @@ ellMCunitario = (CteoUnit2Cov.reshape((-1,2,2,1)) *
 
 # %%
 
+plt.figure()
 for ell in ellMCunitario:
     plt.plot(ell[0], ell[1], '-b', alpha=0.1, lw=1.0)
 
@@ -763,7 +771,7 @@ LN = list()
 Rads = list()
 
 N = 5000  # cantidad de puntos MC
-Ci = (1.0**2) * np.array([np.eye(2)]*nPts) / 1
+Ci = (1.0**2) * np.array([np.eye(2)]*nPt) / 1
 
 for imSel in range(nIm):
     print('\t imagen', imSel)

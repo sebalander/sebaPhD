@@ -37,6 +37,7 @@ Data
             rVecs   synth rotation vectors
             tVecs   synth tVecs
             imgPt   synth corners projected from objPt with synth params
+            imgNse  noise of 1 sigma for the image
         Extr         # listo: SyntExtr
             ang     angles of synth pose tables
             h       heights  of synth pose tables
@@ -44,6 +45,7 @@ Data
             tVecs   tVecs associated to angles and h
             objPt   distributed 3D points on the floor
             imgPt   projected to image
+            imgNse  noise for image detection, sigma 1
             index10 indexes to select 10 points well distributed
     Real
         Ches         # listo: RealChes
@@ -60,22 +62,25 @@ Data
         Dete
             carGps  car gps coordinates
             carIm   car image detection traces
-
 '''
 
-syntintr = clt.namedtuple('syntintr', ['k', 'uv', 's', 'camera', 'model'])
-syntches = clt.namedtuple('syntches', ['nIm', 'nPt', 'objPt', 'imgPt',
-                                       'rVecs', 'tVecs'])
-syntextr = clt.namedtuple('syntextr', ['ang', 'h', 'rVecs', 'tVecs', 'objPt',
-                                       'imgPt', 'index10'])
-synt = clt.namedtuple('synt', ['Intr', 'Ches', 'Extr'])
 
-realches = clt.namedtuple('realches', ['nIm', 'nPt', 'objPt', 'imgPt', 'imgFls'])
-realbalk = clt.namedtuple('realbalk', ['objPt', 'imgPt', 'priorLLA', 'imgFl'])
-realdete = clt.namedtuple('realdete', ['carGPS', 'carIm'])
-real = clt.namedtuple('real', ['Ches', 'Balk', 'Dete'])
+#syntintr = clt.namedtuple('syntintr', ['k', 'uv', 's', 'camera', 'model'])
+#syntches = clt.namedtuple('syntches', ['nIm', 'nPt', 'rVecs', 'tVecs',
+#                                       'objPt', 'imgPt', 'imgNse'])
+#syntextr = clt.namedtuple('syntextr', ['ang', 'h', 'rVecs', 'tVecs', 'objPt',
+#                                       'imgPt', 'index10', 'imgNse'])
+#synt = clt.namedtuple('synt', ['Intr', 'Ches', 'Extr'])
+#
+#realches = clt.namedtuple('realches', ['nIm', 'nPt', 'objPt', 'imgPt', 'imgFls'])
+#realbalk = clt.namedtuple('realbalk', ['objPt', 'imgPt', 'priorLLA', 'imgFl'])
+#realdete = clt.namedtuple('realdete', ['carGPS', 'carIm'])
+#real = clt.namedtuple('real', ['Ches', 'Balk', 'Dete'])
+#
+#datafull = clt.namedtuple('datafull', ['Synt', 'Real'])
 
-datafull = clt.namedtuple('datafull', ['Synt', 'Real'])
+from calibration.calibrator import datafull, real, realdete, realbalk, realches
+from calibration.calibrator import synt, syntextr, syntches, syntintr
 
 
 # %% =========================================================================
@@ -135,8 +140,12 @@ SyntChesImPts = np.array([cl.direct(ChesObjPt, SyntChesRvecs[i],
                                      SyntChesTvecs[i], cameraMatrix, distCoeff,
                                      model) for i in range(ChesnIm)])
 
-SyntChes = syntches(ChesnIm, ChesnPt, ChesObjPt, SyntChesImPts,
-                      SyntChesRvecs, SyntChesTvecs)
+SyntChesImPtsNoise = np.random.randn(np.prod(SyntChesImPts.shape)
+                                            ).reshape(SyntChesImPts.shape)
+
+SyntChes = syntches(ChesnIm, ChesnPt, SyntChesRvecs, SyntChesTvecs,
+                    ChesObjPt, SyntChesImPts, SyntChesImPtsNoise)
+
 
 plt.figure()
 plt.title('corners de todas las imagenes')
@@ -348,8 +357,11 @@ for i in range(len(angs)):
         SyntExtrImPt[i, j] = cl.direct(SyntExtrObjPt, rv, tv, cameraMatrix,
                                         distCoeff, model)
 
+SyntExtrImPtsNoise = np.random.randn(np.prod(SyntExtrImPt.shape))
+SyntExtrImPtsNoise = SyntExtrImPtsNoise.reshape(SyntExtrImPt.shape)
+
 SyntExtr = syntextr(angs, hs, SyntExtrRvecs, SyntExtrTvecs, muW,
-                      SyntExtrImPt, indSel)
+                      SyntExtrImPt, indSel, SyntExtrImPtsNoise)
 
 
 # %%
@@ -398,7 +410,7 @@ plt.axis('equal')
 
 
 
-# %% detecciones
+# %% detecciones del auto
 gpsCelFile = "/home/sebalander/Code/sebaPhD/resources/encoderGPS/"
 gpsCelFile += "20161113192738.txt"
 
@@ -417,9 +429,14 @@ Synt = synt(SyntIntr, SyntChes, SyntExtr)
 Real = real(RealChes, RealBalk, RealDete)
 DataFull = datafull(Synt, Real)
 
-fullDataFile = "./resources/fullDataIntrExtr"
-np.save(fullDataFile + ".npy", DataFull)
+fullDataFile = "./resources/fullDataIntrExtr.npy"
 
-text_file = open(fullDataFile + "README.txt", "w")
-text_file.write(header)
-text_file.close()
+#text_file = open(fullDataFile + "README.txt", "w")
+#text_file.write(header)
+#text_file.close()
+
+import pickle
+
+file = open(fullDataFile, "wb")
+pickle.dump(DataFull, file)
+file.close()

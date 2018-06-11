@@ -136,12 +136,12 @@ def errorCuadraticoImagen(Xext, Xint, Ns, params, j, mahDist=False):
         Cov = None
 
     # hago la proyeccion
-    xi, yi = imagePoints[j,0].T
+    xi, yi = imagePoints[j].T
     xm, ym, Cm = cl.inverse(xi, yi, rvec, tvec, cameraMatrix,
                             distCoeffs, model, Cov, Cf, Ck, Crt[j], Cfk)
 
     # error
-    er = ([xm, ym] - chessboardModel[0,:,:2].T).T
+    er = ([xm, ym] - chessboardModel[:,:2].T).T
 
     Cmbool = anny(Cm)
     if Cmbool:

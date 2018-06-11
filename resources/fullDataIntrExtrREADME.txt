@@ -1,4 +1,3 @@
-
 Nested namedtuples that hold the data for the paper
 
 Data
@@ -17,6 +16,7 @@ Data
             rVecs   synth rotation vectors
             tVecs   synth tVecs
             imgPt   synth corners projected from objPt with synth params
+            imgNse  noise of 1 sigma for the image
         Extr         # listo: SyntExtr
             ang     angles of synth pose tables
             h       heights  of synth pose tables
@@ -24,6 +24,7 @@ Data
             tVecs   tVecs associated to angles and h
             objPt   distributed 3D points on the floor
             imgPt   projected to image
+            imgNse  noise for image detection, sigma 1
             index10 indexes to select 10 points well distributed
     Real
         Ches         # listo: RealChes
@@ -40,3 +41,4 @@ Data
         Dete
             carGps  car gps coordinates
             carIm   car image detection traces
+
