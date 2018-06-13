@@ -9,13 +9,13 @@ Created on Thu Aug 18 11:47:18 2016
 from matplotlib.pyplot import plot, imshow, legend, show, figure, gcf, imread
 from matplotlib.pyplot import xlabel, ylabel
 from cv2 import Rodrigues  # , homogr2pose
-from numpy import max, zeros, array, sqrt, roots, diag
+from numpy import max, zeros, array, sqrt, roots, diag, sum, log
 from numpy import sin, cos, cross, ones, concatenate, flipud, dot, isreal
 from numpy import linspace, polyval, eye, linalg, mean, prod, vstack
-from numpy import ones_like, zeros_like, pi, float64
+from numpy import ones_like, zeros_like, pi, float64, transpose
 from numpy import any as anny
-from numpy.linalg import svd
-from scipy.linalg import norm, inv
+from numpy.linalg import svd, inv, det
+from scipy.linalg import norm
 from scipy.special import chdtri
 from matplotlib.patches import FancyArrowPatch
 from mpl_toolkits.mplot3d import proj3d
@@ -34,10 +34,12 @@ reload(rational)
 reload(fisheye)
 reload(poly)
 
-f64 = lambda x: array(x, dtype=float64)
+
+def f64(x):
+    return array(x, dtype=float64)
+
 
 # %% calss that holds all data
-
 class syntintr:
     def __init__(self, k=None, uv=None, s=None, camera=None, model=None):
         self.k = k
@@ -45,6 +47,7 @@ class syntintr:
         self.s = s
         self.camera = camera
         self.model = model
+
 
 class syntches:
     def __init__(self, nIm=None, nPt=None, rVecs=None, tVecs=None, objPt=None,
@@ -56,6 +59,7 @@ class syntches:
         self.objPt = objPt
         self.imgPt = imgPt
         self.imgNse = imgNse
+
 
 class syntextr:
     def __init__(self, ang=None, h=None, rVecs=None, tVecs=None, objPt=None,
@@ -69,38 +73,44 @@ class syntextr:
         self.index10 = index10
         self.imgNse = imgNse
 
+
 class synt:
     def __init__(self, Intr=None, Ches=None, Extr=None):
         self.Intr = Intr
         self.Ches = Ches
         self.Extr = Extr
 
+
 class realches:
-     def __init__(self, nIm=None, nPt=None, objPt=None, imgPt=None,
-                  imgFls=None):
-         self.nIm = nIm
-         self.nPt = nPt
-         self.objPt = objPt
-         self.imgPt = imgPt
-         self.imgFls = imgFls
+    def __init__(self, nIm=None, nPt=None, objPt=None, imgPt=None,
+                 imgFls=None):
+        self.nIm = nIm
+        self.nPt = nPt
+        self.objPt = objPt
+        self.imgPt = imgPt
+        self.imgFls = imgFls
+
 
 class realbalk:
-     def __init__(self, objPt=None, imgPt=None, priorLLA=None, imgFl=None):
-         self.objPt = objPt
-         self.imgPt = imgPt
-         self.priorLLA = priorLLA
-         self.imgFl = imgFl
+    def __init__(self, objPt=None, imgPt=None, priorLLA=None, imgFl=None):
+        self.objPt = objPt
+        self.imgPt = imgPt
+        self.priorLLA = priorLLA
+        self.imgFl = imgFl
+
 
 class realdete:
-     def __init__(self, carGPS=None, carIm=None):
-         self.carGPS = carGPS
-         self.carIm = carIm
+    def __init__(self, carGPS=None, carIm=None):
+        self.carGPS = carGPS
+        self.carIm = carIm
+
 
 class real:
-     def __init__(self, Ches=None, Balk=None, Dete=None):
-         self.Ches = Ches
-         self.Balk = Balk
-         self.Dete = Dete
+    def __init__(self, Ches=None, Balk=None, Dete=None):
+        self.Ches = Ches
+        self.Balk = Balk
+        self.Dete = Dete
+
 
 class datafull:
     '''
@@ -193,8 +203,10 @@ def unit2CovTransf(C):
         n = s.shape[0]
         d = s.shape[1]
         s = sqrt(s)
-        v = v.transpose((0,2,1))
-        T = u.reshape((-1,d,d,1)) * s.reshape((n,1,d,1)) * v.reshape((n,1,d,d))
+        v = v.transpose((0, 2, 1))
+        T = (u.reshape((-1, d, d, 1)) *
+             s.reshape((n, 1, d, 1)) *
+             v.reshape((n, 1, d, d)))
         return T.sum(2)
     else:
         print('las dimensiones no se que onda')
@@ -367,7 +379,7 @@ def ccd2disJacobian(xi, yi, cameraMatrix):
     return Jd_i, Jd_f
 
 
-def ccd2dis(xi, yi, cameraMatrix, Cccd=False, Cf=False):
+def ccd2dis(xi, yi, cameraMatrix, Ci=False, Cf=False):
     '''
     maps from CCd, image to homogenous distorted coordiantes.
 
@@ -382,17 +394,17 @@ def ccd2dis(xi, yi, cameraMatrix, Cccd=False, Cf=False):
     xd = (xi - cameraMatrix[0, 2]) / cameraMatrix[0, 0]
     yd = (yi - cameraMatrix[1, 2]) / cameraMatrix[1, 1]
 
-    Cccdbool = anny(Cccd)
+    Cibool = anny(Ci)
     Cfbool = anny(Cf)
 
-    if Cccdbool or Cfbool:
+    if Cibool or Cfbool:
         Cd = zeros((xd.shape[0], 2, 2), dtype=float64)  # create cov matrix
         Jd_i, Jd_f = ccd2disJacobian(xi, yi, cameraMatrix)
 
-        if Cccdbool:
+        if Cibool:
             Jd_iResh = Jd_i.reshape((-1, 2, 2, 1, 1))
             Cd += (Jd_iResh *
-                   Cccd.reshape((-1, 1, 2, 2, 1)) *
+                   Ci.reshape((-1, 1, 2, 2, 1)) *
                    Jd_iResh.transpose((0, 4, 3, 2, 1))
                    ).sum((2, 3))
 
@@ -470,9 +482,7 @@ def dis2hom(xd, yd, distCoeffs, model, Cd=False, Ck=False, Cfk=False,
     Ckbool = anny(Ck)
 
     if Cdbool or Ckbool:  # no hay incertezas Ck ni Cd
-        q, _, Jh_d, Jh_k = dis2hom_ratioJacobians(xd, yd,
-                                                  distCoeffs,
-                                                  model)
+        q, _, Jh_d, Jh_k = dis2hom_ratioJacobians(xd, yd, distCoeffs, model)
         xh = xd / q  # undistort in homogenous coords
         yh = yd / q
 
@@ -481,15 +491,15 @@ def dis2hom(xd, yd, distCoeffs, model, Cd=False, Ck=False, Cfk=False,
         if Cdbool:  # incerteza Cd
             Jh_dResh = Jh_d.reshape((-1, 2, 1, 2, 1))
             Ch += (Jh_dResh *
-                  Cd.reshape((-1, 1, 2, 2, 1)) *
-                  Jh_dResh.transpose((0, 4, 3, 2, 1))
-                  ).sum((2, 3))
+                   Cd.reshape((-1, 1, 2, 2, 1)) *
+                   Jh_dResh.transpose((0, 4, 3, 2, 1))
+                   ).sum((2, 3))
 
         if Ckbool:  # incerteza Ck
-            nf = Jh_k.shape[-1]  # nro de param distorsion
-            Jp_fResh = Jh_k.reshape((-1, 2, 1, nf, 1))
+            nk = Jh_k.shape[-1]  # nro de param distorsion
+            Jp_fResh = Jh_k.reshape((-1, 2, 1, nk, 1))
             Ch += (Jp_fResh *
-                   Ck.reshape((1, 1, nf, nf, 1)) *
+                   Ck.reshape((1, 1, nk, nk, 1)) *
                    Jp_fResh.transpose((0, 4, 3, 2, 1))
                    ).sum((2, 3))
 
@@ -499,10 +509,11 @@ def dis2hom(xd, yd, distCoeffs, model, Cd=False, Ck=False, Cfk=False,
                     Jh_d.reshape((-1, 2, 2, 1))
                     ).sum(2)
             # ahora agrego termino cruzado
-            Jh_fResh = Jh_f.reshape((-1, 2, nf, 1, 1))
-            Jh_kResh = Jh_k.reshape((-1, 1, 1, 2, 4)).transpose((0, 1, 2, 4, 3))
+            Jh_fResh = Jh_f.reshape((-1, 2, 4, 1, 1))
+            Jh_kResh = transpose(Jh_k.reshape((-1, 1, 1, 2, nk)),
+                                 (0, 1, 2, 4, 3))
             Ch += 2 * (Jh_fResh *
-                       Cfk.reshape((1, 1, nf, 4, 1)) *
+                       Cfk.reshape((1, 1, nk, 4, 1)) *
                        Jh_kResh).sum((2, 3))
 
     else:
@@ -733,19 +744,6 @@ def xyhToZplane(xh, yh, rV, tV, Ch=False, Crt=False):
                    JXm_XpResh.transpose((3, 2, 1, 0, 4))
                    ).sum((1, 2)).transpose((2, 0, 1))
 
-#aux=(JXm_XpResh *
-#                   Ch.reshape((1, 2, 2, 1, -1)) *
-#                   JXm_XpResh.transpose((3, 2, 1, 0, 4))
-#                   #JXm_XpResh.transpose((2, 3, 0, 1, 4))
-#                   ).sum((1, 2))
-#
-#aux2=np.zeros_like(aux)
-#for i in range(54):
-#    aux2[:,:,i] = JXm_Xp[:,:,i].dot(Ch[:,:,i]).dot(JXm_Xp[:,:,i].T)
-#
-#np.allclose(aux,aux2)
-
-
     else:
         Cm = False  # return None covariance
 
@@ -753,7 +751,7 @@ def xyhToZplane(xh, yh, rV, tV, Ch=False, Crt=False):
 
 
 def inverse(xi, yi, rV, tV, cameraMatrix, distCoeffs, model,
-            Cccd=False, Cf=False, Ck=False, Crt=False, Cfk=False):
+            Ci=False, Cf=False, Ck=False, Crt=False, Cfk=False):
     '''
     inverseFisheye(objPoints, rVec/rotMatrix, tVec, cameraMatrix,
                     distCoeffs)-> objPoints
@@ -765,7 +763,7 @@ def inverse(xi, yi, rV, tV, cameraMatrix, distCoeffs, model,
     propagates covariance uncertainty
     '''
     # project to homogenous distorted
-    xd, yd, Cd, Jd_k = ccd2dis(xi, yi, cameraMatrix, Cccd, Cf)
+    xd, yd, Cd, Jd_k = ccd2dis(xi, yi, cameraMatrix, Ci, Cf)
 
     # undistort
     xh, yh, Ch = dis2hom(xd, yd, distCoeffs, model, Cd, Ck,
@@ -777,29 +775,93 @@ def inverse(xi, yi, rV, tV, cameraMatrix, distCoeffs, model,
     xm, ym, Cm = xyhToZplane(xh, yh, rV, tV, Ch, Crt)
     return xm, ym, Cm
 
+#
+#def residualInverse(params, objectPoints, imagePoints, model):
+#    switcher = {
+#        'stereographic': stereographic.residualInverse,
+#        'unified': unified.residualInverse,
+#        'rational': rational.residualInverse,
+#        'poly': poly.residualInverse,
+#        'fisheye': fisheye.residualInverse
+#        }
+#    return switcher[model](params, objectPoints, imagePoints)
+#
+#
+#def calibrateInverse(objectPoints, imagePoints, rVec, tVec, cameraMatrix,
+#                     distCoeffs, model):
+#    switcher = {
+#        'stereographic': stereographic.calibrateInverse,
+#        'unified': unified.calibrateInverse,
+#        'rational': rational.calibrateInverse,
+#        'poly': poly.calibrateInverse,
+#        'fisheye': fisheye.calibrateInverse
+#        }
+#    return switcher[model](objectPoints, imagePoints, rVec, tVec, cameraMatrix,
+#                           distCoeffs)
 
-def residualInverse(params, objectPoints, imagePoints, model):
-    switcher = {
-        'stereographic': stereographic.residualInverse,
-        'unified': unified.residualInverse,
-        'rational': rational.residualInverse,
-        'poly': poly.residualInverse,
-        'fisheye': fisheye.residualInverse
-        }
-    return switcher[model](params, objectPoints, imagePoints)
+
+# %% funcion error
+pi2factor = 2 * log(2 * pi)  # para 2D
+
+def errorCuadraticoImagen(imagePoints, chessboardModel, rvec, tvec,
+                          cameraMatrix, distCoeffs, model, Ci=False, Cf=False,
+                          Ck=False, Crt=False, Cfk=False, mahDist=False):
+    '''
+    el error asociado a una sola imagen
+
+    if mahDist=True it returns the squared mahalanobis distance for the
+    proyection points
+
+    the result Er is such that the probability P:
+    Er = - 2 log(P)
+    where n is the number of points, d is the number of dimensions
+    the line where Er += log(det(Cm))  + pi2factor adds part of the
+    normalising constant
+    '''
+
+    # hago la proyeccion
+    xi, yi = imagePoints.T
+    xm, ym, Cm = inverse(xi, yi, rvec, tvec, cameraMatrix, distCoeffs, model,
+                         Ci, Cf, Ck, Crt, Cfk)
+
+    # error
+    er = ([xm, ym] - chessboardModel[:, :2].T).T
+
+    Cmbool = anny(Cm)
+    if Cmbool:
+        # devuelvo error cuadratico pesado por las covarianzas
+        S = inv(Cm)  # inverse of covariance matrix
+        # distancia mahalanobis
+        Er = sum(er.reshape((-1, 2, 1))
+                 * S
+                 * er.reshape((-1, 1, 2)), axis=(1, 2))
+
+        if not mahDist:
+            # add covariance normalisation error
+            Er += log(det(Cm)) + pi2factor
+    else:
+        # error cuadratico sin pesos ni nada
+        Er = sum(er**2, axis=1)
+
+    return Er
 
 
-def calibrateInverse(objectPoints, imagePoints, rVec, tVec, cameraMatrix,
-                     distCoeffs, model):
-    switcher = {
-        'stereographic': stereographic.calibrateInverse,
-        'unified': unified.calibrateInverse,
-        'rational': rational.calibrateInverse,
-        'poly': poly.calibrateInverse,
-        'fisheye': fisheye.calibrateInverse
-        }
-    return switcher[model](objectPoints, imagePoints, rVec, tVec, cameraMatrix,
-                           distCoeffs)
+def points2linearised(x, y, C):
+        S = inv(C)
+        n = len(x)
+        xy = array([x, y]).T
+
+        u, s, v = svd(S)
+
+        sdiag = zeros_like(u)
+        sdiag[:, [0, 1], [0, 1]] = sqrt(s)
+
+        A = (u.reshape((n, 2, 2, 1, 1)) *
+             sdiag.reshape((n, 1, 2, 2, 1)) *
+             v.transpose((0, 2, 1)).reshape((n, 1, 1, 2, 2))
+             ).sum(axis=(3, 4))
+
+        return sum(xy.reshape((n, 2, 1)) * A, axis=2)
 
 
 # %% PLOTTING

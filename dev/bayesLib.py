@@ -119,8 +119,6 @@ def errorCuadraticoImagen(Xext, Xint, Ns, params, j, mahDist=False):
     cameraMatrix, distCoeffs = flat2int(Xint, Ns, params['model'])
     rvec, tvec = flat2ext(Xext)
     # saco los parametros auxiliares
-    #n = params["n"]
-    # m = params["m"]
     imagePoints = params["imagePoints"]
     model = params["model"]
     chessboardModel = params["chessboardModel"]
