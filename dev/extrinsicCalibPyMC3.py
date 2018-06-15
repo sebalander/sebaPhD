@@ -21,7 +21,7 @@ import time
 
 # %env THEANO_FLAGS='device=cuda, floatX=float32'
 import theano
-import theano. tensor as T
+import theano.tensor as T
 import pymc3 as pm
 import scipy as sc
 import seaborn as sns
@@ -211,65 +211,65 @@ aca defino la proyeccion para que la pueda usar thean0
 http://deeplearning.net/software/theano/extending/extending_theano.html
 '''
 
-
-class ProjectionT(theano.Op):
-    # itypes and otypes attributes are
-    # compulsory if make_node method is not defined.
-    # They're the type of input and output respectively
-    # xAll # xInt, xExternal
-    itypes = [T.dvector] # , T.dmatrix]
-    # xm, ym, cM
-    otypes = [T.dtensor3]  # , T.dtensor4]
-
-    # Python implementation:
-    def perform(self, node, inputs_storage, output_storage):
-        # print('IDX %d projection %d, global %d' %
-        #       (self.idx, self.count, projCount))
-        rVec, tVec = bl.flat2ext(inputs_storage[0])
-#        xyM, cM = output_storage
-
-        # saco los parametros de flat para que los use la func de projection
-        # print(cameraMatrix, distCoeffs)
-        xm, ym = np.zeros_like(objpoints).T
-        cm = np.zeros_like(Ci)
-
-        xm, ym, cm = cl.inverse(xi, yi, rVec, tVec, cameraMatrix,
-                                            distCoeffs, model, Ci)
-
-
-        xy = cl.points2linearised(xm - objpoints[:,0],
-                                  ym - objpoints[:,1], cm).reshape(-1)
-
-        # plt.plot(xy[:, 0], xy[:, 1], '+')
-        print('xy', xy)
-        output_storage[0] = xy
-
-    # optional:
-    check_input = True
-
-
-print('projection defined for theano')
+#
+#class ProjectionT(theano.Op):
+#    # itypes and otypes attributes are
+#    # compulsory if make_node method is not defined.
+#    # They're the type of input and output respectively
+#    # xAll # xInt, xExternal
+#    itypes = [T.dvector] # , T.dmatrix]
+#    # xm, ym, cM
+#    otypes = [T.dtensor3]  # , T.dtensor4]
+#
+#    # Python implementation:
+#    def perform(self, node, inputs_storage, output_storage):
+#        # print('IDX %d projection %d, global %d' %
+#        #       (self.idx, self.count, projCount))
+#        rVec, tVec = bl.flat2ext(inputs_storage[0])
+##        xyM, cM = output_storage
+#
+#        # saco los parametros de flat para que los use la func de projection
+#        # print(cameraMatrix, distCoeffs)
+#        xm, ym = np.zeros_like(objpoints).T
+#        cm = np.zeros_like(Ci)
+#
+#        xm, ym, cm = cl.inverse(xi, yi, rVec, tVec, cameraMatrix,
+#                                            distCoeffs, model, Ci)
+#
+#
+#        xy = cl.points2linearised(xm - objpoints[:,0],
+#                                  ym - objpoints[:,1], cm).reshape(-1)
+#
+#        # plt.plot(xy[:, 0], xy[:, 1], '+')
+#        print('xy', xy)
+#        output_storage[0] = xy
+#
+#    # optional:
+#    check_input = True
+#
+#
+#print('projection defined for theano')
 
 # %% pruebo si esta bien como OP
 
 
-xAllOper = T.dvector('xAllOper')
-
-projTheanoWrap = ProjectionT()
-
-projTfunction = theano.function([xAllOper], projTheanoWrap(xAllOper))
-
-try:
-#    outOpt = projTfunction(XintOpt, XextListOpt)
-    print(projTfunction(xAllT))
-    outOpt = projTfunction(xAllOper)
-
-except:
-#    sys.exit("no anduvo el wrapper de la funciona  theano")
-    print("no anduvo el wrapper de la funciona  theano")
-else:
-    pass
-    # print(out)
+#xAllOper = T.dvector('xAllOper')
+#
+#projTheanoWrap = ProjectionT()
+#
+#projTfunction = theano.function([xAllOper], projTheanoWrap(xAllOper))
+#
+#try:
+##    outOpt = projTfunction(XintOpt, XextListOpt)
+#    print(projTfunction(xAllT))
+#    outOpt = projTfunction(xAllOper)
+#
+#except:
+##    sys.exit("no anduvo el wrapper de la funciona  theano")
+#    print("no anduvo el wrapper de la funciona  theano")
+#else:
+#    pass
+#    # print(out)
 
 # %%
 '''
@@ -289,14 +289,8 @@ def project2diagonalisedError(xAll):
 
     return np.concatenate([xNorm, yNorm])
 
-project2diagonalisedError(xAllT)
-
-
-
-
-
-
-
+xAllTheano = theano.shared(xAllT)
+project2diagonalisedError(xAllTheano).eval()
 
 
 
@@ -305,7 +299,7 @@ project2diagonalisedError(xAllT)
 
 projectionModel = pm.Model()
 
-projTheanoWrap = ProjectionT()
+#projTheanoWrap = ProjectionT()
 
 # set lower and upper bounds for uniform prior distributions
 # for camera matrix is important to avoid division by zero
@@ -325,10 +319,11 @@ with projectionModel:
                      transform=None)
 
     # apply numpy based function
-    xyMNor = projTheanoWrap(xAl)  # xIn, xEx)
+    # xyMNor = projTheanoWrap(xAl)  # xIn, xEx)
+    # mu = T.reshape(xyMNor, (-1, ))
 
-    mu = T.reshape(xyMNor, (-1, ))
-    Y_obs = pm.Normal('Y_obs', mu=mu, sd=1, observed=observedNormed)
+    xyMNor = project2diagonalisedError(xAl)
+    Y_obs = pm.Normal('Y_obs', mu=xyMNor, sd=1, observed=observedNormed)
 
 print('model defined')
 
@@ -348,8 +343,13 @@ print('model defined')
 
 #Sal *= 4
 alMean = xAllOpt
+alMean = np.array([ 3.13938779e+00,  1.47266721e-04,  1.58794687e-03, -3.82181533e-03,
+       -4.75891407e-03,  7.48864527e+00])
 
-Sal = sigOpt
+#Sal = sigOpt
+#Sal = np.abs(alMean) * 1e-3
+Sal = np.array([0.0006015 , 0.00013892, 0.0013709 , 0.0030972 , 0.00429702,
+       0.005699  ])
 
 #Sal =  np.array([0.09865597, 0.09530727, 0.10129538, 2.59390347, 0.52442512,
 #       0.66983503])
@@ -369,13 +369,13 @@ print("moda, la media y la desv est del radio\n", ModeR, ExpectedR, DesvEstR)
 http://docs.pymc.io/api/inference.html
 '''
 
-nDraws = 1000
+nDraws = 10000
 nTune = 0
 nTuneInter = 0
 tuneBool = nTune != 0
 tune_thr = False
 
-nChains = 5 * int(1.1 * nFree)
+nChains = 10 * int(1.1 * nFree)
 nCores = 1
 
 indexSave = 0
@@ -431,7 +431,7 @@ simulBool = True
 if simulBool:
     with projectionModel:
 
-        step = pm.Metropolis(vars=[xAl], S=Sal, tune=tuneBool,
+        step = pm.DEMetropolis(vars=[xAl], S=Sal, tune=tuneBool,
                                tune_interval=nTuneInter, tune_throughout=tune_thr,
                                tally=tallyBool, scaling=scaAl) # , proposal_dist=propAl)
         step.tune = tuneBool
@@ -443,6 +443,7 @@ if simulBool:
                           discard_tuned_samples=False, cores=nCores,
                           compute_convergence_checks=convChecksBool,
                           parallelize=True)
+
 
 # %%
 saveBool = True
@@ -474,7 +475,7 @@ fig, axs = plt.subplots(2, 3)
 for i, ax in enumerate(axs.flatten()):
     ax.plot(traceArray[i], alpha=0.2)
 
-corner.corner(trace['xAl'])
+#corner.corner(trace['xAl'])
 
 difAll = np.diff(traceArray, axis=1)
 
@@ -485,7 +486,7 @@ repsRate = repeats.sum() / np.prod(repeats.shape)
 print("tasa de repetidos", repsRate)
 
 # %%
-indexCut = 900
+indexCut = 1000
 traceCut = traceArray[:, indexCut:]
 del traceArray
 del repeats
@@ -522,7 +523,7 @@ for i in range(nFree):
 linFitList = np.array(linFitList)
 expFitList = np.array(expFitList)
 
-Tnext = 3e2
+Tnext = 3e4
 stdNext = Tnext * linFitList[:, 0, 0] + linFitList[:, 0, 1]
 
 plt.figure()
@@ -554,7 +555,7 @@ if saveIntrBool:
 
 plt.matshow(traceCrr, vmin=-1, vmax=1, cmap='coolwarm')
 
-cols = np.array([[1] * 3, [2] * 3] * nIm).reshape(-1)
+cols = np.array([[1] * 3, [2] * 3]).reshape(-1)
 cols = np.concatenate([[0] * 3, cols])
 
 plt.figure()
@@ -579,6 +580,7 @@ plt.plot(ppalX[:,::50], linewidth=2)
 plt.figure()
 plt.plot(ppalY, linewidth=0.5)
 plt.plot(ppalY[:,::50], linewidth=2)
+
 
 
 # %% corner de los intirnsecos
