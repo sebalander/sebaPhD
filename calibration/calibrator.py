@@ -813,7 +813,7 @@ def errorCuadraticoImagen(imagePoints, chessboardModel, rvec, tvec,
     proyection points
 
     the result Er is such that the probability P:
-    Er = - 2 log(P)
+    Er = - log(P)
     where n is the number of points, d is the number of dimensions
     the line where Er += log(det(Cm))  + pi2factor adds part of the
     normalising constant
@@ -839,6 +839,7 @@ def errorCuadraticoImagen(imagePoints, chessboardModel, rvec, tvec,
         if not mahDist:
             # add covariance normalisation error
             Er += log(det(Cm)) + pi2factor
+            Er /= 2
     else:
         # error cuadratico sin pesos ni nada
         Er = sum(er**2, axis=1)
