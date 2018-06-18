@@ -9,6 +9,7 @@ Created on Fri Jun 15 15:10:42 2018
 import numpy as np
 import matplotlib.pyplot as plt
 import scipy as sc
+import scipy.signal as sg
 
 from sklearn import datasets, linear_model
 
@@ -71,28 +72,40 @@ print(probPenSig(0.1, 1), probPenSig(0.1, 1, False))
 
 # %%
 
+nDatos = 500
+nTrials = 1000
 noPriorList = list()
 wiPriorList = list()
-nDatos = 100
-t = np.linspace(0, 1, nDatos)
+T = 1.0
+sigma = 1.0
+t = np.linspace(0, T, nDatos)
+a = np.linspace(0, 3 * sigma / T, nTrials)
 
-for i in range(1000):
-    x = np.random.randn(nDatos)
+for i in range(nTrials):
+    x = np.random.randn(nDatos) * sigma
+    x += t * a[i]
     noPriorList.append(prob1vs0(t, x, False))
     wiPriorList.append(prob1vs0(t, x))
 
 noPrior = np.log(noPriorList)
 wiPrior = np.log(wiPriorList)
 
-plt.scatter(wiPrior, noPrior)
-plt.xlabel('log no prior')
-plt.ylabel('log con prior')
+wiPriWiener = sg.wiener(wiPrior, 50)
+noPriWiener = sg.wiener(noPrior, 50)
+
+plt.scatter(a, wiPrior, label='with prior')
+plt.plot(a, wiPriWiener)
+plt.scatter(a, noPrior, label='no prior')
+plt.plot(a, noPriWiener)
+plt.xlabel('pendiente')
+plt.ylabel('prob')
+plt.legend()
 
 accNoPrior = np.mean(noPrior < 1)
 accWiPrior = np.mean(wiPrior < 1)
 
-print('claramente anda mejor la prediccion con prior', nDatos)
 print('acc No prior', accNoPrior, 'acc with prior', accWiPrior)
+print(nDatos, 'datos')
 
 
 # %%

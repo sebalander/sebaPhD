@@ -11,20 +11,20 @@ hacer calib extrisneca con pymc3
 # %%
 # import glob
 import os
-import numpy as np
+import corner
+import time
+import seaborn as sns
+import scipy as sc
 import scipy.stats as sts
 import matplotlib.pyplot as plt
 from copy import deepcopy as dc
+import numpy as np
 from importlib import reload
-import corner
-import time
 
 # %env THEANO_FLAGS='device=cuda, floatX=float32'
 import theano
 import theano.tensor as T
 import pymc3 as pm
-import scipy as sc
-import seaborn as sns
 
 import scipy.optimize as opt
 
@@ -40,8 +40,9 @@ import numdifftools as ndft
 
 print('libraries imported')
 
-# %%
 
+
+# %%
 def radiusStepsNdim(n):
     '''
     retorna moda, la media y la desv est del radio  de pasos al samplear
@@ -87,7 +88,6 @@ def extractCaseData(exCase):
     return imagePoints, objpoints, rVecsT, tVecsT
 
 
-
 def errCuadIm(xAll):
     rvec = xAll[:3]
     tvec = xAll[3:]
@@ -101,15 +101,22 @@ def errCuadIm(xAll):
 def objective(xAll):
     return np.sum(errCuadIm(xAll))
 
+
 hessNum = ndft.Hessian(objective)
 
 
 # %%
-
 pi2 = 2 * np.pi
 pi2sq = np.sqrt(pi2)
 
+
 def prob1vs0(t, x, adaptPrior=True):
+    '''
+    calculo el logaritmo del cociente de las probabilidades de que una serie
+    de datos siga
+    un modelo cnstante o lineal, si < 1 es que es mas probable el modelo
+    constante
+    '''
     m0, c0 = np.polyfit(t, x, 0, cov=True)
     m1, c1 = np.polyfit(t, x, 1, cov=True)
 
@@ -120,26 +127,26 @@ def prob1vs0(t, x, adaptPrior=True):
 
     # defino los priors
     if adaptPrior:
-        pConst0 = 1 / (np.max(dif0) - np.min(dif0)) # prior de la constante
+        pConst0 = 1 / (np.max(dif0) - np.min(dif0))  # prior de la constante
         deltaDif1 = np.max(dif1) - np.min(dif1)
         pConst1 = 1 / deltaDif1
         penDelta = deltaDif1 / (t[-1] - t[0])
         pPendi1 = 1 / penDelta / 2  # prior de la pendiente
 
-        pWgH0 = pConst0
-        pWgH1 = pConst1 * pPendi1
+        pWgH0 = np.log(pConst0)
+        pWgH1 = np.log(pConst1 * pPendi1)
     else:
         pWgH0 = 1.0
         pWgH1 = 1.0
 
-    pDagWH0 = sc.stats.multivariate_normal.pdf(dif0, cov=var0)
-    pDagWH1 = sc.stats.multivariate_normal.pdf(dif1, cov=var1)
+    pDagWH0 = sc.stats.multivariate_normal.logpdf(dif0, cov=var0)
+    pDagWH1 = sc.stats.multivariate_normal.logpdf(dif1, cov=var1)
 
-    deltaW0 = pi2sq * np.sqrt(c0)[0, 0]
-    deltaW1 = pi2 * np.sqrt(np.linalg.det(c1))
+    deltaW0 = np.log(pi2sq * np.sqrt(c0)[0, 0])
+    deltaW1 = np.log(pi2 * np.sqrt(np.linalg.det(c1)))
 
-    prob1_0 = np.prod(pDagWH1 / pDagWH0)
-    prob1_0 *= pWgH1 * deltaW1 / pWgH0 / deltaW0
+    prob1_0 = np.sum(pDagWH1 - pDagWH0)
+    prob1_0 += pWgH1 * deltaW1 - pWgH0 - deltaW0
 
     return prob1_0
 
@@ -147,9 +154,10 @@ def prob1vs0(t, x, adaptPrior=True):
 def funcExp(x, a, b, c):
     return a * np.exp(- x / np.abs(b)) + c
 
+
 # %% LOAD DATA
 # input
-#import collections as clt
+# import collections as clt
 fullDataFile = "./resources/nov16/fullDataIntrExtr.npy"
 dataFile = open(fullDataFile, "rb")
 fullData = pickle.load(dataFile)
@@ -159,7 +167,7 @@ intrCalibResults = np.load("./resources/nov16/syntIntrCalib.npy").all()
 
 # cam puede ser ['vca', 'vcaWide', 'ptz'] son los datos que se tienen
 camera = fullData.Synt.Intr.camera
-#modelos = ['poly', 'rational', 'fisheye', 'stereographic']
+# modelos = ['poly', 'rational', 'fisheye', 'stereographic']
 model = fullData.Synt.Intr.model
 imgSize = fullData.Synt.Intr.s
 Ns = [2, 3]
@@ -262,8 +270,15 @@ https://docs.pymc.io/notebooks/getting_started.html
 
 from theano.compile.ops import as_op
 
+#class diagonalisedError:
+#    def __init__(self, parameters):
+#        self.parameters = parameters
+
 @as_op(itypes=[T.dvector], otypes=[T.dvector])
 def project2diagonalisedError(xAll):
+    xi, yi, cameraMatrix, distCoeffs, model = parameters[:5]
+    Ci, Cf, Ck, covOpt, Cfk, objpoints = parameters[5:]
+
     xm, ym, Cm = cl.inverse(xi, yi, xAll[:3], xAll[3:], cameraMatrix,
                             distCoeffs, model, Ci, Cf, Ck, covOpt, Cfk)
 
@@ -272,90 +287,14 @@ def project2diagonalisedError(xAll):
 
     return np.concatenate([xNorm, yNorm])
 
+
 xAllTheano = theano.shared(xAllT)
+parameters = [xi, yi, cameraMatrix, distCoeffs, model, Ci, Cf, Ck, covOpt,
+              Cfk, objpoints]
+
+#projObj = diagonalisedError(parameters)
+
 project2diagonalisedError(xAllTheano).eval()
-
-
-
-
-# %%
-# 10 grados de error de rotacion
-# intervalo de 5 unidades de distancia
-allDelta = np.concatenate([[np.deg2rad(10)] * 3, [5] * 3])
-observedNormed = np.zeros((nPt * 2))
-
-# calculate estimated radius step
-ModeR, ExpectedR, DesvEstR = radiusStepsNdim(nFree)
-print("moda, la media y la desv est del radio\n", ModeR, ExpectedR, DesvEstR)
-
-
-# %% metropolis desde MAP. a ver si zafo de la proposal dist
-'''
-http://docs.pymc.io/api/inference.html
-
-aca documentacion copada
-https://pymc-devs.github.io/pymc/modelfitting.html
-
-https://github.com/pymc-devs/pymc3/blob/75f64e9517a059ce678c6b4d45b7c64d77242ab6/pymc3/step_methods/metropolis.py
-
-'''
-
-
-nDraws = 1000
-nDrawsTemp = 200
-nChains = 10 * int(1.1 * nFree)
-indexSave = 0
-header = "nDraws %d, nChains %d" % (nDraws, nChains)
-pathFiles = "/home/sebalander/Code/VisionUNQextra/Videos y Mediciones/"
-pathFiles += "extraDataSebaPhD/tracesSynt" + str(indexSave) + "ext"
-pathFiles += "-%d-%d-%d" % tuple(exCase)
-
-nCores = 1
-nTune = 0
-nTuneInter = 0
-tuneBool = nTune != 0
-tune_thr = False
-tallyBool = False
-convChecksBool = False
-rndSeedBool = True
-
-# escalas características del tipical set
-scaNdim = 1 / radiusStepsNdim(nFree)[1]
-# determino la escala y el lambda para las propuestas
-scaAl = scaNdim / np.sqrt(3)
-
-# lamb = 2.38 / np.sqrt(2 * Sal.size)
-# scaIn = scaEx = 1 / radiusStepsNdim(NfreeParams)[1]
-
-
-# %%
-
-exCase = [0, 0, True]
-
-imagePoints, objpoints, rVecsT, tVecsT = extractCaseData(exCase)
-xi, yi = imagePoints.T
-nPt = objpoints.shape[0]  # cantidad de puntos
-Ci = np.array([stdPix**2 * np.eye(2)] * nPt)
-nFree = 6  # nro de parametros libres
-
-# pongo en forma flat los valores iniciales
-xAllT = np.concatenate([rVecsT, tVecsT])
-
-print('data loaded and formated')
-
-ret = opt.minimize(objective, xAllT)
-xAllOpt = ret.x
-covNum = np.linalg.inv(hessNum(xAllOpt))
-
-# prior bounds
-allLow = xAllOpt - allDelta
-allUpp = xAllOpt + allDelta
-
-# for proposal distr
-alMean = xAllOpt
-Sal = np.diag(covNum)
-
-print('defined parameters')
 
 
 # %%
@@ -381,7 +320,7 @@ def getTrace(alMean, Sal):
         step.lamb = scaAl
         step.scaling = scaAl
 
-        trace = pm.sample(draws=nDrawsTemp, step=step, njobs=nChains,
+        trace = pm.sample(draws=nDraws, step=step, njobs=nChains,
                           start=start,
                           tune=nTune, chains=nChains, progressbar=True,
                           discard_tuned_samples=False, cores=nCores,
@@ -391,33 +330,170 @@ def getTrace(alMean, Sal):
     return trace
 
 
+
 # %%
-t = np.arange(nDrawsTemp)
-trace = getTrace(alMean, Sal)
-traceArray = trace['xAl'].reshape((nChains, -1, nFree)).transpose((2, 1, 0))
-traceMean = np.mean(traceArray, axis=2)
-traceStd = np.std(traceArray, axis=2)
+# 10 grados de error de rotacion
+# intervalo de 5 unidades de distancia
+allDelta = np.concatenate([[np.deg2rad(10)] * 3, [5] * 3])
+observedNormed = np.zeros((nPt * 2))
+
+# calculate estimated radius step
+ModeR, ExpectedR, DesvEstR = radiusStepsNdim(nFree)
+print("moda, la media y la desv est del radio\n", ModeR, ExpectedR, DesvEstR)
 
 
-for i in range(6):
-    probMean = prob1vs0(t, traceMean[i])
-    probStd = prob1vs0(t, traceStd[i])
+# %% metropolis desde MAP. a ver si zafo de la proposal dist
+'''
+http://docs.pymc.io/api/inference.html
+
+aca documentacion copada
+https://pymc-devs.github.io/pymc/modelfitting.html
+
+https://github.com/pymc-devs/pymc3/blob/75f64e9517a059ce678c6b4d45b7c64d77242ab6/pymc3/step_methods/metropolis.py
+
+'''
+nCores = 1
+nTune = 0
+nTuneInter = 0
+tuneBool = nTune != 0
+tune_thr = False
+tallyBool = False
+convChecksBool = False
+rndSeedBool = True
+
+# escalas características del tipical set
+scaNdim = 1 / radiusStepsNdim(nFree)[1]
+# determino la escala y el lambda para las propuestas
+scaAl = scaNdim / np.sqrt(3)
+
+# lamb = 2.38 / np.sqrt(2 * Sal.size)
+# scaIn = scaEx = 1 / radiusStepsNdim(NfreeParams)[1]
 
 
-funcExp(x, a, b, c)
+nDraws = 1000
+nChains = 5 * int(1.1 * nFree)
+indexSave = 0
+t = np.arange(nDraws)
+weiEsp = np.exp(- t / 200)[::-1]  # tau de 1/5 pra la ventana movil
+weiEsp /= np.sum(weiEsp)
+header = "nDraws %d, nChains %d" % (nDraws, nChains)
+
+
+# %%
+
+def getStationaryTrace(exCase):
+    imagePoints, objpoints, rVecsT, tVecsT = extractCaseData(exCase)
+    xi, yi = imagePoints.T
+    nPt = objpoints.shape[0]  # cantidad de puntos
+    Ci = np.array([stdPix**2 * np.eye(2)] * nPt)
+    nFree = 6  # nro de parametros libres
+
+    # pongo en forma flat los valores iniciales
+    xAllT = np.concatenate([rVecsT, tVecsT])
+
+    # pongo en forma flat los valores iniciales
+    xAllT = np.concatenate([rVecsT, tVecsT])
+    print('data loaded and formated')
+
+    ret = opt.minimize(objective, xAllT)
+    xAllOpt = ret.x
+    covNum = np.linalg.inv(hessNum(xAllOpt))
+
+    print('initial optimisation and covariance estimated')
+
+    parameters = [xi, yi, cameraMatrix, distCoeffs, model, Ci, Cf, Ck, covOpt,
+                  Cfk, objpoints]
+
+    # prior bounds
+    allLow = xAllOpt - allDelta
+    allUpp = xAllOpt + allDelta
+
+    # for proposal distr
+    alMean = xAllOpt
+    Sal = np.sqrt(np.diag(covNum))
+
+    print('defined parameters')
+
+    means = list()
+    stdes = list()
+    tracesList = list()
+
+    probList = list()
+
+    for intento in range(10):
+        print("\n\n")
+        print("=====================================================")
+        print('intento nro', intento)
+        trace = getTrace(alMean, Sal)
+        traceArray = trace['xAl'].reshape((nChains, -1, nFree))
+        traceArray = traceArray.transpose((2, 1, 0))
+        tracesList.append(traceArray)
+
+        traceMean = np.mean(traceArray, axis=2)
+        traceStd = np.std(traceArray, axis=2)
+
+        means.append(traceMean)
+        stdes.append(traceStd)
+
+        probMean = np.zeros(6)
+        probStd = np.zeros(6)
+        for i in range(6):
+            probMean[i] = prob1vs0(t, traceMean[i], adaptPrior=True)
+            probStd[i] = prob1vs0(t, traceStd[i], adaptPrior=True)
+
+        probList.append(np.array([probMean, probStd]))
+        print(probList[-1].T)
+
+        convergedBool = np.all([probMean < 0, probStd < 0])
+
+        alMean = np.average(traceMean, axis=1, weights=weiEsp)
+        Sal = np.average(traceStd, axis=1, weights=weiEsp)
+
+        if intento > 0 and convergedBool:
+            print("parece que convergió")
+            break
+
+    return means, stdes, probList, tracesList
 
 # %%
 saveBool = True
-if saveBool:
-#    np.save(pathFiles + "Int", trace['xIn'])
-#    np.save(pathFiles + "Ext", trace['xEx'])
-#    trace['docs'] = header
-    np.save(pathFiles, trace)
 
-    print("saved data to")
+exCasesList = list()
+
+for aa in range(3):
+    for hh in range(2):
+        for nBo in [True, False]:
+            exCasesList.append([aa, hh, nBo])
+
+#exCase = [2, 1, True]
+
+for exCase in exCasesList:
+    pathFiles = "/home/sebalander/Code/VisionUNQextra/Videos y Mediciones/"
+    pathFiles += "extraDataSebaPhD/tracesSynt" + str(indexSave) + "ext"
+    pathFiles += "-%d-%d-%d" % tuple(exCase)
+
     print(pathFiles)
-    print("exiting")
-    sys.exit()
+
+    means, stdes, probList, tracesList = getStationaryTrace(exCase)
+
+    intento = -1
+    for m, s, p in zip(means, stdes, probList):
+        intento += 1
+        plt.figure(1)
+        plt.plot(t + intento * nDraws, m.T - xAllOpt)
+        plt.figure(2)
+        plt.plot(t + intento * nDraws, s.T)
+
+    if saveBool:
+    #    np.save(pathFiles + "Int", trace['xIn'])
+    #    np.save(pathFiles + "Ext", trace['xEx'])
+    #    trace['docs'] = header
+        np.save(pathFiles, tracesList)
+
+        print("saved data to")
+        print(pathFiles)
+        print("exiting")
+        sys.exit()
 
 # %%
 loadBool = True
