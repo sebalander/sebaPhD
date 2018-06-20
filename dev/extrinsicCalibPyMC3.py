@@ -25,7 +25,7 @@ from importlib import reload
 import theano
 import theano.tensor as T
 import pymc3 as pm
-
+import cv2
 import scipy.optimize as opt
 
 import sys
@@ -38,6 +38,7 @@ from calibration.calibrator import datafull, real, realdete, realbalk, realches
 from calibration.calibrator import synt, syntextr, syntches, syntintr
 import numdifftools as ndft
 
+from time import sleep
 print('libraries imported')
 
 
@@ -85,7 +86,11 @@ def extractCaseData(exCase):
     rVecsT = fullData.Synt.Extr.rVecs[exCase[0]]
     tVecsT = fullData.Synt.Extr.tVecs[exCase[0], exCase[1]]
 
-    return imagePoints, objpoints, rVecsT, tVecsT
+    # select wich points are in the camera FOV, con la coordenada z
+    xCam = (cv2.Rodrigues(rVecsT)[0][2, :2].dot(objpoints.T)).T + tVecsT[2]
+    inFOV = xCam > 0
+
+    return imagePoints[inFOV], objpoints[inFOV], rVecsT, tVecsT
 
 
 def errCuadIm(xAll):
@@ -122,8 +127,13 @@ def prob1vs0(t, x, adaptPrior=True):
 
     dif0 = x - m0[0]
     var0 = np.mean((dif0)**2)
+    if np.isclose(var0, 0):  # si varianza da cero es que sampleo mal
+        return 1  # devuelve para que se considere que no convergió
+
     dif1 = x - m1[0] * t - m1[1]
     var1 = np.mean((dif1)**2)
+    if np.allclose(var1, 0):
+        return 1
 
     # defino los priors
     if adaptPrior:
@@ -154,6 +164,121 @@ def prob1vs0(t, x, adaptPrior=True):
 def funcExp(x, a, b, c):
     return a * np.exp(- x / np.abs(b)) + c
 
+
+# %%
+
+def getTrace(alMean, Sal):
+    # prior bounds
+    allLow = xAllOpt - allDelta
+    allUpp = xAllOpt + allDelta
+
+    alSeed = np.random.randn(nChains, nFree) * Sal  # .reshape((-1, 1))
+    alSeed += alMean  # .reshape((-1, 1))
+    start = [dict({'xAl': alSeed[i]}) for i in range(nChains)]
+    projectionModel = pm.Model()
+
+    with projectionModel:
+        # Priors for unknown model parameters
+        xAl = pm.Uniform('xAl', lower=allLow, upper=allUpp, shape=allLow.shape,
+                         transform=None)
+
+        xyMNor = project2diagonalisedError(xAl)
+        Y_obs = pm.Normal('Y_obs', mu=xyMNor, sd=1, observed=observedNormed)
+
+        step = pm.DEMetropolis(vars=[xAl], S=Sal, tune=tuneBool,
+                               tune_interval=nTuneInter, tune_throughout=tune_thr,
+                               tally=tallyBool, scaling=scaAl)
+        step.tune = tuneBool
+        step.lamb = scaAl
+        step.scaling = scaAl
+
+        trace = pm.sample(draws=nDraws, step=step, njobs=nChains,
+                          start=start,
+                          tune=nTune, chains=nChains, progressbar=True,
+                          discard_tuned_samples=False, cores=nCores,
+                          compute_convergence_checks=convChecksBool,
+                          parallelize=True)
+
+    del projectionModel
+    return trace
+
+
+
+
+def getStationaryTrace(exCase):
+    imagePoints, objpoints, rVecsT, tVecsT = extractCaseData(exCase)
+    xi, yi = imagePoints.T
+    nPt = objpoints.shape[0]  # cantidad de puntos
+    Ci = np.array([stdPix**2 * np.eye(2)] * nPt)
+    nFree = 6  # nro de parametros libres
+
+    # pongo en forma flat los valores iniciales
+    xAllT = np.concatenate([rVecsT, tVecsT])
+
+    # pongo en forma flat los valores iniciales
+    xAllT = np.concatenate([rVecsT, tVecsT])
+    print('data loaded and formated')
+
+    ret = opt.minimize(objective, xAllT)
+    xAllOpt = ret.x
+    covNum = np.linalg.inv(hessNum(xAllOpt)) / 10 # la achico por las dudas?
+
+    print('initial optimisation and covariance estimated')
+
+    global parameters
+    parameters = [xi, yi, cameraMatrix, distCoeffs, model, Ci, Cf, Ck, covNum,
+                  Cfk, objpoints]
+
+    # for proposal distr
+    alMean = xAllOpt
+    Sal = np.sqrt(np.diag(covNum))
+
+    print('defined parameters')
+
+    means = list()
+    stdes = list()
+    tracesList = list()
+
+    probList = list()
+
+    for intento in range(50):
+        print("\n\n")
+        print("============================")
+        print('intento nro', intento, ' caso ', exCase)
+        trace = getTrace(alMean, Sal)
+        sleep(5)  # espero un ratito ...
+        traceArray = trace['xAl'].reshape((nChains, -1, nFree))
+        traceArray = traceArray.transpose((2, 1, 0))
+        tracesList.append(traceArray)
+
+        traceMean = np.mean(traceArray, axis=2)
+        traceStd = np.std(traceArray, axis=2)
+
+        means.append(traceMean)
+        stdes.append(traceStd)
+
+        probMean = np.zeros(6)
+        probStd = np.zeros(6)
+        for i in range(6):
+            probMean[i] = prob1vs0(t, traceMean[i], adaptPrior=True)
+            probStd[i] = prob1vs0(t, traceStd[i], adaptPrior=True)
+
+        probList.append(np.array([probMean, probStd]))
+        print(probList[-1].T)
+
+        convergedBool = np.all([probMean < 0, probStd < 0])
+
+        alMean = np.average(traceMean, axis=1, weights=weiEsp)
+        Sal = np.average(traceStd, axis=1, weights=weiEsp)
+        for sa in Sal:  # si alguno da cero lo regularizo
+            if np.isclose(sa, 0):
+                sa = 1e-6
+
+        if intento > 0 and convergedBool:
+            print("parece que convergió")
+            break
+
+    return means, stdes, probList, tracesList
 
 # %% LOAD DATA
 # input
@@ -298,40 +423,6 @@ project2diagonalisedError(xAllTheano).eval()
 
 
 # %%
-
-def getTrace(alMean, Sal):
-    alSeed = np.random.randn(nChains, nFree) * Sal  # .reshape((-1, 1))
-    alSeed += alMean  # .reshape((-1, 1))
-    start = [dict({'xAl': alSeed[i]}) for i in range(nChains)]
-    projectionModel = pm.Model()
-
-    with projectionModel:
-        # Priors for unknown model parameters
-        xAl = pm.Uniform('xAl', lower=allLow, upper=allUpp, shape=allLow.shape,
-                         transform=None)
-
-        xyMNor = project2diagonalisedError(xAl)
-        Y_obs = pm.Normal('Y_obs', mu=xyMNor, sd=1, observed=observedNormed)
-
-        step = pm.DEMetropolis(vars=[xAl], S=Sal, tune=tuneBool,
-                               tune_interval=nTuneInter, tune_throughout=tune_thr,
-                               tally=tallyBool, scaling=scaAl)
-        step.tune = tuneBool
-        step.lamb = scaAl
-        step.scaling = scaAl
-
-        trace = pm.sample(draws=nDraws, step=step, njobs=nChains,
-                          start=start,
-                          tune=nTune, chains=nChains, progressbar=True,
-                          discard_tuned_samples=False, cores=nCores,
-                          compute_convergence_checks=convChecksBool,
-                          parallelize=True)
-
-    return trace
-
-
-
-# %%
 # 10 grados de error de rotacion
 # intervalo de 5 unidades de distancia
 allDelta = np.concatenate([[np.deg2rad(10)] * 3, [5] * 3])
@@ -370,93 +461,14 @@ scaAl = scaNdim / np.sqrt(3)
 # scaIn = scaEx = 1 / radiusStepsNdim(NfreeParams)[1]
 
 
-nDraws = 1000
-nChains = 5 * int(1.1 * nFree)
+nDraws = 2000
+nChains = 10 * int(1.1 * nFree)
 indexSave = 0
 t = np.arange(nDraws)
-weiEsp = np.exp(- t / 200)[::-1]  # tau de 1/5 pra la ventana movil
+weiEsp = np.exp(- t / 20)[::-1]  # tau de 1/5 pra la ventana movil
 weiEsp /= np.sum(weiEsp)
 header = "nDraws %d, nChains %d" % (nDraws, nChains)
 
-
-# %%
-
-def getStationaryTrace(exCase):
-    imagePoints, objpoints, rVecsT, tVecsT = extractCaseData(exCase)
-    xi, yi = imagePoints.T
-    nPt = objpoints.shape[0]  # cantidad de puntos
-    Ci = np.array([stdPix**2 * np.eye(2)] * nPt)
-    nFree = 6  # nro de parametros libres
-
-    # pongo en forma flat los valores iniciales
-    xAllT = np.concatenate([rVecsT, tVecsT])
-
-    # pongo en forma flat los valores iniciales
-    xAllT = np.concatenate([rVecsT, tVecsT])
-    print('data loaded and formated')
-
-    ret = opt.minimize(objective, xAllT)
-    xAllOpt = ret.x
-    covNum = np.linalg.inv(hessNum(xAllOpt))
-
-    print('initial optimisation and covariance estimated')
-
-    parameters = [xi, yi, cameraMatrix, distCoeffs, model, Ci, Cf, Ck, covOpt,
-                  Cfk, objpoints]
-
-    # prior bounds
-    allLow = xAllOpt - allDelta
-    allUpp = xAllOpt + allDelta
-
-    # for proposal distr
-    alMean = xAllOpt
-    Sal = np.sqrt(np.diag(covNum))
-
-    print('defined parameters')
-
-    means = list()
-    stdes = list()
-    tracesList = list()
-
-    probList = list()
-
-    for intento in range(10):
-        print("\n\n")
-        print("=====================================================")
-        print('intento nro', intento)
-        trace = getTrace(alMean, Sal)
-        traceArray = trace['xAl'].reshape((nChains, -1, nFree))
-        traceArray = traceArray.transpose((2, 1, 0))
-        tracesList.append(traceArray)
-
-        traceMean = np.mean(traceArray, axis=2)
-        traceStd = np.std(traceArray, axis=2)
-
-        means.append(traceMean)
-        stdes.append(traceStd)
-
-        probMean = np.zeros(6)
-        probStd = np.zeros(6)
-        for i in range(6):
-            probMean[i] = prob1vs0(t, traceMean[i], adaptPrior=True)
-            probStd[i] = prob1vs0(t, traceStd[i], adaptPrior=True)
-
-        probList.append(np.array([probMean, probStd]))
-        print(probList[-1].T)
-
-        convergedBool = np.all([probMean < 0, probStd < 0])
-
-        alMean = np.average(traceMean, axis=1, weights=weiEsp)
-        Sal = np.average(traceStd, axis=1, weights=weiEsp)
-
-        if intento > 0 and convergedBool:
-            print("parece que convergió")
-            break
-
-    return means, stdes, probList, tracesList
-
-# %%
-saveBool = True
 
 exCasesList = list()
 
@@ -465,6 +477,12 @@ for aa in range(3):
         for nBo in [True, False]:
             exCasesList.append([aa, hh, nBo])
 
+#exCaseList = [[1, 0, 1]]
+
+
+# %%
+saveBool = True
+
 #exCase = [2, 1, True]
 
 for exCase in exCasesList:
@@ -472,6 +490,9 @@ for exCase in exCasesList:
     pathFiles += "extraDataSebaPhD/tracesSynt" + str(indexSave) + "ext"
     pathFiles += "-%d-%d-%d" % tuple(exCase)
 
+    print("\n\n")
+    print("========================================================")
+    print("========================================================")
     print(pathFiles)
 
     means, stdes, probList, tracesList = getStationaryTrace(exCase)
@@ -493,7 +514,7 @@ for exCase in exCasesList:
         print("saved data to")
         print(pathFiles)
         print("exiting")
-        sys.exit()
+#        sys.exit()
 
 # %%
 loadBool = True
