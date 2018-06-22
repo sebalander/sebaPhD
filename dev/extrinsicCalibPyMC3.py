@@ -20,6 +20,7 @@ import matplotlib.pyplot as plt
 from copy import deepcopy as dc
 import numpy as np
 from importlib import reload
+from glob import glob
 
 # %env THEANO_FLAGS='device=cuda, floatX=float32'
 import theano
@@ -93,21 +94,8 @@ def extractCaseData(exCase):
     return imagePoints[inFOV], objpoints[inFOV], rVecsT, tVecsT
 
 
-def errCuadIm(xAll):
-    rvec = xAll[:3]
-    tvec = xAll[3:]
-
-    Eint = cl.errorCuadraticoImagen(imagePoints, objpoints, rvec, tvec,
-                                    cameraMatrix, distCoeffs, model, Ci, Cf,
-                                    Ck, Crt, Cfk)
-    return Eint
 
 
-def objective(xAll):
-    return np.sum(errCuadIm(xAll))
-
-
-hessNum = ndft.Hessian(objective)
 
 
 # %%
@@ -167,6 +155,112 @@ def funcExp(x, a, b, c):
 
 # %%
 
+
+'''
+funcion arbitraria para theano
+
+https://docs.pymc.io/notebooks/getting_started.html
+'''
+
+from theano.compile.ops import as_op
+
+#class diagonalisedError:
+#    def __init__(self, parameters):
+#        self.parameters = parameters
+
+
+@as_op(itypes=[T.dvector], otypes=[T.dvector])
+def project2diagonalisedError(xAll):
+    xi, yi, cameraMatrix, distCoeffs, model = parameters[:5]
+    Ci, Cf, Ck, covOpt, Cfk, objpoints = parameters[5:]
+
+    xm, ym, Cm = cl.inverse(xi, yi, xAll[:3], xAll[3:], cameraMatrix,
+                            distCoeffs, model, Ci, Cf, Ck, covOpt, Cfk)
+
+    xNorm, yNorm = cl.points2linearised(xm - objpoints[:, 0],
+                                        ym - objpoints[:, 1], Cm).T
+
+    return np.concatenate([xNorm, yNorm])
+
+
+def logPerror(xAll, case):
+    rvec = xAll[:3]
+    tvec = xAll[3:]
+
+    Eint = cl.errorCuadraticoImagen(case.imagePoints, case.objpoints,
+           rvec, tvec, case.cameraMatrix, case.distCoeffs, case.model,
+           case.Ci, case.Cf, case.Ck, case.Crt, case.Cfk)
+    return Eint
+
+def objective(xAll, case):
+    return np.sum(logPerror(xAll, case))
+
+hessNum = ndft.Hessian(objective)
+
+
+
+class casoCalibExtr:
+    def __init__(self, fullData, intrCalibResults, case, stdPix, allDelta,
+                 nCores, nTune, nTuneInter, tuneBool, tune_thr, tallyBool,
+                 convChecksBool, rndSeedBool, scaNdim, scaAl, nDraws, nChains,
+                 indexSave, pathFiles):
+        self.case = case
+        self.nCores = nCores
+        self.nTune = nTune
+        self.nTuneInter = nTuneInter
+        self.tuneBool = tuneBool
+        self.tune_thr = tune_thr
+        self.tallyBool = tallyBool
+        self.convChecksBool = convChecksBool
+        self.rndSeedBool = rndSeedBool
+        self.scaNdim = scaNdim
+        self.scaAl = scaAl
+        self.nDraws = nDraws
+        self.nChains = nChains
+        self.indexSave = indexSave
+        self.pathFiles = pathFiles
+        self.allDelta = allDelta
+
+        self.camera = fullData.Synt.Intr.camera
+        self.model = fullData.Synt.Intr.model
+        self.imgSize = fullData.Synt.Intr.s
+        Ns = [2, 3]
+        Xint = intrCalibResults['mean'][:3]
+        self.cameraMatrix, self.distCoeffs = bl.flat2int(Xint, Ns, self.model)
+
+        caseData = extractCaseData(exCase)
+        self.imagePoints = caseData[0]
+        self.xi, self.yi = self.imagePoints.T
+        self.objpoints = caseData[1]
+        self.rVecsT = caseData[2]
+        self.tVecsT = caseData[3]
+        self.xAllT = np.concatenate([self.rVecsT, self.tVecsT])
+        self.nPt = self.objpoints.shape[0]
+        self.nFree = 6
+        self.observedNormed = np.zeros((self.nPt * 2))
+
+        self.Crt = False  # no RT error
+        self.Cf = np.zeros((4, 4))
+        self.Cf[2:, 2:] = intrCalibResults['cov'][:2, :2]
+        self.Ck = intrCalibResults['cov'][2, 2]
+        self.Cfk = np.zeros(4)
+        self.Cfk[2:] = intrCalibResults['cov'][:2, 2]
+        self.Ci = np.array([stdPix**2 * np.eye(2)] * self.nPt)
+
+        # tau de 1/5 pra la ventana movil
+        self.weiEsp = np.exp(- np.arange(nDraws) * 5 / nDraws)[::-1]
+        self.weiEsp /= np.sum(self.weiEsp)
+
+#    def optimizacion para sacar el minimo local
+
+    def optimizar(self, xAll):
+        ret = opt.minimize(objective, xAll, self)
+
+        self.xAllOpt = ret.x
+        self.covOptNum = np.linalg.inv(hessNum(self.xAllOpt))
+
+
+
 def getTrace(alMean, Sal):
     # prior bounds
     allLow = xAllOpt - allDelta
@@ -204,7 +298,6 @@ def getTrace(alMean, Sal):
 
 
 
-
 def getStationaryTrace(exCase):
     imagePoints, objpoints, rVecsT, tVecsT = extractCaseData(exCase)
     xi, yi = imagePoints.T
@@ -221,7 +314,7 @@ def getStationaryTrace(exCase):
 
     ret = opt.minimize(objective, xAllT)
     xAllOpt = ret.x
-    covNum = np.linalg.inv(hessNum(xAllOpt)) / 10 # la achico por las dudas?
+    covNum = np.linalg.inv(hessNum(xAllOpt))  # la achico por las dudas?
 
     print('initial optimisation and covariance estimated')
 
@@ -280,6 +373,8 @@ def getStationaryTrace(exCase):
 
     return means, stdes, probList, tracesList
 
+
+
 # %% LOAD DATA
 # input
 # import collections as clt
@@ -289,49 +384,115 @@ fullData = pickle.load(dataFile)
 dataFile.close()
 
 intrCalibResults = np.load("./resources/nov16/syntIntrCalib.npy").all()
+stdPix = 1.0
+allDelta = np.concatenate([[np.deg2rad(10)] * 3, [5] * 3])
+
 
 # cam puede ser ['vca', 'vcaWide', 'ptz'] son los datos que se tienen
-camera = fullData.Synt.Intr.camera
-# modelos = ['poly', 'rational', 'fisheye', 'stereographic']
-model = fullData.Synt.Intr.model
-imgSize = fullData.Synt.Intr.s
-Ns = [2, 3]
-# cargo los puntos de calibracion
-stdPix = 1.0
-
-Xint = intrCalibResults['mean'][:3]
-
-# load intrisic calibrated
-cameraMatrix, distCoeffs = bl.flat2int(Xint, Ns, model)
-# 0.1pix as image std
-# https://stackoverflow.com/questions/12102318/opencv-findcornersubpix-precision
-# increase to 1pix porque la posterior da demasiado rara
-Crt = False  # no RT error
-Cf = np.zeros((4, 4))
-Cf[2:, 2:] = intrCalibResults['cov'][:2, :2]
-Ck = intrCalibResults['cov'][2, 2]
-Cfk = np.zeros(4)
-Cfk[2:] = intrCalibResults['cov'][:2, 2]
-
+#camera = fullData.Synt.Intr.camera
+## modelos = ['poly', 'rational', 'fisheye', 'stereographic']
+#model = fullData.Synt.Intr.model
+#imgSize = fullData.Synt.Intr.s
+#Ns = [2, 3]
+#Xint = intrCalibResults['mean'][:3]
+#cameraMatrix, distCoeffs = bl.flat2int(Xint, Ns, model)
 
 # caso de extrinseca a analizar, indices: [angulos, alturas, 20 puntos]
-exCase = [0, 0, True]
+exCasesList = list()
+for aa in range(3):
+    for hh in range(2):
+        for nBo in [False, True]:
+            exCasesList.append([aa, hh, nBo])
 
-imagePoints, objpoints, rVecsT, tVecsT = extractCaseData(exCase)
-xi, yi = imagePoints.T
-nPt = objpoints.shape[0]  # cantidad de puntos
-Ci = np.array([stdPix**2 * np.eye(2)] * nPt)
-nFree = 6  # nro de parametros libres
+exCase = exCasesList[0]
+
+#
+## cargo los puntos de calibracion
+#imagePoints, objpoints, rVecsT, tVecsT = extractCaseData(exCase)
+#xi, yi = imagePoints.T
+#nPt = objpoints.shape[0]  # cantidad de puntos
+#nFree = 6  # nro de parametros libres
+
+
+## load intrisic calibrated
+## 0.1pix as image std
+## https://stackoverflow.com/questions/12102318/opencv-findcornersubpix-precision
+## increase to 1pix porque la posterior da demasiado rara
+#Crt = False  # no RT error
+#Cf = np.zeros((4, 4))
+#Cf[2:, 2:] = intrCalibResults['cov'][:2, :2]
+#Ck = intrCalibResults['cov'][2, 2]
+#Cfk = np.zeros(4)
+#Cfk[2:] = intrCalibResults['cov'][:2, 2]
+#stdPix = 1.0
+#Ci = np.array([stdPix**2 * np.eye(2)] * nPt)
+
+
+
 
 # pongo en forma flat los valores iniciales
-xAllT = np.concatenate([rVecsT, tVecsT])
+#xAllT = np.concatenate([rVecsT, tVecsT])
 
 print('data loaded and formated')
 
+# %% metropolis desde MAP. a ver si zafo de la proposal dist
+'''
+http://docs.pymc.io/api/inference.html
+
+aca documentacion copada
+https://pymc-devs.github.io/pymc/modelfitting.html
+
+https://github.com/pymc-devs/pymc3/blob/75f64e9517a059ce678c6b4d45b7c64d77242ab6/pymc3/step_methods/metropolis.py
+
+'''
+
+
+nCores = 1
+nTune = 0
+nTuneInter = 0
+tuneBool = nTune != 0
+tune_thr = False
+tallyBool = False
+convChecksBool = False
+rndSeedBool = True
+
+# escalas características del tipical set
+nFree = 6
+scaNdim = 1 / radiusStepsNdim(nFree)[1]
+# determino la escala y el lambda para las propuestas
+scaAl = scaNdim / np.sqrt(3)
+
+# lamb = 2.38 / np.sqrt(2 * Sal.size)
+# scaIn = scaEx = 1 / radiusStepsNdim(NfreeParams)[1]
+nDraws = 100
+nChains = 10 * int(1.1 * nFree)
+indexSave = 0
+
+#header = "nDraws %d, nChains %d" % (nDraws, nChains)
+pathFiles = "/home/sebalander/Code/VisionUNQextra/Videos y Mediciones/"
+pathFiles += "extraDataSebaPhD/tracesSynt" + str(indexSave)
+
+# %%
+case = casoCalibExtr(fullData, intrCalibResults, exCase, stdPix, allDelta,
+                 nCores, nTune, nTuneInter, tuneBool, tune_thr, tallyBool,
+                 convChecksBool, rndSeedBool, scaNdim, scaAl, nDraws, nChains,
+                 indexSave, pathFiles)
+
+
+
+case.optimizar(case.xAllT)
+
+
+
+
+
+
+
+
 
 # %% defino la funcion a minimizar
-erCuaIm = errCuadIm(xAllT)
-erCua = objective(xAllT)
+erCuaIm = case.logPerror(case.xAllT)
+erCua = objective(case.xAllT)
 
 print(erCuaIm, np.exp(- erCuaIm / 2))
 
@@ -341,22 +502,17 @@ covNum = np.linalg.inv(hessNum(xAllT))
 
 # %%
 
-optimBool = True
-if optimBool:
-    ret = opt.minimize(objective, xAllT)
+ret = opt.minimize(objective, case.xAllT)
 
-    xAllOpt = ret.x
-    covOpt = np.exp(ret.fun / 2) * ret.hess_inv
+xAllOpt = ret.x
+covOpt = np.exp(ret.fun / 2) * ret.hess_inv
 
-    sigOpt = np.sqrt(np.diag(covOpt))
+sigOpt = np.sqrt(np.diag(covOpt))
 
-    crrOpt = covOpt / (sigOpt.reshape((-1, 1)) * sigOpt.reshape((1, -1)))
+crrOpt = covOpt / (sigOpt.reshape((-1, 1)) * sigOpt.reshape((1, -1)))
 
-    # plt.matshow(crrOpt, vmin=-1, vmax=1, cmap='coolwarm')
-else:
-    xAllOpt = xAllT
-    covOpt = np.eye(nFree)
-    sigOpt = np.ones(nFree)
+# plt.matshow(crrOpt, vmin=-1, vmax=1, cmap='coolwarm')
+
 
 
 xm, ym, Cm = cl.inverse(xi, yi, xAllOpt[:3], xAllOpt[3:], cameraMatrix,
@@ -387,30 +543,7 @@ plt.scatter(fullData.Synt.Extr.imgNse[exCase[0], exCase[1], :, 0],
 
 
 # %%
-'''
-funcion arbitraria para theano
-
-https://docs.pymc.io/notebooks/getting_started.html
-'''
-
-from theano.compile.ops import as_op
-
-#class diagonalisedError:
-#    def __init__(self, parameters):
-#        self.parameters = parameters
-
-@as_op(itypes=[T.dvector], otypes=[T.dvector])
-def project2diagonalisedError(xAll):
-    xi, yi, cameraMatrix, distCoeffs, model = parameters[:5]
-    Ci, Cf, Ck, covOpt, Cfk, objpoints = parameters[5:]
-
-    xm, ym, Cm = cl.inverse(xi, yi, xAll[:3], xAll[3:], cameraMatrix,
-                            distCoeffs, model, Ci, Cf, Ck, covOpt, Cfk)
-
-    xNorm, yNorm = cl.points2linearised(xm - objpoints[:, 0],
-                                        ym - objpoints[:, 1], Cm).T
-
-    return np.concatenate([xNorm, yNorm])
+# chequeo la funcion arbitraria que va ausar theano
 
 
 xAllTheano = theano.shared(xAllT)
@@ -433,49 +566,7 @@ ModeR, ExpectedR, DesvEstR = radiusStepsNdim(nFree)
 print("moda, la media y la desv est del radio\n", ModeR, ExpectedR, DesvEstR)
 
 
-# %% metropolis desde MAP. a ver si zafo de la proposal dist
-'''
-http://docs.pymc.io/api/inference.html
 
-aca documentacion copada
-https://pymc-devs.github.io/pymc/modelfitting.html
-
-https://github.com/pymc-devs/pymc3/blob/75f64e9517a059ce678c6b4d45b7c64d77242ab6/pymc3/step_methods/metropolis.py
-
-'''
-nCores = 1
-nTune = 0
-nTuneInter = 0
-tuneBool = nTune != 0
-tune_thr = False
-tallyBool = False
-convChecksBool = False
-rndSeedBool = True
-
-# escalas características del tipical set
-scaNdim = 1 / radiusStepsNdim(nFree)[1]
-# determino la escala y el lambda para las propuestas
-scaAl = scaNdim / np.sqrt(3)
-
-# lamb = 2.38 / np.sqrt(2 * Sal.size)
-# scaIn = scaEx = 1 / radiusStepsNdim(NfreeParams)[1]
-
-
-nDraws = 2000
-nChains = 10 * int(1.1 * nFree)
-indexSave = 0
-t = np.arange(nDraws)
-weiEsp = np.exp(- t / 20)[::-1]  # tau de 1/5 pra la ventana movil
-weiEsp /= np.sum(weiEsp)
-header = "nDraws %d, nChains %d" % (nDraws, nChains)
-
-
-exCasesList = list()
-
-for aa in range(3):
-    for hh in range(2):
-        for nBo in [True, False]:
-            exCasesList.append([aa, hh, nBo])
 
 #exCaseList = [[1, 0, 1]]
 
@@ -485,10 +576,8 @@ saveBool = True
 
 #exCase = [2, 1, True]
 
-for exCase in exCasesList:
-    pathFiles = "/home/sebalander/Code/VisionUNQextra/Videos y Mediciones/"
-    pathFiles += "extraDataSebaPhD/tracesSynt" + str(indexSave) + "ext"
-    pathFiles += "-%d-%d-%d" % tuple(exCase)
+for exCase in exCasesList[:2]:
+    file = pathFiles + "ext-%d-%d-%d" % tuple(exCase)
 
     print("\n\n")
     print("========================================================")
@@ -509,20 +598,26 @@ for exCase in exCasesList:
     #    np.save(pathFiles + "Int", trace['xIn'])
     #    np.save(pathFiles + "Ext", trace['xEx'])
     #    trace['docs'] = header
-        np.save(pathFiles, tracesList)
+        np.save(file, tracesList)
 
         print("saved data to")
-        print(pathFiles)
+        print(file)
         print("exiting")
 #        sys.exit()
 
 # %%
 loadBool = True
 if loadBool:
-    trace = dict()
+    filesFound = glob(pathFiles + "ext-*.npy")
+    traces = dict()
 
-    trace = np.load(pathFiles + ".npy").all()
-    print(trace['docs'])
+    for file in filesFound:
+        print(file)
+        trace = dict()
+        trace = np.load(file).all()
+
+        key = file[-9:-4]
+        traces[key] = trace
 
 
 # %%
@@ -639,53 +734,6 @@ plt.figure()
 plt.plot(ppalY, linewidth=0.5)
 plt.plot(ppalY[:,::50], linewidth=2)
 
-
-
-
-# %%
-
-# las 5 y 6 posrian considerarse cuasi definitivas
-# la 7 le pongo un paso un poco mas grande a ver que onda pero sigue siendo
-# con tuneo
-# la 8 le saco el tuneo y el paso es fijo en
-# 1 / 10 / radiusStepsNdim(NintrParams)[1]
-# en la 9 pongo 1 / 20 para extrinseco. la proxima tengo que cambiar el inicio?
-# no el inicio esta bien pero en todas las cadenas es igual y eso hace que
-# tarde en hacer una exploracion hasta que se separan
-# el 10 tiene starts aleatoriso distribuidos
-# el 11 tiene actualizado covarianza y media con start distribuido
-# el 12 ademas escaleado apra evitar cond iniciales demasiado lejanas y es
-# larga
-# como veo que la 12 va mejorando pero falta converger le mando la 13 con cond actualizadas
-# la 14 la largo con cond iniciales mas dispersas y parece que es casi
-# la definitiva si le saco el burnin!!!
-# la 15 ya tiene que se rla ultima. nop. todavia es transitoria
-
-# 16: datos con la corrección. todavia no converge. 50mil en 6 procesos
-# 17: usnado las desv est de 16, mil en 6 procesos
-# 18: tentaiva de definitivo, no adaptivo
-# 19: sets posteado a PyMC discourse
-# 20: sacando los factores 2 y 5. no da muy bonito
-# https://discourse.pymc.io/t/metropolis-ideal-balance-between-slow-mixing-and-high-rejection-rate/1205
-# 21: con lo que salio de la corrida 19 que parecia buena
-# 22: corrida con DEMetropolis
-# 24: DEMet pero dejando que tunee todo lo que quiera
-# 25: tune y 16 cadenas
-# 26: reduzco la escala de intrinseco (x10) para que no haya tantos repetidos
-
-# 27: metropolis adaptativo
-# 28: DEmetropolis adaptativo
-
-# 27: DEmet bien largo
-# 28: otro de igual longitud
-# 29: pruebas para ver si cambio la acntidad de cadenas. UNI LOS xIn Y xEx
-# PARA QUE SEA TODA UNA SOLA VARIABLE. MUCHO MEJOR!!
-# 30: un DEM largo ahora que las variables estan unificadas y parece que
-# converge a algo.
-# 31: ya con la Sal en su valor masomenos de convergencia! muchas cadenas.
-# 33: un DEM largo con mi invento del lambda y el escaleo de la propuesta
-
-# %%
 
 
 pathFiles = "/home/sebalander/Code/VisionUNQextra/Videos y Mediciones/"
