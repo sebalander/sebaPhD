@@ -42,7 +42,8 @@ import numdifftools as ndft
 from time import sleep
 print('libraries imported')
 
-
+# compute_test_value is 'off' by default, meaning this feature is inactive
+theano.config.compute_test_value = 'off' # Use 'warn' to activate this feature
 
 # %%
 def radiusStepsNdim(n):
@@ -155,34 +156,6 @@ def funcExp(x, a, b, c):
 
 # %%
 
-
-'''
-funcion arbitraria para theano
-
-https://docs.pymc.io/notebooks/getting_started.html
-'''
-
-from theano.compile.ops import as_op
-
-#class diagonalisedError:
-#    def __init__(self, parameters):
-#        self.parameters = parameters
-
-
-@as_op(itypes=[T.dvector], otypes=[T.dvector])
-def project2diagonalisedError(xAll):
-    xi, yi, cameraMatrix, distCoeffs, model = parameters[:5]
-    Ci, Cf, Ck, covOpt, Cfk, objpoints = parameters[5:]
-
-    xm, ym, Cm = cl.inverse(xi, yi, xAll[:3], xAll[3:], cameraMatrix,
-                            distCoeffs, model, Ci, Cf, Ck, covOpt, Cfk)
-
-    xNorm, yNorm = cl.points2linearised(xm - objpoints[:, 0],
-                                        ym - objpoints[:, 1], Cm).T
-
-    return np.concatenate([xNorm, yNorm])
-
-
 def logPerror(xAll, case):
     rvec = xAll[:3]
     tvec = xAll[3:]
@@ -197,6 +170,14 @@ def objective(xAll, case):
 
 hessNum = ndft.Hessian(objective)
 
+def optimizar(xAll, case):
+    '''
+    guarda en el objeto la posicion optimizada y una covarianza calculada como
+    derivada numerica
+    '''
+    ret = opt.minimize(objective, xAll, args=case)
+    case.xAllOpt = ret.x
+    case.covOpt = np.linalg.inv(hessNum(case.xAllOpt, case))
 
 
 class casoCalibExtr:
@@ -251,33 +232,91 @@ class casoCalibExtr:
         self.weiEsp = np.exp(- np.arange(nDraws) * 5 / nDraws)[::-1]
         self.weiEsp /= np.sum(self.weiEsp)
 
-#    def optimizacion para sacar el minimo local
-
-    def optimizar(self, xAll):
-        ret = opt.minimize(objective, xAll, self)
-
-        self.xAllOpt = ret.x
-        self.covOptNum = np.linalg.inv(hessNum(self.xAllOpt))
 
 
 
-def getTrace(alMean, Sal):
+# %%
+'''
+funcion arbitraria para theano
+
+https://docs.pymc.io/notebooks/getting_started.html
+
+https://github.com/pymc-devs/pymc3/blob/master/pymc3/examples/disaster_model_theano_op.py
+'''
+
+from theano.compile.ops import as_op
+
+@as_op(itypes=[T.dvector], otypes=[T.dvector])
+def project2diagonalisedError(xAll):
+    '''
+    no me queda otra que leer case desde el main como una variable global
+    '''
+    c = case
+    xm, ym, Cm = cl.inverse(c.xi, c.yi, xAll[:3], xAll[3:], c.cameraMatrix,
+                            c.distCoeffs, c.model, c.Ci, c.Cf, c.Ck, c.covOpt, c.Cfk)
+
+    xNorm, yNorm = cl.points2linearised(xm - c.objpoints[:, 0],
+                                        ym - c.objpoints[:, 1], Cm).T
+
+    return np.concatenate([xNorm, yNorm])
+
+
+
+#class project2diagonalisedError(theano.Op):
+#    # Properties attribute
+#    __props__ = ("xi", "yi", "cameraMatrix", "distCoeffs", "model", "Ci", "Cf", "Ck", "covOpt", "Cfk", "objpoints")
+#
+#    #itypes and otypes attributes are
+#    #compulsory if make_node method is not defined.
+#    #They're the type of input and output respectively
+#    itypes = [T.dvector]
+#    otypes = [T.dvector]
+#
+#    def __init__(self, case):
+#        self.xi, self.yi, self.cameraMatrix, self.distCoeffs, self.model, self.Ci, self.Cf, self.Ck, self.covOpt, self.Cfk, self.objpoints = [case.xi, case.yi, case.cameraMatrix, case.distCoeffs, case.model, case.Ci, case.Cf, case.Ck, case.covOpt, case.Cfk, case.objpoints]
+#
+#
+#    # Python implementation:
+#    def perform(self, node, inputs_storage, output_storage):
+#        xAll = inputs_storage[0][0]
+#        xm, ym, Cm = cl.inverse(self.xi, self.yi, xAll[:3], xAll[3:], self.cameraMatrix,
+#                            self.distCoeffs, self.model, self.Ci, self.Cf, self.Ck, self.covOpt, self.Cfk)
+#
+#        xNorm, yNorm = cl.points2linearised(xm - self.objpoints[:, 0],
+#                                            ym - self.objpoints[:, 1], Cm).T
+#
+#        output_storage[0] = np.float64(np.concatenate([xNorm, yNorm]))
+
+
+
+
+def getTrace(alMean, Sal, case):
     # prior bounds
-    allLow = xAllOpt - allDelta
-    allUpp = xAllOpt + allDelta
+    allLow = case.xAllT - case.allDelta
+    allUpp = case.xAllT + case.allDelta
 
-    alSeed = np.random.randn(nChains, nFree) * Sal  # .reshape((-1, 1))
+    alSeed = np.random.randn(case.nChains, case.nFree) * Sal  # .reshape((-1, 1))
     alSeed += alMean  # .reshape((-1, 1))
     start = [dict({'xAl': alSeed[i]}) for i in range(nChains)]
-    projectionModel = pm.Model()
 
+    projectionModel = pm.Model()
     with projectionModel:
         # Priors for unknown model parameters
         xAl = pm.Uniform('xAl', lower=allLow, upper=allUpp, shape=allLow.shape,
                          transform=None)
+        xAl.tag.test_value= case.xAllT
+#
+#        proj = project2diagonalisedError(case)
+#        x = theano.tensor.vector()
+#        x.tag.test_value= case.xAllT
+#        xyMNor = project2diagonalisedError(xAl, theano.shared(case))
+
+#        f = theano.function([xAl], project2diagonalisedError(case)(xAl))
+#        xyMNor = f(xAl)
 
         xyMNor = project2diagonalisedError(xAl)
-        Y_obs = pm.Normal('Y_obs', mu=xyMNor, sd=1, observed=observedNormed)
+
+        Y_obs = pm.Normal('Y_obs', mu=xyMNor, sd=1, observed=case.observedNormed)
 
         step = pm.DEMetropolis(vars=[xAl], S=Sal, tune=tuneBool,
                                tune_interval=nTuneInter, tune_throughout=tune_thr,
@@ -293,9 +332,26 @@ def getTrace(alMean, Sal):
                           compute_convergence_checks=convChecksBool,
                           parallelize=True)
 
-    del projectionModel
     return trace
 
+
+#lor = np.array([-100]*6)
+#upr = - lor
+#xAl = pm.Uniform.dist(lor, upr, shape=lor.shape)
+#
+#f = theano.function([xAl], project2diagonalisedError(case)(xAl))
+#xyMNor = f(xAl)
+
+#getTrace(case.xAllOpt, np.sqrt(np.diag(case.covOpt)), case)
+'''
+ponele que anda, no upde hacer que la funcion acepte a "case" como argumento
+o algo que no sea leerlo desde las variables globales del main.
+incluso fallo definir como un objeto mas complicado que pudiera inicializarse
+guardando los parametros que necesito
+'''
+
+
+# %%
 
 
 def getStationaryTrace(exCase):
@@ -317,10 +373,6 @@ def getStationaryTrace(exCase):
     covNum = np.linalg.inv(hessNum(xAllOpt))  # la achico por las dudas?
 
     print('initial optimisation and covariance estimated')
-
-    global parameters
-    parameters = [xi, yi, cameraMatrix, distCoeffs, model, Ci, Cf, Ck, covNum,
-                  Cfk, objpoints]
 
     # for proposal distr
     alMean = xAllOpt
@@ -479,10 +531,10 @@ case = casoCalibExtr(fullData, intrCalibResults, exCase, stdPix, allDelta,
                  indexSave, pathFiles)
 
 
+# uso las
+optimizar(case.xAllT, case)
 
-case.optimizar(case.xAllT)
-
-
+getTrace(case.xAllOpt, np.sqrt(np.diag(case.covOpt)), case)
 
 
 
